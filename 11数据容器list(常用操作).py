@@ -1,8 +1,8 @@
 # 先定义一个列表
-mylist = ["itheima", "itcast", "python"]
+mylist = ["王建春", "郑雨欣", "python"]
 
 # 1.1 查找元素的下标索引
-index = mylist.index("itheima")
+index = mylist.index("王建春")
 print(f"itheima在列表中的下标索引值是: {index}")
 
 # 1.2 如果被查找的元素不存在，会报错
@@ -10,15 +10,15 @@ print(f"itheima在列表中的下标索引值是: {index}")
 # print(f"hello在列表中的下标索引值是: {index}")
 
 # 2. 修改特定下标索引的值
-mylist[0] = "传智教育"
+mylist[0] = "wjc"
 print(f"列表被修改元素值后，结果是: {mylist}")
 
 # 3. 在指定下标位置插入新元素
-mylist.insert(1, "best")
+mylist.insert(1, "wjc@@0104")
 print(f"列表插入元素后，结果是: {mylist}")
 
 # 4. 在列表的尾部追加```单个```新元素
-mylist.append("黑马程序员")
+mylist.append("郑雨欣小宝贝")
 print(f"列表在追加了元素后，结果是: {mylist}")
 
 # 5. 在列表的尾部追加```一批```新元素
