@@ -32,5 +32,5 @@ del mylist[0]
 print(f"删除后，结果是: {mylist}")
 
 # 6.2 方式2: 列表.pop(下标)
-mylist.pop(0)
+mylist.pop(2)
 print(f"pop删除后，结果是: {mylist}")
