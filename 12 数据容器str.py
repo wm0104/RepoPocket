@@ -1,4 +1,3 @@
-# 12 数据容器：str字符串
 # 1  创建字符串
 str1 = "Hello Python"
 print(str1)
