@@ -102,7 +102,7 @@ print(str1[2:5])
 str1 = "Python"
 
 for i in str1:
-    print(i)
+	print(i)
 
 
 # ==============================
