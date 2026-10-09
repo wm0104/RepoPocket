@@ -18,7 +18,7 @@ def for_list():
     用for循环遍历列表
     :return:none
     """
-    my_list = ["王建春", "郑雨欣", "wjc", "zyx"]
+    my_list = [1, 2, 3, 4, 5]
     for i in my_list:
         print(f"元素有: {i}")
 for_list()
