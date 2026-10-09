@@ -23,3 +23,4 @@ def for_list2(num_list2):
 
 s2 = for_list2(my_list2)
 print(f"其中的偶数有{s2}")
+print()
