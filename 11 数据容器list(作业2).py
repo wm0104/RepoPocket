@@ -23,4 +23,18 @@ def for_list2(num_list2):
 
 s2 = for_list2(my_list2)
 print(f"其中的偶数有{s2}")
-python("测试更新")
+
+
+# 定义列表
+my_list3 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# 定义函数
+def for_list3(num_list3):
+	OS2 = []
+	for i in num_list3:
+		if i % 2 == 0:
+			OS2.append(i)
+	return OS2
+s3 = for_list3(my_list3)
+print(f"其中的偶数有{s3}")
+
