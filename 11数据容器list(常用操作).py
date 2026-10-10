@@ -100,6 +100,5 @@ print(" " * 10 + "=" * 10)
 # mylist.pop(i)         删除下标 i 处的元素并返回(默认删末尾)
 # mylist.remove(x)      删除第一个值为 x 的元素
 # mylist.clear()        清空整个列表
-# --------------------
 # 统计类
 # len(mylist)           返回列表中元素的个数
