@@ -43,4 +43,4 @@ for i in zfc:
  elif i == "b":
      s2 += 1
 print(f"有{s1}个a, {s2}个b")
-
+print()
