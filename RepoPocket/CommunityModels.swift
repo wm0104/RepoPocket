@@ -144,12 +144,3 @@ struct RepositorySocialUser: Decodable, Identifiable {
     let avatar_url: String?
     var user: User { User(id: id, login: login, avatar_url: avatar_url, name: nil, followers: nil, following: nil) }
 }
-
-struct ForkComparison: Decodable {
-    let status: String
-    let ahead_by: Int
-    let behind_by: Int
-    let total_commits: Int
-    let commits: [DesktopCommit]
-}
-

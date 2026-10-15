@@ -62,3 +62,11 @@ enum CommitDatePresentation {
         return formatter.string(from: date)
     }
 }
+
+struct ForkComparison: Decodable {
+    let status: String
+    let ahead_by: Int
+    let behind_by: Int
+    let total_commits: Int
+    let commits: [DesktopCommit]
+}
