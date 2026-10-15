@@ -37,6 +37,14 @@ enum DeviceOAuthRules {
             ($0.addingPercentEncoding(withAllowedCharacters: allowed) ?? "") + "=" + (fields[$0]!.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")
         }.joined(separator: "&").utf8)
     }
+    // Retry transport interruptions only; rejection, cancellation and invalid credentials are terminal.
+    static func isTransientNetworkFailure(_ error: Error) -> Bool {
+        let failure = error as NSError
+        guard failure.domain == NSURLErrorDomain else { return false }
+        return [URLError.timedOut, .cannotFindHost, .cannotConnectToHost,
+                .networkConnectionLost, .dnsLookupFailed, .notConnectedToInternet]
+            .contains { $0.rawValue == failure.code }
+    }
     static func failure(_ code: String) -> String {
         switch code {
         case "access_denied": return "你已取消 GitHub 授权。"
@@ -90,27 +98,65 @@ final class DeviceOAuthRedirectPolicy: NSObject, URLSessionTaskDelegate {
                 userCode = code.user_code; verificationURL = url; message = "请在 GitHub 输入上方授权码；本页会等待授权结果。"
                 let deadline = Date().addingTimeInterval(Double(code.expires_in))
                 var interval = max(5, min(code.interval ?? 5, 60))
+                var networkRetries = 0
                 while Date() < deadline {
                     try await wait(UInt64(interval) * 1_000_000_000)
                     try Task.checkCancellation()
                     guard Date() < deadline, operation == identifier, api.isCurrentSession else { break }
-                    let result: DeviceTokenResponse = try await post("/login/oauth/access_token", fields: [
-                        "client_id": client, "device_code": code.device_code,
-                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code"])
+                    let result: DeviceTokenResponse
+                    do {
+                        result = try await post("/login/oauth/access_token", fields: [
+                            "client_id": client, "device_code": code.device_code,
+                            "grant_type": "urn:ietf:params:oauth:grant-type:device_code"])
+                    } catch {
+                        try Task.checkCancellation()
+                        guard operation == identifier, api.isCurrentSession else { return }
+                        guard DeviceOAuthRules.isTransientNetworkFailure(error), networkRetries < 3 else { throw error }
+                        networkRetries += 1
+                        // Respect the server interval and reduce frequency after a broken connection.
+                        interval = min(3600, interval * 2)
+                        message = "网络暂时中断，正在重试获取授权结果（\(networkRetries)/3）…"
+                        continue
+                    }
                     try Task.checkCancellation(); guard operation == identifier, api.isCurrentSession else { return }
                     if let token = result.access_token, !token.isEmpty, result.token_type?.lowercased() == "bearer" {
-                        try await api.addAccount(token: token)
+                        message = "GitHub 已授权，正在验证账号…"
+                        var validationRetries = 0
+                        while true {
+                            try Task.checkCancellation()
+                            guard operation == identifier, api.isCurrentSession else { return }
+                            do {
+                                try await api.addAccount(token: token)
+                                break
+                            } catch {
+                                try Task.checkCancellation()
+                                guard operation == identifier, api.isCurrentSession else { return }
+                                guard DeviceOAuthRules.isTransientNetworkFailure(error), validationRetries < 3 else { throw error }
+                                validationRetries += 1
+                                message = "GitHub 已授权，网络暂时中断，正在重试验证账号（\(validationRetries)/3）…"
+                                // Retain this token in memory; never request a second token after receipt.
+                                try await wait(UInt64(1 << validationRetries) * 1_000_000_000)
+                            }
+                        }
                         if operation == identifier { message = "授权成功，账号已保存。"; completed() }
                         return
                     }
                     switch result.error {
-                    case "authorization_pending": continue
+                    case "authorization_pending":
+                        message = "请在 GitHub 输入上方授权码；本页会等待授权结果。"
+                        continue
                     case "slow_down": interval = min(3600, max(interval + 5, result.interval ?? 0))
                     default: throw AppError(text: DeviceOAuthRules.failure(result.error ?? "unknown"))
                     }
                 }
                 throw AppError(text: "授权码已过期，请重新开始。")
-            } catch { if operation == identifier, !RefreshFailure.isCancellation(error) { message = error.localizedDescription } }
+            } catch {
+                if operation == identifier, !RefreshFailure.isCancellation(error) {
+                    message = DeviceOAuthRules.isTransientNetworkFailure(error)
+                        ? "网络连接暂时不可用，请检查网络后重新开始授权。"
+                        : error.localizedDescription
+                }
+            }
         }
     }
     private func post<T: Decodable>(_ path: String, fields: [String: String]) async throws -> T {

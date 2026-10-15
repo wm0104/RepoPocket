@@ -95,7 +95,7 @@ struct StylePreviewGallery: View {
         return """
         <h1>自述文件格式预览</h1>
         <p>固定数据示例：使用与正式自述文件相同的渲染组件。</p>
-        <p><img alt="累计下载次数" src="\(badge("Downloads: 12345"))"> <img alt="最新版本" src="\(badge("Release: v1.0.5"))"></p>
+        <p><img alt="累计下载次数" src="\(badge("Downloads: 12345"))"> <img alt="最新版本" src="\(badge("Release: v1.0.5.1"))"></p>
         <table><tr><th>格式</th><th>展示</th></tr><tr><td>README.rst</td><td>GitHub 排版结果</td></tr><tr><td>README.txt</td><td>文本回退</td></tr></table>
         <details><summary>可折叠内容</summary><p>自述文件中的折叠说明。</p></details>
         <p><a href="https://github.com/wm0104/RepoPocket">在 App 内打开仓库</a></p>
