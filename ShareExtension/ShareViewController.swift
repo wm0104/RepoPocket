@@ -29,6 +29,10 @@ final class ShareViewController: UIViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24), stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24), stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 32)])
     }
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        cancellation.cancel(); progress?.cancel(); task?.cancel()
+    }
     @objc private func closeShare() {
         cancellation.cancel(); progress?.cancel(); task?.cancel()
         extensionContext?.completeRequest(returningItems: nil)

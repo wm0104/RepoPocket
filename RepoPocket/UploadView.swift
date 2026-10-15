@@ -40,6 +40,7 @@ struct UploadView: View {
     @State private var bytes: Int64 = 0
     @State private var picking = false
     @State private var pickingInbox = false
+    @State private var inboxSelection: [URL] = []
     @State private var busy = false
     @State private var confirmCommit = false
     @State private var confirmRelease = false
@@ -106,11 +107,12 @@ struct UploadView: View {
                 if openedFromFolder { Button("关闭") { dismiss() }.disabled(busy) }
 
             }
-            .sheet(isPresented: $pickingInbox) {
-                ShareInboxView(multiple: mode == 0) { files in
-                    pickingInbox = false
-                    Task { await select(.success(files)); ShareSelectionCleanup.remove(files) }
-                }
+            .sheet(isPresented: $pickingInbox, onDismiss: {
+                let files = inboxSelection; inboxSelection = []
+                guard !files.isEmpty else { return }
+                Task { await select(.success(files)); ShareSelectionCleanup.remove(files) }
+            }) {
+                ShareInboxView(multiple: mode == 0) { files in inboxSelection = files; pickingInbox = false }
             }
             .sheet(isPresented: $sharedReleaseEntry) { ReleaseEntryView(api: api, initialRepo: repo, initialBranch: branch) }
             .interactiveDismissDisabled(busy)

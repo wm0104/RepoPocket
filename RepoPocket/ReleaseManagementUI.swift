@@ -174,6 +174,7 @@ struct ReleaseDetailView: View {
     @State private var editing = false
     @State private var picking = false
     @State private var pickingInbox = false
+    @State private var inboxSelection: [URL] = []
     @State private var uploading: URL?
     @State private var deleteTarget: ReleaseDeleteTarget?
     @State private var secondDelete = false
@@ -269,11 +270,10 @@ struct ReleaseDetailView: View {
         .sheet(isPresented: $editing, onDismiss: { state.detail(id) }) {
             if let r = state.release { ReleaseEditorView(api: state.api, repo: state.repo, original: r) }
         }
-        .sheet(isPresented: $pickingInbox) {
-            ShareInboxView(multiple: false) { files in
-                pickingInbox = false
-                uploading = files.first
-            }
+        .sheet(isPresented: $pickingInbox, onDismiss: {
+            uploading = inboxSelection.first; inboxSelection = []
+        }) {
+            ShareInboxView(multiple: false) { files in inboxSelection = files; pickingInbox = false }
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.item]) { result in
             switch result {
@@ -344,6 +344,7 @@ struct ReleaseEditorView: View {
     @State private var attachments: [ReleaseAttachment] = []
     @State private var pickingAttachments = false
     @State private var pickingInboxAttachments = false
+    @State private var inboxAttachmentSelection: [URL] = []
     @State private var staging = false
     @State private var plan = ReleasePublishPlan()
     @State private var retainedDraft: ManagedRelease?
@@ -393,8 +394,11 @@ struct ReleaseEditorView: View {
             .interactiveDismissDisabled(state.busy)
             .task { loadMarker() }
             .onDisappear { plan.cancel(); state.cancel(); if !staging { cleanupAttachments() } }
-            .sheet(isPresented: $pickingInboxAttachments) {
-                ShareInboxView(multiple: true) { files in pickingInboxAttachments = false; stage(.success(files)) }
+            .sheet(isPresented: $pickingInboxAttachments, onDismiss: {
+                let files = inboxAttachmentSelection; inboxAttachmentSelection = []
+                if !files.isEmpty { stage(.success(files)) }
+            }) {
+                ShareInboxView(multiple: true) { files in inboxAttachmentSelection = files; pickingInboxAttachments = false }
             }
             .fileImporter(isPresented: $pickingAttachments, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in stage(result) }
             .alert(form.draft ? "保存草稿？" : "发布此发行版？", isPresented: $confirm) {
