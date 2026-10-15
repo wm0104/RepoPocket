@@ -65,7 +65,7 @@ final class ShareViewController: UIViewController {
         let cancellation = self.cancellation
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                progress = provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { value, error in
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { value, error in
                     do {
                         if let error { throw error }
                         guard let source = value as? URL else { throw ShareInboxError.invalidFile }
