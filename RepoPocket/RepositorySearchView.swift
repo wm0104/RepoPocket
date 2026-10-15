@@ -153,6 +153,7 @@ struct RepositorySearchView: View {
 }
 
 struct UserRepositoriesView: View {
+    @State private var attempted = false
     @ObservedObject var api: GitHub
     let user: User
     @State private var repositories: [Repository] = []
@@ -173,7 +174,7 @@ struct UserRepositoriesView: View {
                 if !error.isEmpty { Text(error).softGroupedRow(top: !busy, bottom: true) }
                 if !busy && error.isEmpty && repositories.isEmpty && !more { Text("暂无仓库").softGroupedRow(top: true, bottom: true) }
             }
-        }.navigationTitle(user.login).adaptiveWorkspaceLayout().task { if repositories.isEmpty { await load() } }
+        }.navigationTitle(user.login).adaptiveWorkspaceLayout().task { guard !attempted else { return }; attempted = true; await load() }
     }
     private func load() async {
         guard !busy else { return }; busy = true; defer { busy = false }

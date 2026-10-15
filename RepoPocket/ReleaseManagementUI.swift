@@ -173,6 +173,7 @@ struct ReleaseDetailView: View {
     @State private var expanded = false
     @State private var editing = false
     @State private var picking = false
+    @State private var pickingInbox = false
     @State private var uploading: URL?
     @State private var deleteTarget: ReleaseDeleteTarget?
     @State private var secondDelete = false
@@ -252,6 +253,7 @@ struct ReleaseDetailView: View {
                         if !ReleaseManagementRules.editable(r.body ?? "") { Text("正文超过128 KiB，禁止本地编辑，避免截断保存；请在 GitHub 编辑。").softGroupedRow() }
                         if r.draft { Button("发布草稿（在编辑表单确认）") { editing = true }.disabled(state.busy).softGroupedRow() }
                         Button("上传附件") { picking = true }.disabled(state.busy).softGroupedRow()
+                        Button("从待上传文件选择") { pickingInbox = true }.disabled(state.busy).softGroupedRow()
                         Button("删除发行版（不删除 git 标签）", role: .destructive) { prepareDelete(r, asset: nil) }.disabled(state.busy).softGroupedRow(bottom: true)
                     }
                 }
@@ -267,6 +269,12 @@ struct ReleaseDetailView: View {
         .sheet(isPresented: $editing, onDismiss: { state.detail(id) }) {
             if let r = state.release { ReleaseEditorView(api: state.api, repo: state.repo, original: r) }
         }
+        .sheet(isPresented: $pickingInbox) {
+            ShareInboxView(multiple: false) { files in
+                pickingInbox = false
+                uploading = files.first
+            }
+        }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.item]) { result in
             switch result {
             case .success(let file): uploading = file
@@ -274,7 +282,7 @@ struct ReleaseDetailView: View {
             }
         }
         .alert("确认上传附件", isPresented: Binding(get: { uploading != nil }, set: { if !$0 { uploading = nil } })) {
-            Button("取消", role: .cancel) { uploading = nil }
+            Button("取消", role: .cancel) { if let file = uploading { ShareSelectionCleanup.remove([file]) }; uploading = nil }
             Button("确认上传") { if let file = uploading, let r = state.release { upload(file, to: r) }; uploading = nil }
         } message: {
             Text("目标：\(state.repo) #\(id)\n附件：\(uploading?.lastPathComponent ?? "")\n单附件小于2 GiB；同名不覆盖。已公开发行版会立即受到影响。请保持前台。")
@@ -313,8 +321,9 @@ struct ReleaseDetailView: View {
     }
     private func upload(_ file: URL, to r: ManagedRelease) {
         state.run {
-            guard file.startAccessingSecurityScopedResource() else { throw AppError(text: "文件未授权，请重选。") }
-            defer { file.stopAccessingSecurityScopedResource() }
+            let scoped = file.startAccessingSecurityScopedResource()
+            defer { if scoped { file.stopAccessingSecurityScopedResource() }; ShareSelectionCleanup.remove([file]) }
+            guard FileManager.default.isReadableFile(atPath: file.path) else { throw AppError(text: "文件未授权，请重选。") }
             _ = try await state.api.uploadManagedAsset(state.repo, original: r, file: file) { p in
                 Task { @MainActor in if state.valid && state.busy { state.progress = p } }
             }
@@ -334,6 +343,7 @@ struct ReleaseEditorView: View {
     @State private var markerReady = false
     @State private var attachments: [ReleaseAttachment] = []
     @State private var pickingAttachments = false
+    @State private var pickingInboxAttachments = false
     @State private var staging = false
     @State private var plan = ReleasePublishPlan()
     @State private var retainedDraft: ManagedRelease?
@@ -383,6 +393,9 @@ struct ReleaseEditorView: View {
             .interactiveDismissDisabled(state.busy)
             .task { loadMarker() }
             .onDisappear { plan.cancel(); state.cancel(); if !staging { cleanupAttachments() } }
+            .sheet(isPresented: $pickingInboxAttachments) {
+                ShareInboxView(multiple: true) { files in pickingInboxAttachments = false; stage(.success(files)) }
+            }
             .fileImporter(isPresented: $pickingAttachments, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in stage(result) }
             .alert(form.draft ? "保存草稿？" : "发布此发行版？", isPresented: $confirm) {
                 Button("取消", role: .cancel) {}
@@ -402,7 +415,8 @@ struct ReleaseEditorView: View {
     }
     private var attachmentSection: some View {
         Section("附件") {
-            Button("选择文件 / 追加附件") { pickingAttachments = true }.disabled(state.busy || staging || plan.draftID != nil).softGroupedRow(top: true)
+            Button("从待上传文件选择") { pickingInboxAttachments = true }.disabled(state.busy || staging || plan.draftID != nil).softGroupedRow(top: true)
+            Button("选择文件 / 追加附件") { pickingAttachments = true }.disabled(state.busy || staging || plan.draftID != nil).softGroupedRow()
             ForEach(attachments) { item in
                 VStack(alignment: .leading) {
                     Text(item.name)
@@ -428,7 +442,7 @@ struct ReleaseEditorView: View {
         case .success(let urls):
             staging = true
             state.run {
-                defer { staging = false; if Task.isCancelled || !state.valid { cleanupAttachments() } }
+                defer { staging = false; ShareSelectionCleanup.remove(urls); if Task.isCancelled || !state.valid { cleanupAttachments() } }
                 for source in urls {
                     let item = try await Task.detached { try ReleaseAttachmentRules.copy(source) }.value
                     do {

@@ -2,6 +2,11 @@ name: Build IPA
 on:
   workflow_dispatch:
     inputs:
+      fork_people_only:
+        description: Build the alternative fork people view
+        type: boolean
+        required: false
+        default: false
       validate_only:
         description: Run tests and compile iOS without packaging an IPA
         type: boolean
@@ -112,6 +117,8 @@ jobs:
         run: python3 Tests/test_repository_page_lifecycle.py
       - name: Test Swift source structure before compiling
         run: python3 Tests/test_swift_structure.py
+      - name: Test share inbox and repository social navigation
+        run: python3 Tests/test_share_social.py
       - name: Select Xcode 15.4
         run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
       - name: Generate Xcode project
@@ -121,7 +128,7 @@ jobs:
       - name: Compile iOS app
         run: |
           set -o pipefail
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tee build.log
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS="${{ inputs.fork_people_only && 'FORK_PEOPLE_ONLY' || '' }}" build | tee build.log
       - name: Ad-hoc sign and package IPA
         if: ${{ !inputs.validate_only }}
         run: |
@@ -138,6 +145,12 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "11"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
+          EXT="$APP/PlugIns/RepoPocketShare.appex"
+          test -d "$EXT"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.0.5.1"
+          codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
+          codesign --verify --strict "$EXT"
+          codesign --display --entitlements :- "$EXT"
           codesign --force --sign - --entitlements Entitlements.plist "$APP"
           codesign --verify --deep --strict "$APP"
           codesign --display --entitlements :- "$APP"
@@ -169,6 +182,10 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.0.3-rc.1' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 4' "$APP/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "4"
+          EXT="$APP/PlugIns/RepoPocketShare.appex"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.0.3-rc.1' "$EXT/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 4' "$EXT/Info.plist"
+          codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --force --sign - --entitlements Entitlements.plist "$APP"
           codesign --verify --deep --strict "$APP"
           cd probe

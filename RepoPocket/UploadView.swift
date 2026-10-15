@@ -39,6 +39,7 @@ struct UploadView: View {
     @State private var local: URL?
     @State private var bytes: Int64 = 0
     @State private var picking = false
+    @State private var pickingInbox = false
     @State private var busy = false
     @State private var confirmCommit = false
     @State private var confirmRelease = false
@@ -104,6 +105,12 @@ struct UploadView: View {
             .toolbar {
                 if openedFromFolder { Button("关闭") { dismiss() }.disabled(busy) }
 
+            }
+            .sheet(isPresented: $pickingInbox) {
+                ShareInboxView(multiple: mode == 0) { files in
+                    pickingInbox = false
+                    Task { await select(.success(files)); ShareSelectionCleanup.remove(files) }
+                }
             }
             .sheet(isPresented: $sharedReleaseEntry) { ReleaseEntryView(api: api, initialRepo: repo, initialBranch: branch) }
             .interactiveDismissDisabled(busy)
@@ -213,7 +220,8 @@ struct UploadView: View {
     }
     private var fileSection: some View {
         Section("本地文件") {
-            Button { picking = true } label: { Label("选择文件", systemImage: "folder.badge.plus").padding(.vertical, 4) }.disabled(busy).softGroupedRow(top: true, bottom: local == nil)
+            Button("待上传文件") { pickingInbox = true }.disabled(busy).softGroupedRow(top: true)
+            Button { picking = true } label: { Label("选择文件", systemImage: "folder.badge.plus").padding(.vertical, 4) }.disabled(busy).softGroupedRow(bottom: local == nil)
             if let file = local {
                 Label(file.lastPathComponent, systemImage: file.pathExtension.lowercased() == "deb" ? "shippingbox.fill" : "doc.fill").font(.headline).softGroupedRow()
                 Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .binary)).font(.caption).monospacedDigit().foregroundColor(.secondary).softGroupedRow()

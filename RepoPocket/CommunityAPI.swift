@@ -48,4 +48,15 @@ extension GitHub {
     func repositoryLanguages(_ repo: String) async throws -> [String: Int] {
         try await communityDecode([String: Int].self, path: Self.repoPath(repo) + "/languages")
     }
+    func socialStargazers(_ repo: String, page: Int) async throws -> [RepositorySocialUser] {
+        try await communityDecode([RepositorySocialUser].self, path: Self.repoPath(repo) + "/stargazers", query: CommunityRules.page(page))
+    }
+    func socialForks(_ repo: String, page: Int) async throws -> [Repository] {
+        try await communityDecode([Repository].self, path: Self.repoPath(repo) + "/forks", query: CommunityRules.page(page) + [.init(name: "sort", value: "newest")])
+    }
+    func socialComparison(_ repo: String, base: String, owner: String, head: String, page: Int) async throws -> ForkComparison {
+        guard base.count == 40, head.count == 40, (base + head).allSatisfy({ $0.isHexDigit }), !owner.isEmpty else { throw AppError(text: "比较版本无效。") }
+        return try await communityDecode(ForkComparison.self, path: Self.repoPath(repo) + "/compare/" + Self.component(base) + "..." + Self.component(owner + ":" + head), query: CommunityRules.page(page))
+    }
+
 }
