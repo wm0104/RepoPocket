@@ -25,6 +25,16 @@ enum LocalGitFileAccess {
         return url
     }
     static func fingerprint(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    static func fileFingerprint(root: URL, path: String) throws -> String {
+        let url = try self.path(root: root, relative: path)
+        let info = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard info[.type] as? FileAttributeType == .typeRegular, let size = info[.size] as? NSNumber,
+              size.int64Value <= 128 * 1024 * 1024 else { throw LocalGitError(text: "仅支持项目内 128 MiB 内的普通文件。") }
+        let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
+        var hash = SHA256()
+        while let data = try handle.read(upToCount: 256 * 1024), !data.isEmpty { hash.update(data: data) }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
+    }
     static func read(root: URL, path: String) throws -> LocalGitDocument {
         let url = try self.path(root: root, relative: path)
         let info = try FileManager.default.attributesOfItem(atPath: url.path)
@@ -48,7 +58,7 @@ enum LocalGitFileAccess {
     static func delete(root: URL, path: String, expected: String) throws {
         let url = try self.path(root: root, relative: path)
         try coordinate(url, writing: true) { coordinated in
-            guard try read(root: root, path: path).fingerprint == expected, coordinated.standardizedFileURL == url.standardizedFileURL else { throw LocalGitError(text: "文件在确认后变化，已停止删除。") }
+            guard try fileFingerprint(root: root, path: path) == expected, coordinated.standardizedFileURL == url.standardizedFileURL else { throw LocalGitError(text: "文件在确认后变化，已停止删除。") }
             try FileManager.default.removeItem(at: coordinated)
         }
     }

@@ -37,7 +37,7 @@ struct RepoPocketApp: App {
 
 struct AccountRootView: View {
     @StateObject private var api = GitHub()
-    @StateObject private var gitCore = GitCore()
+    @StateObject private var localGit = LocalGitRegistry()
     @StateObject private var updateChecker = UpdateChecker()
     @EnvironmentObject private var accountPresentation: AccountPresentation
     @State private var selectedTab = 0
@@ -46,7 +46,7 @@ struct AccountRootView: View {
     var body: some View {
             TabView(selection: $selectedTab) {
                 RepositoriesView(api: api).tabItem { Label("仓库", systemImage: "shippingbox") }.tag(0)
-                GitWorkspaceView().environmentObject(gitCore).tabItem { Label("Git", systemImage: "arrow.triangle.branch") }.tag(1)
+                LocalProjectsView(api: api, store: localGit).tabItem { Label("Git", systemImage: "arrow.triangle.branch") }.tag(1)
                 UploadView(api: api).tabItem { Label("提交 / 发布", systemImage: "arrow.up.doc") }.tag(3)
                 SettingsView(api: api, updateChecker: updateChecker).tabItem { Label("设置", systemImage: "gear") }.tag(4)
             }
