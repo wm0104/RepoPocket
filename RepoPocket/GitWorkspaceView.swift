@@ -3,7 +3,8 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct GitWorkspaceView: View {
-    @EnvironmentObject private var gitCore: GitCore
+    // Retired page kept for compatibility fixtures; no application entry instantiates it.
+    @StateObject private var gitCore = GitCore()
     @State private var importRequest: WorkspaceImportRequest?
     @State private var errorMessage = ""
 

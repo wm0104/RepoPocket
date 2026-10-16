@@ -36,3 +36,18 @@ jobs:
             -L NativeBuild/iphoneos/lib -lgit2 -lz -liconv \
             -framework Foundation -framework Security -framework CoreFoundation \
             -o NativeBuild/ios-probe
+      - name: Generate application project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Compile native Git integration and new SwiftUI pages
+        run: |
+          set -o pipefail
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath native-app-build \
+            CODE_SIGNING_ALLOWED=NO build > native-app-build.log 2>&1 || { tail -100 native-app-build.log; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: local-git-compile-log
+          path: native-app-build.log
