@@ -186,6 +186,13 @@ class NativeGitBehavior(unittest.TestCase):
         self.assertTrue(status['ok'], status)
         self.assertEqual({r['path'] for r in status['result']['files']}, {'代码.py', 'other.txt', '.gitignore'})
 
+    @unittest.skipUnless(os.environ.get('RP_GIT_NETWORK_SMOKE') == '1', 'Explicit read-only GitHub TLS smoke')
+    def test_public_github_https_clone_smoke(self):
+        destination=Path(self.temp.name)/'github-clone'
+        cloned=self.result('clone',destination=str(destination),remote='https://github.com/wm0104/RepoPocket.git',branch='main')
+        self.assertEqual(cloned['branch'],'main')
+        self.assertTrue((destination/'README.md').is_file())
+
     def test_fast_forward_pull_clean_only_and_divergence_preserves_both(self):
         self.make_remote()
         other = Path(self.temp.name) / 'computer'

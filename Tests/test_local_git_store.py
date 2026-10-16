@@ -51,6 +51,12 @@ import Foundation
   try LocalGitFileAccess.delete(root:folder,path:"代码.py",expected:last.fingerprint)
   precondition(!FileManager.default.fileExists(atPath:file.path))
   precondition((try? String(contentsOf:sibling))=="keep")
+  let binary=folder.appendingPathComponent("binary.bin")
+  try Data([0,255,0,1]).write(to:binary)
+  do {_=try LocalGitFileAccess.read(root:folder,path:"binary.bin");preconditionFailure("binary opened as text")} catch {}
+  let binaryHash=try LocalGitFileAccess.fileFingerprint(root:folder,path:"binary.bin")
+  try LocalGitFileAccess.delete(root:folder,path:"binary.bin",expected:binaryHash)
+  precondition(!FileManager.default.fileExists(atPath:binary.path))
   try store.remove(project)
   precondition(FileManager.default.fileExists(atPath:folder.path))
   let loaded=LocalGitRegistry(directory:parent.appendingPathComponent("registry"),internalRoot:parent)
