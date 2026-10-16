@@ -1,6 +1,23 @@
 import XCTest
 
 final class StyleBoundaryTests: XCTestCase {
+    func testWorkflowStepOpensActualOutputInline() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-workflow-log-style-preview"]
+        app.launch()
+        let step = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Test build output")).firstMatch
+        XCTAssertTrue(step.waitForExistence(timeout: 10))
+        step.tap()
+        let text = app.textViews["代码正文"]
+        XCTAssertTrue(text.waitForExistence(timeout: 10))
+        XCTAssertTrue((text.value as? String ?? "").contains("中文构建失败详情"))
+        XCTAssertFalse(app.staticTexts["完整输出见任务日志"].exists)
+        keepScreenshot(app, name: "workflow-step-output")
+        app.buttons["全屏查看此步骤日志"].tap()
+        XCTAssertTrue(app.textViews["代码正文"].waitForExistence(timeout: 10))
+        XCTAssertTrue((app.textViews["代码正文"].value as? String ?? "").contains("完整步骤输出已在 App 内显示"))
+    }
     func testPatchHighlightAndRawHorizontalScrolling() {
         continueAfterFailure = false
         let app = XCUIApplication()

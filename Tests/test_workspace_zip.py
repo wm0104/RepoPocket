@@ -16,6 +16,14 @@ let package = Package(name: "ZIPRegression", platforms: [.macOS(.v12)], dependen
    if link:
     info.create_system=3; info.external_attr=(stat.S_IFLNK | 0o777)<<16
    z.writestr(info, '/etc/passwd' if link else 'hello')
+ with zipfile.ZipFile(root/'logs.zip','w') as z:
+  z.writestr('build/1_Set up job.txt','setup\n' + 'x'*300000)
+  z.writestr('build/63_Test failed.txt','2026-10-17T00:00:01Z \x1b[31merror: 中文失败详情\x1b[0m\n')
+  z.writestr('other/63_Test failed.txt','wrong job\n')
+  z.writestr('build/64_Huge.txt','z'*(2*1024*1024+1))
+ with zipfile.ZipFile(root/'logs-duplicate.zip','w') as z:
+  z.writestr('build/1_First.txt','first')
+  z.writestr('build/1_Duplicate.txt','wrong')
  with zipfile.ZipFile(root/'duplicate.zip', 'w') as z:
   z.writestr('A.txt','a'); z.writestr('a.txt','b')
  # Match the user-supplied GitHub ZIP's DOS creator, zero file attributes,
@@ -100,9 +108,19 @@ for name in ["valid", "directory", "literal", "implicit", "real", "dosutf8", "tr
   precondition(!fm.fileExists(atPath: file.path))
  }
 }
+let logFile = base.appendingPathComponent("logs.zip")
+let logs = try WorkflowLogArchiveRules.read(logFile, job:"build", steps:[1,63,64])
+precondition(logs.steps[1]!.text.utf8.count > 256*1024)
+precondition(logs.steps[63]!.text.contains("error: 中文失败详情"))
+precondition(!logs.steps[63]!.text.contains("wrong job") && !logs.steps[63]!.text.contains("\\u{1B}"))
+precondition(logs.steps[64]!.limited && logs.steps.count == 3)
+do { _ = try WorkflowLogArchiveRules.read(base.appendingPathComponent("logs-duplicate.zip"),job:"build",steps:[1]);preconditionFailure("ambiguous step accepted") } catch {}
+do { _ = try WorkflowLogArchiveRules.read(logFile,job:"missing",steps:[1]);preconditionFailure("missing job accepted") } catch {}
+print("PASS: exact per-step logs beyond old prefix limit, job isolation, ANSI, oversized steps and duplicate rejection")
 print("PASS: real ZIPFoundation extraction; zip slip, absolute, backslash, symlink and duplicate rejection before writes")
 '''
- (root/'Sources'/'ZIPRegression'/'main.swift').write_text('import Foundation\nstruct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }\n'+original+Path(REPO_ROOT, 'RepoPocket/WorkspaceZIP.swift').read_text()+tests)
+ log_rules=Path(REPO_ROOT,'RepoPocket/WorkflowLogArchive.swift').read_text().split('/// Reuse the existing credential-stripping redirect policy',1)[0]
+ (root/'Sources'/'ZIPRegression'/'main.swift').write_text('import Foundation\nstruct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }\n'+original+Path(REPO_ROOT, 'RepoPocket/WorkspaceZIP.swift').read_text()+log_rules+tests)
  subprocess.run(['swift','run','--package-path',str(root),'ZIPRegression',str(root)],check=True)
  for name, expected in manifest:
   assert hashlib.sha256((root/'real-out'/name).read_bytes()).hexdigest() == expected, name

@@ -11,6 +11,7 @@ pending = [None]
 seen = set()
 exported = set()
 expected = {'swipe-first', 'swipe-middle', 'swipe-last', 'readme-badges'}
+expected.add('workflow-step-output')
 expected.update({'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
                  'local-commit-patch', 'local-history-after-folding'})
 expected.update({'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'})

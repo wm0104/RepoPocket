@@ -1,6 +1,43 @@
 #if DEBUG
 import SwiftUI
 import UIKit
+import ZIPFoundation
+
+struct WorkflowLogStylePreview: View {
+    @State private var expanded = false
+    @State private var output: WorkflowStepOutput?
+    @State private var failure = ""
+    private let step = WorkflowJob.Step(number: 63, name: "Test build output", status: "completed", conclusion: "failure", started_at: "2026-10-17T00:00:00Z", completed_at: "2026-10-17T00:00:10Z")
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("步骤") {
+                    SoftGroupRows(animateBackground: false) {
+                        SoftGroupRow("log") {
+                            WorkflowStepRow(step: step, expanded: expanded, toggle: {
+                                var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
+                                withTransaction(transaction) { expanded.toggle() }
+                            }, output: AnyView(WorkflowInlineLog(output: output, loading: output == nil && failure.isEmpty,
+                                error: failure, skipped: false, retry: {})))
+                        }
+                    }
+                }.transaction { $0.animation = nil; $0.disablesAnimations = true }
+            }.navigationTitle("步骤日志预览")
+        }.task {
+            guard output == nil, failure.isEmpty else { return }
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
+            defer { try? FileManager.default.removeItem(at: file) }
+            do {
+                let bytes = Data("2026-10-17T00:00:01Z error: 中文构建失败详情\n2026-10-17T00:00:02Z 完整步骤输出已在 App 内显示\n".utf8)
+                let archive = try Archive(url: file, accessMode: .create)
+                try archive.addEntry(with: "build/63_Test build output.txt", type: .file, uncompressedSize: Int64(bytes.count)) { position, size in
+                    bytes.subdata(in: Int(position)..<min(bytes.count, Int(position) + size))
+                }
+                output = try WorkflowLogArchiveRules.read(file, job: "build", steps: [63]).steps[63]
+            } catch { failure = error.localizedDescription }
+        }
+    }
+}
 
 /// Exercises the shipping preview/editor. The probe only observes UIKit geometry.
 struct SourceStylePreview: View {

@@ -86,7 +86,7 @@ struct WorkflowRunView: View {
                 SoftGroupRows {
                     for job in store.items {
                         SoftGroupRow("job-\(job.id)") {
-                            NavigationLink { WorkflowJobView(api: api, repo: repo, job: job) } label: {
+                            NavigationLink { WorkflowJobView(api: api, repo: repo, run: run.id, job: job) } label: {
                                 WorkflowJobRow(job: job)
                             }
                         }
@@ -207,7 +207,10 @@ struct WorkflowArtifactsView: View {
 struct WorkflowJobView: View {
     @ObservedObject var api: GitHub
     let repo: String
+    let run: Int
     let job: WorkflowJob
+    @StateObject private var logs = RepositoryPageLoadState<WorkflowStepLogs>()
+    @State private var generation = AccountStore.generation
     @State private var freshJob: WorkflowJob?
     @State private var revision = 0
     @State private var expandedSteps: Set<Int> = []
@@ -222,17 +225,23 @@ struct WorkflowJobView: View {
                 }
             }
             Section("步骤") {
-                SoftGroupRows {
+                SoftGroupRows(animateBackground: false) {
                     for step in displayedJob.steps ?? [] {
                         SoftGroupRow("step-\(step.number)") {
-                            WorkflowStepRow(step: step, expanded: expandedSteps.contains(step.number)) {
-                                if !expandedSteps.insert(step.number).inserted { expandedSteps.remove(step.number) }
-                            }
+                            WorkflowStepRow(step: step, expanded: expandedSteps.contains(step.number), toggle: {
+                                var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
+                                withTransaction(transaction) {
+                                    if !expandedSteps.insert(step.number).inserted { expandedSteps.remove(step.number) }
+                                }
+                                if expandedSteps.contains(step.number), step.conclusion != "skipped" { Task { await loadLogs() } }
+                            }, output: AnyView(WorkflowInlineLog(output: logs.value?.steps[step.number], loading: logs.loading,
+                                error: logs.error, skipped: step.conclusion == "skipped", retry: { Task { await loadLogs(refresh: true) } })))
                         }
                     }
                     SoftGroupRow("log") { NavigationLink("查看任务日志") { WorkflowLogView(api: api, repo: repo, id: job.id) } }
                 }
             }
+            .transaction { $0.animation = nil; $0.disablesAnimations = true }
         }.navigationTitle("任务详情").adaptiveWorkspaceLayout()
         .toolbar { Button("刷新") { revision += 1 } }
         .task(id: revision) {
@@ -241,8 +250,36 @@ struct WorkflowJobView: View {
                 let bytes = try await api.communityRead(GitHub.repoPath(repo) + "/actions/jobs/\(job.id)")
                 let value = try JSONDecoder().decode(WorkflowJob.self, from: bytes)
                 try Task.checkCancellation(); guard api.isCurrentSession else { return }; freshJob = value
+                if !expandedSteps.isEmpty { await loadLogs(refresh: revision > 0) }
             } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { self.error = error.localizedDescription } }
         }
+    }
+    private func loadLogs(refresh: Bool = false) async {
+        let current = displayedJob
+        await logs.load(key: repo + ":\(run):\(job.id):" + generation.uuidString, refresh: refresh,
+            operation: { try await api.communityRunStepLogs(repo, run: run, job: current.name, steps: Set((current.steps ?? []).map(\.number))) },
+            isValid: { generation == AccountStore.generation && api.isCurrentSession })
+    }
+}
+
+struct WorkflowInlineLog: View {
+    let output: WorkflowStepOutput?
+    let loading: Bool
+    let error: String
+    let skipped: Bool
+    let retry: () -> Void
+    var body: some View {
+        if skipped { Text("此步骤已跳过，没有输出。") }
+        else if loading { ProgressView("读取步骤日志…") }
+        else if !error.isEmpty { Text(error).foregroundStyle(.secondary); Button("重试读取日志", action: retry) }
+        else if let output {
+            if output.limited { Text(output.text).foregroundStyle(.secondary) }
+            else if output.text.isEmpty { Text("此步骤没有输出。") }
+            else {
+                SourceCodeView(text: output.text, filename: "output.log").frame(height: 260)
+                NavigationLink("全屏查看此步骤日志") { SourceCodeView(text: output.text, filename: "output.log").navigationTitle("步骤日志") }
+            }
+        } else { Text("该步骤日志暂未提供，运行结束后可刷新重试。").foregroundStyle(.secondary) }
     }
 }
 
@@ -254,12 +291,14 @@ struct WorkflowLogView: View {
     @State private var error = ""
     @State private var revision = 0
     var body: some View {
-        ScrollView {
+        Group {
+          if let log { SourceCodeView(text: log, filename: "output.log") }
+          else {
             VStack(alignment: .leading) {
-                if let log { Text(log).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
-                else if error.isEmpty { ProgressView("加载日志…") }
+                if error.isEmpty { ProgressView("加载日志…") }
                 if !error.isEmpty { Text(error); Button("重试") { revision += 1 } }
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
+          }
         }.navigationTitle("运行日志")
         .task(id: revision) {
             error = ""

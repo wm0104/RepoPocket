@@ -19,6 +19,8 @@ struct StylePreviewGallery: View {
             SourceStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-patch-style-preview") {
             PatchStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-workflow-log-style-preview") {
+            WorkflowLogStylePreview()
         } else {
             gallery
         }
