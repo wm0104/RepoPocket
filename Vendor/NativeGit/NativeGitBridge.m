@@ -392,10 +392,13 @@ static NSDictionary *RPCreate(NSString *op, NSMutableDictionary *q, RPGitResourc
     q[@"credentialRemote"] = remoteURL; q[@"credentialUsed"] = @NO;
     git_repository *repo = NULL;
     if ([op isEqual:@"clone"]) {
-        NSString *destination = RPString(q,@"destination");
-        NSString *parent = RPReal(destination.stringByDeletingLastPathComponent);
-        RPRequire([destination isEqual:[parent stringByAppendingPathComponent:destination.lastPathComponent]] &&
-                  ![[NSFileManager defaultManager] fileExistsAtPath:destination], @"克隆目标已存在或不安全，请选择新的子文件夹。");
+        NSString *requested = RPString(q,@"destination");
+        NSString *parent = RPReal(requested.stringByDeletingLastPathComponent);
+        NSString *destination = [parent stringByAppendingPathComponent:requested.lastPathComponent];
+        struct stat existing;
+        RPRequire(requested.isAbsolutePath && ![requested.lastPathComponent.lowercaseString isEqual:@".git"] &&
+                  lstat(destination.fileSystemRepresentation,&existing) != 0 && errno == ENOENT,
+                  @"克隆目标已存在或不安全，请选择新的子文件夹。");
         git_clone_options options = GIT_CLONE_OPTIONS_INIT;
         options.checkout_branch = branch.UTF8String;
         options.fetch_opts.callbacks = RPCallbacks(q); options.fetch_opts.follow_redirects = GIT_REMOTE_REDIRECT_NONE;
