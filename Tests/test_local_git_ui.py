@@ -9,6 +9,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LocalGitUITests(unittest.TestCase):
+    def test_import_uses_repository_default_branch_when_unspecified(self):
+        page = (ROOT/'RepoPocket/LocalProjectImportView.swift').read_text(encoding='utf-8')
+        self.assertIn('@State private var branch = ""', page)
+        self.assertIn('分支（留空使用仓库默认分支）', page)
+        clone = page.split('if clone {\n                    let url', 1)[1].split('let exists =', 1)[0]
+        self.assertIn('api.resolvedBranch(name, branch: branch.trimmingCharacters(in: .whitespacesAndNewlines))', clone)
+        self.assertIn('branch: selectedBranch', clone)
+        association = page.split('if folder.usesPrivateGit && !exists {', 1)[1].split('} else {', 1)[0]
+        self.assertIn('api.resolvedBranch(name, branch: branch.trimmingCharacters(in: .whitespacesAndNewlines))', association)
+        self.assertIn('workspaceHead(name, branch: selectedBranch)', association)
+        self.assertIn('"branch":selectedBranch', association)
+
     def test_folder_result_is_consumed_before_picker_dismissal(self):
         page = (ROOT/'RepoPocket/LocalProjectImportView.swift').read_text(encoding='utf-8')
         # Files may close its own presentation. The picked URL must be consumed

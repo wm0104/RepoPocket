@@ -8,7 +8,7 @@ struct LocalProjectImportView: View {
     @State private var folder: LocalGitProject?
     @State private var picker: WorkspaceImportRequest?
     @State private var remote = ""
-    @State private var branch = "main"
+    @State private var branch = ""
     @State private var revision = ""
     @State private var childName = ""
     @State private var preview: LocalGitStatus?
@@ -34,7 +34,7 @@ struct LocalProjectImportView: View {
                         Section("GitHub 仓库") {
                             Text("当前账号：" + api.login).font(.caption)
                             TextField("owner/repository", text: $remote).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            TextField("分支", text: $branch).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            TextField("分支（留空使用仓库默认分支）", text: $branch).textInputAutocapitalization(.never).autocorrectionDisabled()
                             if clone { TextField("新子文件夹名称", text: $childName) }
                             else { TextField("已知基准 SHA（留空使用当前远端提交）", text: $revision).textInputAutocapitalization(.never).autocorrectionDisabled() }
                         }.disabled(busy || preview != nil)
@@ -86,8 +86,10 @@ struct LocalProjectImportView: View {
                 guard generation == AccountStore.generation, api.isCurrentSession else { throw CancellationError() }
                 if clone {
                     let url = try LocalGitRules.remote(remote)
+                    let name = String(url.dropFirst("https://github.com/".count).dropLast(4))
+                    let selectedBranch = try await api.resolvedBranch(name, branch: branch.trimmingCharacters(in: .whitespacesAndNewlines))
                     let new = try await LocalGitEngine.shared.clone(parent: folder, metadata: metadata, internalRoot: internalRoot,
-                        name: childName, remote: url, branch: branch, token: CredentialStore.read(account: api.accountID), generation: generation)
+                        name: childName, remote: url, branch: selectedBranch, token: CredentialStore.read(account: api.accountID), generation: generation)
                     try Task.checkCancellation(); guard generation == AccountStore.generation else { throw CancellationError() }
                     try store.attach(new); dismiss(); return
                 }
@@ -96,10 +98,11 @@ struct LocalProjectImportView: View {
                 if folder.usesPrivateGit && !exists {
                     let url = try LocalGitRules.remote(remote)
                     let name = String(url.dropFirst("https://github.com/".count).dropLast(4))
-                    let baseline = revision.isEmpty ? try await api.workspaceHead(name, branch: branch) : revision
+                    let selectedBranch = try await api.resolvedBranch(name, branch: branch.trimmingCharacters(in: .whitespacesAndNewlines))
+                    let baseline = revision.isEmpty ? try await api.workspaceHead(name, branch: selectedBranch) : revision
                     associationFailed = true
                     value = try await LocalGitEngine.shared.run("associate", project: folder, metadata: metadata, internalRoot: internalRoot,
-                        arguments: ["remote":url,"branch":branch,"selectedCommit":baseline,"token":CredentialStore.read(account:api.accountID)], generation:generation)
+                        arguments: ["remote":url,"branch":selectedBranch,"selectedCommit":baseline,"token":CredentialStore.read(account:api.accountID)], generation:generation)
                     associationFailed = false
                 } else {
                     value = try await LocalGitEngine.shared.run("inspect", project:folder,metadata:metadata,internalRoot:internalRoot,generation:generation)
