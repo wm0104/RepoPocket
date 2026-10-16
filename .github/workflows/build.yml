@@ -233,7 +233,7 @@ jobs:
         run: |
           set -o pipefail
           bash Scripts/build_native_git.sh iphonesimulator
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
       - name: Render fixed-data account and repository screens
         if: ${{ inputs.style_preview }}
         run: |
@@ -291,7 +291,7 @@ jobs:
           xcrun simctl terminate "$DEVICE" com.wm0104.RepoPocket
           xcrun simctl io "$DEVICE" recordVideo --codec=h264 screenshots/local-git-interactions.mp4 > local-git-recording.log 2>&1 &
           RECORDING_PID=$!
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO -only-testing:RepoPocketStyleUITests test > style-tests.log 2>&1 || { tail -100 style-tests.log; exit 1; }
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -only-testing:RepoPocketStyleUITests test > style-tests.log 2>&1 || { tail -100 style-tests.log; exit 1; }
           kill -INT "$RECORDING_PID" 2>/dev/null || true
           wait "$RECORDING_PID" || true
           RECORDING_PID=""
