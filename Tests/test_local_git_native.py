@@ -39,7 +39,7 @@ class NativeGitBehavior(unittest.TestCase):
         cls.library_dir.cleanup()
 
     def git(self, *args, cwd=None):
-        return subprocess.check_output(['git', '-c', 'commit.gpgsign=false', *args],
+        return subprocess.check_output(['git', '-c', 'commit.gpgsign=false', '-c', 'core.quotepath=false', *args],
                                        cwd=cwd or self.work, stderr=subprocess.STDOUT).decode().strip()
 
     def setUp(self):
@@ -97,7 +97,7 @@ class NativeGitBehavior(unittest.TestCase):
         self.assertTrue(response['ok'], response)
         self.assertNotEqual(self.git('rev-parse', 'HEAD'), self.head)
         self.assertEqual(set(self.git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').splitlines()),
-                         {'"\\344\\273\\243\\347\\240\\201.py"', '"new \\347\\251\\272.txt"'})
+                         {'代码.py', 'new 空.txt'})
         self.assertEqual(self.git('show', 'HEAD:other.txt'), 'unchanged')
         self.assertFalse((self.work / 'other.txt').exists())
         self.assertEqual(self.git('diff', '--cached', '--name-only'), '')

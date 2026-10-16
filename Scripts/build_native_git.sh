@@ -14,7 +14,7 @@ fi
 echo "$digest  $archive" | shasum -a 256 --check
 source="$root/source/libgit2-$revision"
 if [ ! -d "$source" ]; then tar -xzf "$archive" -C "$root/source"; fi
-options=()
+options=(-DCMAKE_POLICY_VERSION_MINIMUM=3.5)
 if [ "$platform" != macosx ]; then
   options+=(-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_OSX_ARCHITECTURES=arm64)
 fi
