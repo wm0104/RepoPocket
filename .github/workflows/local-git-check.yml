@@ -20,6 +20,8 @@ jobs:
         run: bash Scripts/build_native_git.sh macosx
       - name: Execute production Git bridge tests
         run: python3 Tests/test_local_git_native.py
+      - name: Execute original folder and edit protection tests
+        run: python3 Tests/test_local_git_store.py
       - name: Build native Git for iPhone
         run: bash Scripts/build_native_git.sh iphoneos
       - name: Compile and link the same production bridge for iOS 16
