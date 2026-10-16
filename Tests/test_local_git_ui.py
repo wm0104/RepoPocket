@@ -27,7 +27,7 @@ class LocalGitUITests(unittest.TestCase):
 import Foundation
 @main struct Fixture {
  @MainActor static func main() async throws {
-  let status=LocalGitStatus(head:String(repeating:"a",count:40),branch:"main",files:[],staged:[],repoState:0)
+  let status=LocalGitStatus(head:String(repeating:"a",count:40),branch:"main",reference:"refs/heads/main",files:[],staged:[],repoState:0)
   let history=LocalGitHistory(commits:[],ahead:0,behind:0,tracking:true,remote:"https://github.com/fixture/repo.git")
   let snapshot=LocalGitSnapshot(status:status,history:history)
   let state=LocalProjectState();var requests=0

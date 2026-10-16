@@ -324,6 +324,16 @@ class NativeGitBehavior(unittest.TestCase):
         self.assertFalse(self.call('pull',expectedHead=self.head)['ok'])
         self.assertEqual(self.git('rev-parse','HEAD'),self.head)
 
+    def test_push_mapping_cannot_update_unrelated_local_branch(self):
+        self.make_remote()
+        self.git('branch','protected',self.head)
+        self.git('commit','--allow-empty','-m','local push')
+        current=self.git('rev-parse','HEAD')
+        self.git('config','--replace-all','remote.origin.fetch','+refs/heads/main:refs/heads/protected')
+        self.result('push',expectedHead=current)
+        self.assertEqual(self.git('rev-parse','protected'),self.head)
+        self.assertEqual(self.git('rev-parse','refs/remotes/origin/main'),current)
+
     def test_same_sha_other_branch_rejects_stale_commit(self):
         status=self.change()
         self.git('checkout','-b','feature')
@@ -357,6 +367,13 @@ class NativeGitBehavior(unittest.TestCase):
                     self.assertTrue((self.work/'.git/index.lock').exists())
                     current=self.git('rev-parse','HEAD')
                     self.assertEqual(self.result('status')['repoState'],100)
+                    if stage=='beforeJournal':
+                        lock=self.work/'.git/HEAD.lock'
+                        original=lock.read_text()
+                        lock.write_text('another tool owns this lock')
+                        self.assertFalse(self.call('recover',expectedHead=current)['ok'])
+                        self.assertEqual(lock.read_text(),'another tool owns this lock')
+                        lock.write_text(original)
                     self.result('recover',expectedHead=current)
                     self.assertFalse((self.work/'.git/index.lock').exists())
                     self.assertFalse((self.work/'.git/HEAD.lock').exists())

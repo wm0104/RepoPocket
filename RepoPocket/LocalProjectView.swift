@@ -20,47 +20,10 @@ struct LocalProjectView: View {
     var body: some View {
         List {
             if let snapshot = state.snapshot {
-                Section("当前分支") {
-                    Text(snapshot.status.branch)
-                    Text(String(snapshot.status.head.prefix(12))).font(.caption.monospaced()).textSelection(.enabled)
-                    if snapshot.history.tracking { Text("待推送 \(snapshot.history.ahead) · 远端领先 \(snapshot.history.behind)").font(.caption) }
-                    else { Text("没有可比较的远端分支").font(.caption) }
-                    if !snapshot.history.remote.isEmpty { Text(snapshot.history.remote).font(.caption).textSelection(.enabled) }
-                    NavigationLink("浏览与编辑项目文件") { LocalProjectFilesView(project: project, internalRoot: store.internalRoot) { note = "文件已修改，请检查变化。" } }
-                }
-                Section("工作区变化 · \(snapshot.status.files.count)") {
-                    if snapshot.status.files.isEmpty { Text("没有内容变化") }
-                    ForEach(snapshot.status.files) { row in
-                        HStack {
-                            Button {
-                                if state.selected.contains(row.path) { state.selected.remove(row.path) } else { state.selected.insert(row.path) }
-                            } label: { Image(systemName: state.selected.contains(row.path) ? "checkmark.square.fill" : "square").frame(width: 44,height: 44) }
-                                .buttonStyle(.borderless).disabled(state.busy || !row.blocked.isEmpty)
-                            Button { diffFile = LocalProjectFile(path: row.path) } label: {
-                                VStack(alignment: .leading,spacing: 4) {
-                                    Text(row.path); Text(row.blocked.isEmpty ? row.label : row.blocked).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }.buttonStyle(.borderless).disabled(state.busy)
-                        }
-                    }
-                    if !snapshot.status.canCommit { Text("已有暂存、冲突或未完成操作。请先在原工具处理，不会撤销原暂存。").foregroundStyle(.red).font(.caption) }
-                }
-                Section {
-                    if snapshot.status.repoState == 100 { Button("检查并恢复中断操作") { syncing = "recover" }.disabled(state.busy) }
-                    Button("创建本地提交（\(selected.count) 个文件）") { if authorName.isEmpty { authorName = api.login }; commitSheet = true }
-                        .disabled(state.busy || !state.fresh || !snapshot.status.canCommit || selected.isEmpty)
-                    Button("拉取远端（仅快进）") { syncing = "pull" }.disabled(state.busy || !state.fresh || snapshot.history.remote.isEmpty)
-                    Button("推送本地提交") { syncing = "push" }.disabled(state.busy || !state.fresh || snapshot.history.remote.isEmpty)
-                }
-                Section("本地提交历史 · 最近 30 条") {
-                    ForEach(snapshot.history.commits) { commit in
-                        VStack(alignment: .leading,spacing: 4) {
-                            Text(commit.message)
-                            Text(String(commit.sha.prefix(7)) + " · " + commit.author).font(.caption).foregroundStyle(.secondary)
-                            Text(Date(timeIntervalSince1970:commit.time).formatted(date:.abbreviated,time:.shortened)).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
+                summarySection(snapshot)
+                changesSection(snapshot)
+                actionsSection(snapshot)
+                historySection(snapshot)
             }
             Section {
                 if state.busy { ProgressView("Git 操作中…"); Button("取消等待") { state.cancel(); note = "已取消等待。写入可能已完成，请检查真实状态后再操作。" } }
@@ -95,6 +58,61 @@ struct LocalProjectView: View {
             Button("确认") { guard let action=syncing else{return};syncing=nil;sync(action) }
         } message: { Text("账号：" + api.login + "\n" + (state.snapshot?.history.remote ?? "") + "\n分支：" + (state.snapshot?.status.branch ?? "")) }
     }
+    private func summarySection(_ snapshot: LocalGitSnapshot) -> some View {
+        Section("当前分支") {
+            Text(snapshot.status.branch)
+            Text(String(snapshot.status.head.prefix(12))).font(.caption.monospaced()).textSelection(.enabled)
+            if snapshot.history.tracking { Text("待推送 \(snapshot.history.ahead) · 远端领先 \(snapshot.history.behind)").font(.caption) }
+            else { Text("没有可比较的远端分支").font(.caption) }
+            if !snapshot.history.remote.isEmpty { Text(snapshot.history.remote).font(.caption).textSelection(.enabled) }
+            NavigationLink("浏览与编辑项目文件") { LocalProjectFilesView(project: project, internalRoot: store.internalRoot) {
+                note = "文件已修改，正在检查变化。"
+                Task { await check(force: true) }
+            } }
+        }
+    }
+
+    private func changesSection(_ snapshot: LocalGitSnapshot) -> some View {
+        Section("工作区变化 · \(snapshot.status.files.count)") {
+            if snapshot.status.files.isEmpty { Text("没有内容变化") }
+            ForEach(snapshot.status.files) { row in
+                HStack {
+                    Button {
+                        if state.selected.contains(row.path) { state.selected.remove(row.path) } else { state.selected.insert(row.path) }
+                    } label: { Image(systemName: state.selected.contains(row.path) ? "checkmark.square.fill" : "square").frame(width: 44,height: 44) }
+                        .buttonStyle(.borderless).disabled(state.busy || !row.blocked.isEmpty)
+                    Button { diffFile = LocalProjectFile(path: row.path) } label: {
+                        VStack(alignment: .leading,spacing: 4) {
+                            Text(row.path); Text(row.blocked.isEmpty ? row.label : row.blocked).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.buttonStyle(.borderless).disabled(state.busy)
+                }
+            }
+            if !snapshot.status.canCommit { Text("已有暂存、冲突或未完成操作。请先在原工具处理，不会撤销原暂存。").foregroundStyle(.red).font(.caption) }
+        }
+    }
+
+    private func actionsSection(_ snapshot: LocalGitSnapshot) -> some View {
+        Section {
+            if snapshot.status.repoState == 100 { Button("检查并恢复中断操作") { syncing = "recover" }.disabled(state.busy) }
+            Button("创建本地提交（\(selected.count) 个文件）") { if authorName.isEmpty { authorName = api.login }; commitSheet = true }
+                .disabled(state.busy || !state.fresh || !snapshot.status.canCommit || selected.isEmpty)
+            Button("拉取远端（仅快进）") { syncing = "pull" }.disabled(state.busy || !state.fresh || snapshot.history.remote.isEmpty)
+            Button("推送本地提交") { syncing = "push" }.disabled(state.busy || !state.fresh || snapshot.history.remote.isEmpty)
+        }
+    }
+
+    private func historySection(_ snapshot: LocalGitSnapshot) -> some View {
+        Section("本地提交历史 · 最近 30 条") {
+            ForEach(snapshot.history.commits) { commit in
+                VStack(alignment: .leading,spacing: 4) {
+                    Text(commit.message)
+                    Text(String(commit.sha.prefix(7)) + " · " + commit.author).font(.caption).foregroundStyle(.secondary)
+                    Text(Date(timeIntervalSince1970:commit.time).formatted(date:.abbreviated,time:.shortened)).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
     private func snapshot() async throws -> LocalGitSnapshot {
         guard valid else { throw CancellationError() }
         if ProcessInfo.processInfo.thermalState == .serious || ProcessInfo.processInfo.thermalState == .critical { throw LocalGitError(text:"设备当前温度较高，已暂停 Git 检查；降温后可手动重试。") }
@@ -108,7 +126,7 @@ struct LocalProjectView: View {
         let files=selected.map { ["path":$0.path,"fingerprint":$0.fingerprint] }
         Task { await state.check(force:true,valid:{valid}) {
             let _:LocalGitReply = try await LocalGitEngine.shared.run("commit",project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
-                arguments:["expectedHead":current.status.head,"files":files,"message":commitMessage,"authorName":authorName,"authorEmail":authorEmail],generation:generation)
+                arguments:["expectedHead":current.status.head,"expectedRef":current.status.reference,"files":files,"message":commitMessage,"authorName":authorName,"authorEmail":authorEmail],generation:generation)
             note="本地提交已创建，可单独推送。"; return try await snapshot()
         } }
     }
@@ -117,7 +135,7 @@ struct LocalProjectView: View {
         let token=CredentialStore.read(account:accountID)
         Task { await state.check(force:true,valid:{valid}) {
             let _:LocalGitReply = try await LocalGitEngine.shared.run(action,project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
-                arguments:["expectedHead":current.status.head,"expectedRemote":current.history.remote,"token":token],generation:generation)
+                arguments:["expectedHead":current.status.head,"expectedRef":current.status.reference,"expectedRemote":current.history.remote,"token":token],generation:generation)
             note=action == "recover" ? "恢复完成，文件和历史已重新检查。" : (action == "push" ? "推送完成。" : "拉取完成。");return try await snapshot()
         } }
     }

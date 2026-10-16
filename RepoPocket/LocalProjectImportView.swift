@@ -73,6 +73,7 @@ struct LocalProjectImportView: View {
         let metadata = store.metadata(folder), internalRoot = store.internalRoot
         job = Task { @MainActor in
             defer { busy = false }
+            var associationFailed = false
             do {
                 guard generation == AccountStore.generation, api.isCurrentSession else { throw CancellationError() }
                 if clone {
@@ -88,14 +89,23 @@ struct LocalProjectImportView: View {
                     let url = try LocalGitRules.remote(remote)
                     let name = String(url.dropFirst("https://github.com/".count).dropLast(4))
                     let baseline = revision.isEmpty ? try await api.workspaceHead(name, branch: branch) : revision
+                    associationFailed = true
                     value = try await LocalGitEngine.shared.run("associate", project: folder, metadata: metadata, internalRoot: internalRoot,
                         arguments: ["remote":url,"branch":branch,"selectedCommit":baseline,"token":CredentialStore.read(account:api.accountID)], generation:generation)
+                    associationFailed = false
                 } else {
                     value = try await LocalGitEngine.shared.run("inspect", project:folder,metadata:metadata,internalRoot:internalRoot,generation:generation)
                 }
                 try Task.checkCancellation(); guard generation == AccountStore.generation else { throw CancellationError() }
                 try store.retain(folder); preview = value
-            } catch { if !(error is CancellationError) { message = error.localizedDescription } }
+            } catch {
+                if associationFailed {
+                    // Keep the failed private metadata; retry in a fresh location.
+                    self.folder = LocalGitProject(id:folder.id,name:folder.name,bookmark:folder.bookmark,
+                        identity:folder.identity,metadataID:UUID(),usesPrivateGit:true)
+                }
+                if !(error is CancellationError) { message = error.localizedDescription }
+            }
         }
     }
 }

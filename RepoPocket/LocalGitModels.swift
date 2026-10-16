@@ -24,6 +24,7 @@ struct LocalGitChange: Codable, Identifiable, Equatable {
 struct LocalGitStatus: Codable {
     let head: String
     let branch: String
+    let reference: String
     let files: [LocalGitChange]
     let staged: [String]
     let repoState: Int
