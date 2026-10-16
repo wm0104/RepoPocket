@@ -1,0 +1,34 @@
+name: Local Git checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/local-git-tools]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+      - uses: actions/cache@v4
+        with:
+          path: NativeBuild
+          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh') }}
+      - name: Build pinned native Git for macOS
+        run: bash Scripts/build_native_git.sh macosx
+      - name: Execute production Git bridge tests
+        run: python3 Tests/test_local_git_native.py
+      - name: Build native Git for iPhone
+        run: bash Scripts/build_native_git.sh iphoneos
+      - name: Compile and link the same production bridge for iOS 16
+        run: |
+          printf '#include "NativeGitBridge.h"\nint main(void) {rp_git_free(rp_git_execute("inspect", "{}"));return 0;}\n' > NativeBuild/probe.c
+          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.0 -fobjc-arc \
+            -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -I NativeBuild/iphoneos/include -I Vendor/NativeGit \
+            Vendor/NativeGit/NativeGitBridge.m NativeBuild/probe.c \
+            -L NativeBuild/iphoneos/lib -lgit2 -lz -liconv \
+            -framework Foundation -framework Security -framework CoreFoundation \
+            -o NativeBuild/ios-probe
