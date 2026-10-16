@@ -59,5 +59,6 @@ xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug
 kill -INT "$RECORDING_PID" 2>/dev/null || true
 wait "$RECORDING_PID" || true
 RECORDING_PID=""
+xcrun simctl spawn "$DEVICE" log show --last 15m --style compact --predicate 'process == "RepoPocket"' > app-preview.log 2>&1 || true
 python3 Scripts/export_style_attachments.py style-tests.xcresult screenshots || TEST_STATUS=1
 exit "$TEST_STATUS"

@@ -79,8 +79,9 @@ private struct SourcePreviewProbe: UIViewRepresentable {
         return nil
     }
     private static func measure(in window: UIWindow?, revision: Int) -> String {
-        guard let window, let text = codeView(in: window), let parent = text.superview,
-              let gutter = parent.subviews.first(where: { $0 !== text }) else {
+        guard let window, let text = codeView(in: window), let horizontal = text.superview as? UIScrollView,
+              let parent = horizontal.superview,
+              let gutter = parent.subviews.first(where: { $0 !== horizontal }) else {
             return "revision=\(revision)|error=missing-code-surface"
         }
         text.layoutIfNeeded()
@@ -91,16 +92,15 @@ private struct SourcePreviewProbe: UIViewRepresentable {
         guard tail.location != NSNotFound else { return "revision=\(revision)|error=missing-tail" }
         let glyphs = manager.glyphRange(forCharacterRange: tail, actualCharacterRange: nil)
         let tailRect = manager.boundingRect(forGlyphRange: glyphs, in: text.textContainer)
-            .offsetBy(dx: text.textContainerInset.left - text.contentOffset.x,
-                      dy: text.textContainerInset.top - text.contentOffset.y)
-        let visible = CGRect(origin: .zero, size: text.bounds.size).contains(tailRect)
-        let viewport = text.convert(text.bounds, to: window)
-        let onScreenTail = tailRect.offsetBy(dx: viewport.minX, dy: viewport.minY)
+            .offsetBy(dx: text.textContainerInset.left, dy: text.textContainerInset.top)
+        let onScreenTail = text.convert(tailRect, to: window)
+        let viewport = horizontal.convert(horizontal.bounds, to: window)
+        let visible = viewport.contains(onScreenTail)
         var fragments = 0
         manager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs)) { _, _, _, _, _ in fragments += 1 }
         let hardLines = content.components(separatedBy: "\n").count
         let gutterRect = gutter.convert(gutter.bounds, to: window)
-        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(text.contentOffset.x))|width=\(Int(text.contentSize.width))|viewport=\(Int(text.bounds.width))|tail=\(visible ? 1 : 0)|tailX=\(Int(onScreenTail.minX))|tailY=\(Int(onScreenTail.minY))|tailWidth=\(Int(onScreenTail.width.rounded(.up)))|tailHeight=\(Int(onScreenTail.height.rounded(.up)))|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))"
+        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(horizontal.contentOffset.x))|width=\(Int(horizontal.contentSize.width))|viewport=\(Int(horizontal.bounds.width))|tail=\(visible ? 1 : 0)|tailX=\(Int(onScreenTail.minX))|tailY=\(Int(onScreenTail.minY))|tailWidth=\(Int(onScreenTail.width.rounded(.up)))|tailHeight=\(Int(onScreenTail.height.rounded(.up)))|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))"
     }
 }
 

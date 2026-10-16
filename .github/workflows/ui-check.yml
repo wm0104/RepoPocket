@@ -42,5 +42,6 @@ jobs:
             screenshots/*.mp4
             local-git-recording.log
             preview-build.log
+            app-preview.log
             style-tests.log
             style-tests.xcresult

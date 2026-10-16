@@ -26,8 +26,11 @@ struct LocalGitStylePreview: View {
             guard project == nil, failure.isEmpty else { return }
             do {
                 let root = store.internalRoot.appendingPathComponent("本地提交预览", isDirectory: true)
+                NSLog("LocalGitPreview: preparing %@", root.path)
                 let prepared = try store.prepare(root)
+                NSLog("LocalGitPreview: prepared")
                 try store.attach(prepared)
+                NSLog("LocalGitPreview: attached")
                 project = prepared
             } catch { failure = error.localizedDescription }
         }

@@ -67,7 +67,9 @@ final class StyleBoundaryTests: XCTestCase {
             keepScreenshot(app, name: "source-" + mode + "-left")
             for _ in 0..<8 {
                 if report["tail"] == "1" { break }
-                code.swipeLeft()
+                let viewport = app.scrollViews["代码横向滚动"].frame
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: viewport.maxX - 20, dy: viewport.minY + 50))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: viewport.minX + 20, dy: viewport.minY + 50)))
                 report = sourceReport(app)
             }
             XCTAssertEqual(report["tail"], "1", "A real horizontal gesture must bring the tail glyph into view")
@@ -80,7 +82,9 @@ final class StyleBoundaryTests: XCTestCase {
             keepScreenshot(app, name: "source-" + mode + "-right")
             for _ in 0..<8 {
                 if (Int(report["offset"] ?? "0") ?? 0) <= 0 { break }
-                code.swipeRight()
+                let viewport = app.scrollViews["代码横向滚动"].frame
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: viewport.minX + 20, dy: viewport.minY + 50))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: viewport.maxX - 20, dy: viewport.minY + 50)))
                 report = sourceReport(app)
             }
             XCTAssertLessThanOrEqual(Int(report["offset"] ?? "999") ?? 999, 0)

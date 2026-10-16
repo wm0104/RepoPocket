@@ -14,11 +14,12 @@ struct SourceTextSurface: UIViewRepresentable {
     static func dismantleUIView(_ view: SourceTextContainer, coordinator: ()) { view.cancelHighlight() }
 }
 
-/// UITextView otherwise restores a viewport-wide scroll range during layout.
-/// Keep its native editing/selection behavior while sizing both axes from the
-/// actual unwrapped TextKit layout, rather than from an arbitrary wide canvas.
+/// The text view owns vertical scrolling; its real frame spans each hard line.
+/// A separate horizontal viewport prevents UIKit from clipping glyphs to the
+/// phone width even when TextKit reports a larger scroll range.
 final class SourceNativeTextView: UITextView {
-    private var measuredSize: CGSize?
+    private(set) var sourceWidth: CGFloat = 0
+    var geometryChanged: (() -> Void)?
     private var measuredFont: UIFont?
     private var geometryDirty = true
     private var measuring = false
@@ -30,66 +31,35 @@ final class SourceNativeTextView: UITextView {
         manager.addTextContainer(container)
         storage.addLayoutManager(manager)
         super.init(frame: frame, textContainer: container)
-        // UITextView treats a zero-sized container as its default viewport.
-        // A positive unbounded size keeps hard lines intact on iOS as well.
         container.widthTracksTextView = false
         container.heightTracksTextView = false
         container.lineFragmentPadding = 0
-        showsHorizontalScrollIndicator = true
-        isDirectionalLockEnabled = false
+        showsHorizontalScrollIndicator = false
+        isDirectionalLockEnabled = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override var contentSize: CGSize {
-        get { super.contentSize }
-        set {
-            guard let measuredSize else { super.contentSize = newValue; return }
-            // Preserve the measured range when UITextView performs its own
-            // layout after selection, typing or a bounds/contentOffset change.
-            super.contentSize = CGSize(width: max(bounds.width, measuredSize.width),
-                                       height: max(bounds.height, measuredSize.height))
-        }
-    }
-
-    func invalidateSourceGeometry() {
-        geometryDirty = true
-        setNeedsLayout()
-    }
-
+    func invalidateSourceGeometry() { geometryDirty = true; setNeedsLayout() }
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard !measuring, bounds.width > 0, bounds.height > 0 else { return }
-        if geometryDirty || measuredFont != font {
-            measuring = true
-            defer { measuring = false }
-            // This work runs only after content/font changes. Scrolling and
-            // selection reuse the result without scanning the document again.
-            textContainer.size = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-            layoutManager.ensureLayout(for: textContainer)
-            let used = layoutManager.usedRect(for: textContainer)
-            let extra = layoutManager.extraLineFragmentTextContainer == nil ? CGRect.zero : layoutManager.extraLineFragmentUsedRect
-            let insets = textContainerInset
-            measuredSize = CGSize(width: ceil(max(used.maxX, extra.maxX) + insets.left + insets.right),
-                                  height: ceil(max(used.maxY, extra.maxY) + insets.top + insets.bottom))
-            measuredFont = font
-            geometryDirty = false
-            // UIKit's text drawing view must have a finite full-line width too.
-            // Merely widening UIScrollView.contentSize leaves the glyphs clipped
-            // to the old viewport, even though their TextKit rectangles exist.
-            textContainer.size = CGSize(width: max(ceil(used.maxX) + 1, bounds.width - insets.left - insets.right),
-                                        height: CGFloat.greatestFiniteMagnitude)
-            super.layoutSubviews()
-        }
-        if let measuredSize {
-            let target = CGSize(width: max(bounds.width, measuredSize.width),
-                                height: max(bounds.height, measuredSize.height))
-            if super.contentSize != target { super.contentSize = target }
-        }
+        guard !measuring, bounds.width > 0, bounds.height > 0,
+              geometryDirty || measuredFont != font else { return }
+        measuring = true
+        defer { measuring = false }
+        textContainer.size = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        let insets = textContainerInset
+        sourceWidth = ceil(used.maxX + insets.left + insets.right) + 1
+        measuredFont = font
+        geometryDirty = false
+        textContainer.size = CGSize(width: max(1, sourceWidth - insets.left - insets.right), height: CGFloat.greatestFiniteMagnitude)
+        geometryChanged?()
     }
 }
 
 final class SourceTextContainer: UIView, UITextViewDelegate {
     let textView = SourceNativeTextView(frame: .zero, textContainer: nil)
+    let horizontal = UIScrollView()
     private let gutter = SourceLineGutter()
     var changed: ((String) -> Void)?
     private var filename = ""
@@ -112,14 +82,22 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
         textView.textContainer.lineFragmentPadding = 0
         textView.accessibilityLabel = "代码正文"
         gutter.owner = self; gutter.isUserInteractionEnabled = false
-        addSubview(gutter); addSubview(textView)
+        horizontal.accessibilityIdentifier = "代码横向滚动"
+        horizontal.showsVerticalScrollIndicator = false
+        horizontal.alwaysBounceVertical = false
+        horizontal.isDirectionalLockEnabled = true
+        textView.geometryChanged = { [weak self] in self?.setNeedsLayout() }
+        addSubview(gutter); addSubview(horizontal); horizontal.addSubview(textView)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func layoutSubviews() {
         super.layoutSubviews()
         let width: CGFloat = 46
         gutter.frame = CGRect(x: 0, y: 0, width: width, height: bounds.height)
-        textView.frame = CGRect(x: width, y: 0, width: max(0,bounds.width - width), height: bounds.height)
+        horizontal.frame = CGRect(x: width, y: 0, width: max(0, bounds.width - width), height: bounds.height)
+        let canvas = max(horizontal.bounds.width, textView.sourceWidth)
+        textView.frame = CGRect(x: 0, y: 0, width: canvas, height: bounds.height)
+        horizontal.contentSize = CGSize(width: canvas, height: bounds.height)
         gutter.setNeedsDisplay()
     }
     func configure(text: String, filename: String, editable: Bool, dark: Bool) {
@@ -133,6 +111,11 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         guard !coloring else { return }
         rebuildLines(); self.textView.invalidateSourceGeometry(); changed?(textView.text); scheduleHighlight()
+    }
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        guard textView.isFirstResponder, let range = textView.selectedTextRange else { return }
+        let caret = textView.convert(textView.caretRect(for: range.end), to: horizontal)
+        horizontal.scrollRectToVisible(CGRect(x: caret.minX - 12, y: horizontal.bounds.minY, width: caret.width + 24, height: 1), animated: false)
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) { gutter.setNeedsDisplay() }
     private func rebuildLines() {
