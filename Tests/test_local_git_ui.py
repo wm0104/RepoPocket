@@ -56,6 +56,9 @@ import Foundation
   let state=LocalProjectState();var requests=0
   for _ in 0..<20 {await state.check(valid:{true}) {requests+=1;return snapshot}}
   precondition(requests==1 && state.fresh)
+  state.cancel()
+  await state.check(valid:{true}) {requests+=1;return snapshot}
+  precondition(state.fresh && requests==1, "Read-only navigation must preserve a completed check")
   state.selected=["keep.py"]
   await state.check(force:true,valid:{true}) {throw LocalGitError(text:"fixture failure")}
   precondition(state.selected==["keep.py"] && !state.fresh && !state.error.isEmpty)
@@ -73,6 +76,11 @@ import Foundation
   let pending=Task {await invalidated.check(valid:{session}) {try await Task.sleep(nanoseconds:20_000_000);return snapshot}}
   await Task.yield();session=false;await pending.value
   precondition(!invalidated.busy && !invalidated.fresh && invalidated.snapshot==nil)
+  let cancelled=LocalProjectState();var retried=0
+  let interrupted=Task {await cancelled.check(valid:{true}) {try await Task.sleep(nanoseconds:100_000_000);return snapshot}}
+  await Task.yield();cancelled.cancel();await interrupted.value
+  await cancelled.check(valid:{true}) {retried+=1;return snapshot}
+  precondition(cancelled.fresh && retried==1, "A cancelled check must be retryable on return")
   print("PASS twenty appearances, empty result, coalesced requests, cancelled selection and account invalidation")
  }
 }

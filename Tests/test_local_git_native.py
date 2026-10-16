@@ -97,6 +97,24 @@ class NativeGitBehavior(unittest.TestCase):
         self.assertIn('print("new")', diff['text'])
         self.assertIn('print("old")', diff['text'])
 
+    def test_commit_detail_is_offline_immutable_and_keeps_unicode_paths(self):
+        (self.work / '代码.py').write_text('print("committed")\n')
+        self.git('add', '代码.py')
+        self.git('commit', '-m', 'Update code', '-m', 'Full description')
+        commit = self.git('rev-parse', 'HEAD')
+        (self.work / '代码.py').write_text('uncommitted content\n')
+        detail = self.result('commitDetail', sha=commit)
+        self.assertEqual(detail['sha'], commit)
+        self.assertIn('Full description', detail['message'])
+        self.assertEqual(detail['files'][0]['filename'], '代码.py')
+        self.assertIn('+print("committed")', detail['files'][0]['patch'])
+        self.assertNotIn('uncommitted', detail['files'][0]['patch'])
+        self.assertEqual((self.work / '代码.py').read_text(), 'uncommitted content\n')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), commit)
+        initial = self.result('commitDetail', sha=self.head)
+        self.assertEqual({f['filename'] for f in initial['files']}, {'代码.py', 'other.txt', '.gitignore'})
+        self.assertFalse(self.call('commitDetail', sha='HEAD~1')['ok'])
+
     def test_commit_only_selected_and_preserve_other_changes(self):
         response = self.commit(self.change(), ['代码.py', 'new 空.txt'])
         self.assertTrue(response['ok'], response)

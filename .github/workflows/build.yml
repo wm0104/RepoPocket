@@ -45,6 +45,8 @@ jobs:
         run: python3 Tests/test_local_git_store.py
       - name: Test local project page lifecycle
         run: python3 Tests/test_local_git_ui.py
+      - name: Test language-aware code and automatic text reading
+        run: python3 Tests/test_source_code.py
       - name: Test build workflow entry points
         run: python3 Tests/test_build_workflow.py
       - name: Test community reads, pagination, filters and OAuth rules
