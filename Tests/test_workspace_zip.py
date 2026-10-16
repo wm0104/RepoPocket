@@ -7,7 +7,7 @@ with tempfile.TemporaryDirectory() as d:
  (root/'Sources'/'ZIPRegression').mkdir(parents=True)
  (root/'Package.swift').write_text('''// swift-tools-version: 5.9
 import PackageDescription
-let package = Package(name: "ZIPRegression", platforms: [.macOS(.v12)], dependencies: [.package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.19")], targets: [.executableTarget(name: "ZIPRegression", dependencies: [.product(name: "ZIPFoundation", package: "ZIPFoundation")])])
+let package = Package(name: "ZIPRegression", platforms: [.macOS(.v12), .iOS(.v16)], dependencies: [.package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.19")], targets: [.executableTarget(name: "ZIPRegression", dependencies: [.product(name: "ZIPFoundation", package: "ZIPFoundation")])])
 ''')
  fixtures = [('valid', 'nested/a.txt', False), ('traversal', '../escape', False), ('absolute', '/escape', False), ('backslash', 'a\\b', False), ('symlink', 'link', True)]
  for name, path, link in fixtures:
