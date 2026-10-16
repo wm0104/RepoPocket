@@ -29,3 +29,5 @@ ZIPFoundation and the vendored deb codecs retain their existing licenses.
 
 The new community feature code is implemented for RepoPocket; SwiftHub source
 code, branding and assets have not been copied.
+
+Local Git uses libgit2 1.9.7 (commit 49e408b3208bc3093757a1c2db938d3590f3f412), GPL v2 with the Linking Exception. Full terms: Vendor/NativeGit/COPYING. Source: https://github.com/libgit2/libgit2 . HTTPS uses Apple's SecureTransport; SSH and external Git commands are disabled.
