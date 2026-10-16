@@ -256,8 +256,11 @@ struct WorkflowJobView: View {
     }
     private func loadLogs(refresh: Bool = false) async {
         let current = displayedJob
-        await logs.load(key: repo + ":\(run):\(job.id):" + generation.uuidString, refresh: refresh,
-            operation: { try await api.communityRunStepLogs(repo, run: run, job: current.name, steps: Set((current.steps ?? []).map(\.number))) },
+        await logs.load(key: repo + ":\(run):\(job.id):\(current.run_attempt ?? 0):" + generation.uuidString, refresh: refresh,
+            operation: {
+                guard let attempt = current.run_attempt else { throw AppError(text: "尚未确认任务运行次数，请刷新任务后重试。") }
+                return try await api.communityRunStepLogs(repo, run: run, attempt: attempt, job: current.name, steps: Set((current.steps ?? []).map(\.number)))
+            },
             isValid: { generation == AccountStore.generation && api.isCurrentSession })
     }
 }

@@ -88,6 +88,7 @@ struct WorkflowJob: Decodable, Identifiable {
     let started_at: String?
     let completed_at: String?
     let steps: [Step]?
+    var run_attempt: Int? = nil
     struct Step: Decodable, Identifiable {
         let number: Int
         let name: String

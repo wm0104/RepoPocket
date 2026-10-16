@@ -800,12 +800,12 @@ final class GitHub: ObservableObject {
         guard bytes.count < 8 * 1024 * 1024 else { throw AppError(text: "Star 数据过大") }
         return try JSONDecoder().decode([StarTimestamp].self, from: bytes)
     }
-    func communityRunStepLogs(_ repo: String, run: Int, job: String, steps: Set<Int>) async throws -> WorkflowStepLogs {
-        guard run > 0 else { throw AppError(text: "无效运行编号") }
+    func communityRunStepLogs(_ repo: String, run: Int, attempt: Int, job: String, steps: Set<Int>) async throws -> WorkflowStepLogs {
+        guard run > 0, attempt > 0 else { throw AppError(text: "无效运行编号或运行次数") }
         let policy = WorkflowLogArchiveDownloadPolicy()
         let file: URL
         do {
-            file = try await download(request(url(Self.repoPath(repo) + "/actions/runs/\(run)/logs")), name: "workflow-logs.zip", redirect: policy)
+            file = try await download(request(url(Self.repoPath(repo) + "/actions/runs/\(run)/attempts/\(attempt)/logs")), name: "workflow-logs.zip", redirect: policy)
         } catch {
             if policy.exceededBudget { throw AppError(text: "日志归档超过 32 MiB，已停止下载。") }
             if (error as? GitHubAPIError)?.status == 404 { throw AppError(text: "GitHub 尚未提供此运行的日志归档，或日志已过期。运行完成后可刷新重试。") }
