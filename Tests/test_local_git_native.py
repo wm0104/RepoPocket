@@ -146,6 +146,83 @@ class NativeGitBehavior(unittest.TestCase):
         self.assertTrue(diff['binary'])
         self.assertNotIn('secret', diff['text'])
 
+    def make_remote(self):
+        self.remote = Path(self.temp.name) / 'remote.git'
+        self.git('clone', '--bare', str(self.work), str(self.remote))
+        self.git('remote', 'add', 'origin', self.remote.as_uri())
+        self.git('fetch', 'origin')
+        self.git('branch', '--set-upstream-to', 'origin/main')
+
+    def test_clone_and_plain_directory_association_preserve_existing_edits(self):
+        self.make_remote()
+        destination = Path(self.temp.name) / 'cloned'
+        self.result('clone', destination=str(destination), remote=self.remote.as_uri(), branch='main')
+        self.assertEqual(self.git('rev-parse', 'HEAD', cwd=destination), self.head)
+        folder = Path(self.temp.name) / 'unzipped'
+        folder.mkdir()
+        (folder / '代码.py').write_text('edited before import')
+        metadata = Path(self.temp.name) / 'private.git'
+        response = self.call('associate', repository=str(metadata), workdir=str(folder),
+                             remote=self.remote.as_uri(), branch='main', selectedCommit=self.head, privateGit=True)
+        self.assertTrue(response['ok'], response)
+        self.assertEqual((folder / '代码.py').read_text(), 'edited before import')
+        self.assertFalse((folder / '.git').exists())
+        status = self.call('status', repository=str(metadata), workdir=str(folder), privateGit=True)
+        self.assertTrue(status['ok'], status)
+        self.assertEqual({r['path'] for r in status['result']['files']}, {'代码.py', 'other.txt', '.gitignore'})
+
+    def test_fast_forward_pull_clean_only_and_divergence_preserves_both(self):
+        self.make_remote()
+        other = Path(self.temp.name) / 'computer'
+        self.git('clone', str(self.remote), str(other))
+        self.git('config', 'user.name', 'Computer', cwd=other)
+        self.git('config', 'user.email', 'computer@example.invalid', cwd=other)
+        (other / 'computer.txt').write_text('from desktop')
+        self.git('add', '.', cwd=other)
+        self.git('commit', '-m', 'desktop', cwd=other)
+        self.git('push', 'origin', 'main', cwd=other)
+        (self.work / '代码.py').write_text('phone dirty')
+        self.assertFalse(self.call('pull', expectedHead=self.head)['ok'])
+        self.assertEqual((self.work / '代码.py').read_text(), 'phone dirty')
+        (self.work / '代码.py').write_text('print("old")\n')
+        self.result('pull', expectedHead=self.head)
+        self.assertEqual((self.work / 'computer.txt').read_text(), 'from desktop')
+        updated = self.git('rev-parse', 'HEAD')
+        self.git('commit', '--allow-empty', '-m', 'phone branch')
+        local = self.git('rev-parse', 'HEAD')
+        self.git('commit', '--allow-empty', '-m', 'desktop branch', cwd=other)
+        self.git('push', 'origin', 'main', cwd=other)
+        self.assertFalse(self.call('pull', expectedHead=local)['ok'])
+        self.assertFalse(self.call('push', expectedHead=local)['ok'])
+        self.assertEqual(self.git('rev-parse', 'HEAD'), local)
+        self.assertNotEqual(local, updated)
+
+    def test_ignored_collision_blocks_pull_and_unsafe_pushurl_is_rejected(self):
+        self.make_remote()
+        (self.work / 'ignored').write_text('user file')
+        other = Path(self.temp.name) / 'computer'
+        self.git('clone', str(self.remote), str(other))
+        self.git('config', 'user.name', 'Computer', cwd=other)
+        self.git('config', 'user.email', 'computer@example.invalid', cwd=other)
+        (other / 'ignored').write_text('tracked upstream')
+        self.git('add', '-f', 'ignored', cwd=other)
+        self.git('commit', '-m', 'add collision', cwd=other)
+        self.git('push', 'origin', 'main', cwd=other)
+        self.assertFalse(self.call('pull', expectedHead=self.head)['ok'])
+        self.assertEqual((self.work / 'ignored').read_text(), 'user file')
+        self.git('config', 'remote.origin.pushurl', 'https://attacker.invalid/owner/repo.git')
+        self.assertFalse(self.call('push', expectedHead=self.head, token='fixture-secret')['ok'])
+        self.assertNotIn('fixture-secret', (self.work / '.git/config').read_text())
+
+    def test_push_creates_remote_commit_and_reports_unpushed_history(self):
+        self.make_remote()
+        self.assertTrue(self.commit(self.change(), ['代码.py'])['ok'])
+        local = self.git('rev-parse', 'HEAD')
+        self.assertEqual(self.result('history')['ahead'], 1)
+        self.result('push', expectedHead=local)
+        self.assertEqual(self.git('rev-parse', 'main', cwd=self.remote), local)
+        self.assertEqual(self.result('history')['ahead'], 0)
+
 
 if __name__ == '__main__':
     unittest.main()
