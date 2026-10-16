@@ -26,6 +26,7 @@ import Combine
         let owned = internalRoot.resolvingSymlinksInPath().standardizedFileURL
         guard scoped || root.path == owned.path || root.path.hasPrefix(owned.path + "/") else { throw LocalGitError(text: "未获得文件夹访问权限，请重新选择原目录。") }
         let identity = try LocalGitFileAccess.identity(url)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let bookmark = try url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil)
         if let previous = records.first(where: { $0.identity == identity }) {
             return LocalGitProject(id: previous.id, name: url.lastPathComponent, bookmark: bookmark, identity: identity,
@@ -45,6 +46,11 @@ import Combine
         next[index].active = false
         // Keep metadata, bookmarks and unpushed commits for explicit reattachment.
         try persist(next)
+    }
+    func retain(_ project: LocalGitProject) throws {
+        if records.contains(where: { $0.id == project.id && $0.active }) { return }
+        var retired = project; retired.active = false
+        try persist(records.filter { $0.id != project.id } + [retired])
     }
     private func persist(_ next: [LocalGitProject]) throws {
         guard readable else { throw LocalGitError(text: error) }

@@ -40,6 +40,7 @@ import Foundation
   do {try LocalGitFileAccess.write(root:folder,path:"代码.py",text:"overwrite",expected:opened.fingerprint);preconditionFailure("stale editor saved")}
   catch {precondition((try? String(contentsOf:file))=="external edit")}
   let current=try LocalGitFileAccess.read(root:folder,path:"代码.py")
+  do {try LocalGitFileAccess.write(root:folder,path:"代码.py",text:String(repeating:"x",count:1024*1024+1),expected:current.fingerprint);preconditionFailure("oversized save accepted")} catch {}
   try LocalGitFileAccess.write(root:folder,path:"代码.py",text:"edited",expected:current.fingerprint)
   precondition((try? String(contentsOf:file))=="edited")
   do {_=try LocalGitFileAccess.read(root:folder,path:"../registry");preconditionFailure("escaped root")} catch {}
@@ -56,6 +57,18 @@ import Foundation
   precondition(loaded.projects.isEmpty)
   let restored=try loaded.prepare(folder);precondition(restored.id==project.id)
   try loaded.attach(restored);precondition(loaded.projects.count==1)
+  let wrong=LocalGitProject(id:project.id,name:project.name,bookmark:project.bookmark,identity:"different directory",metadataID:project.metadataID,usesPrivateGit:project.usesPrivateGit)
+  do {try LocalGitFileAccess.withRoot(wrong,internalRoot:parent){_ in preconditionFailure("wrong identity accepted")};preconditionFailure("identity not checked")} catch {}
+  let bad=LocalGitProject(id:UUID(),name:"bad",bookmark:Data([0,1]),identity:project.identity,metadataID:UUID(),usesPrivateGit:true)
+  do {try LocalGitFileAccess.withRoot(bad,internalRoot:parent){_ in preconditionFailure("invalid bookmark accepted")};preconditionFailure("bookmark not checked")} catch {}
+  let broken=parent.appendingPathComponent("broken")
+  try FileManager.default.createDirectory(at:broken,withIntermediateDirectories:true)
+  let record=broken.appendingPathComponent("projects.json")
+  try Data("corrupt".utf8).write(to:record)
+  let corrupt=LocalGitRegistry(directory:broken,internalRoot:parent)
+  precondition(!corrupt.error.isEmpty)
+  do {try corrupt.attach(project);preconditionFailure("overwrote unreadable registry")} catch {}
+  precondition((try? String(contentsOf:record))=="corrupt")
   print("PASS original identity, duplicate import, edit conflict, symlink, exact delete and retained project")
  }
 }

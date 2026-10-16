@@ -17,13 +17,14 @@ actor LocalGitEngine {
                     try job.check()
                     if let generation, generation != AccountStore.generation { throw CancellationError() }
                     let result: T = try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot) { root in
-                        try LocalGitFileAccess.coordinate(root, writing: ["commit", "pull", "associate"].contains(operation)) { coordinated in
+                        try LocalGitFileAccess.coordinate(root, writing: ["commit", "pull", "associate", "clone"].contains(operation)) { coordinated in
                             guard try LocalGitFileAccess.identity(coordinated) == project.identity else { throw LocalGitError(text: "文件提供器切换了目录，请重新授权原目录。") }
                             var request = arguments
                             request["requestID"] = job.id
                             request["repository"] = project.usesPrivateGit ? metadata.path : root.appendingPathComponent(".git").path
                             request["workdir"] = root.path
                             request["privateGit"] = project.usesPrivateGit
+                            if operation == "clone" { request["destination"] = root.appendingPathComponent(try LocalGitRules.child(arguments["folderName"] as? String ?? "")).path }
                             return try Self.invoke(operation, request: request)
                         }
                     }
@@ -35,26 +36,31 @@ actor LocalGitEngine {
         try Task.checkCancellation()
         return value
     }
-    func file<T>(project: LocalGitProject, internalRoot: URL, operation: @escaping (URL) throws -> T) async throws -> T {
+    func file<T>(project: LocalGitProject, internalRoot: URL, generation: UUID? = nil, operation: @escaping (URL) throws -> T) async throws -> T {
         try Task.checkCancellation()
         let job = LocalGitJob()
         let result: T = try await withTaskCancellationHandler(operation: {
           try await withCheckedThrowingContinuation { continuation in
             queue.async {
-                continuation.resume(with: Result { try job.check(); return try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot, operation: operation) })
+                continuation.resume(with: Result {
+                    try job.check()
+                    if let generation, generation != AccountStore.generation { throw CancellationError() }
+                    return try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot, operation: operation)
+                })
             }
           }
         }, onCancel: { job.cancel() })
         try Task.checkCancellation(); return result
     }
-    func clone(parent: LocalGitProject, internalRoot: URL, name: String, remote: String, branch: String, token: String) async throws -> URL {
+    func clone(parent: LocalGitProject, metadata: URL, internalRoot: URL, name: String, remote: String, branch: String, token: String, generation: UUID) async throws -> LocalGitProject {
         let child = try LocalGitRules.child(name)
-        return try await file(project: parent, internalRoot: internalRoot) { root in
+        let _: LocalGitStatus = try await run("clone", project: parent, metadata: metadata, internalRoot: internalRoot,
+            arguments: ["folderName": child, "remote": remote, "branch": branch, "token": token], generation: generation)
+        return try await file(project: parent, internalRoot: internalRoot, generation: generation) { root in
             let target = root.appendingPathComponent(child, isDirectory: true)
-            try LocalGitFileAccess.coordinate(root, writing: true) { _ in
-                let _: LocalGitStatus = try Self.invoke("clone", request: ["destination": target.path, "remote": remote, "branch": branch, "token": token])
-            }
-            return target
+            return LocalGitProject(id: UUID(), name: child,
+                bookmark: try target.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil),
+                identity: try LocalGitFileAccess.identity(target), metadataID: UUID(), usesPrivateGit: false)
         }
     }
     nonisolated private static func invoke<T: Decodable>(_ operation: String, request: [String: Any]) throws -> T {
