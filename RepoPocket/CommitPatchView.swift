@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct CommitPatchDestination: View {
     private let build: () -> AnyView
@@ -14,8 +15,10 @@ struct CommitPatchView: View {
     @State private var raw = false
     @State private var failure = ""
     @State private var colored: [Int: AttributedString] = [:]
+    @State private var codeWidth: CGFloat = 0
     @Environment(\.colorScheme) private var colorScheme
-    private var renderKey: String { file.id + ":" + String(whitespace) + ":" + (colorScheme == .dark ? "dark" : "light") }
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var renderKey: String { file.id + ":" + String(whitespace) + ":" + (colorScheme == .dark ? "dark" : "light") + ":" + String(describing: dynamicTypeSize) }
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
@@ -28,11 +31,13 @@ struct CommitPatchView: View {
                 } else if let result {
                     if result.limited { Text("已达预览预算（1 MiB / 10,000行 / 单行8,192字）；仅显示部分内容。").foregroundColor(.orange).padding(8) }
                     if result.malformed { Text("部分 patch 位置不完整或格式异常；仅按可解析区块显示行号。").foregroundColor(.orange).padding(8) }
+                  GeometryReader { viewport in
                     if raw {
                         ScrollView([.horizontal, .vertical]) {
                             Text(String(decoding: (file.patch ?? "").utf8.prefix(CommitPatchParser.byteLimit), as: UTF8.self))
                                 .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                                 .fixedSize(horizontal: true, vertical: false).padding(8)
+                                .frame(minWidth: viewport.size.width, minHeight: viewport.size.height, alignment: .topLeading)
                         }
                     } else {
                       ScrollView([.horizontal, .vertical]) {
@@ -51,9 +56,11 @@ struct CommitPatchView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(row.kind == .addition ? Color.green.opacity(0.12) : (row.kind == .deletion ? Color.red.opacity(0.12) : Color.clear))
                         }
-                       }.fixedSize(horizontal: true, vertical: false)
+                       }.frame(width: max(viewport.size.width, codeWidth), alignment: .leading)
+                        .frame(minHeight: viewport.size.height, alignment: .topLeading)
                       }
                     }
+                  }
                 } else if failure.isEmpty { ProgressView("解析差异…").padding(8) }
                 if !failure.isEmpty { Text(failure).padding(8) }
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -61,21 +68,24 @@ struct CommitPatchView: View {
         .task(id: renderKey) {
             guard let patch = file.patch else { return }
             let name = file.filename, dark = colorScheme == .dark, spaces = whitespace
+            let font = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .regular)
             let worker = Task.detached(priority: .utility) {
                 let parsed = try CommitPatchParser.parse(patch)
                 var colors: [Int: NSAttributedString] = [:]
+                var width: CGFloat = 0
                 for row in parsed.rows {
                     try Task.checkCancellation()
                     let value = CommitPatchParser.visible(row.text, whitespace: spaces && [.context, .addition, .deletion].contains(row.kind))
                     colors[row.id] = [.context,.addition,.deletion].contains(row.kind)
                         ? SourceHighlighter.highlight(value, filename: name, dark: dark)
                         : NSAttributedString(string: value)
+                    width = max(width, ceil((value as NSString).size(withAttributes: [.font: font]).width) + 120)
                 }
-                return (parsed, colors)
+                return (parsed, colors, width)
             }
             do {
-                let (parsed, colors) = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
-                try Task.checkCancellation(); result = parsed; colored = colors.mapValues { AttributedString($0) }
+                let (parsed, colors, width) = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+                try Task.checkCancellation(); codeWidth = width; result = parsed; colored = colors.mapValues { AttributedString($0) }
             } catch { if !RefreshFailure.isCancellation(error) { failure = error.localizedDescription } }
         }
     }

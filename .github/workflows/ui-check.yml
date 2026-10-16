@@ -1,0 +1,46 @@
+name: Native UI checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/local-git-tools]
+    paths:
+      - RepoPocket/SourceTextSurface.swift
+      - RepoPocket/CommitPatchView.swift
+      - RepoPocket/LocalDiffPreview.swift
+      - RepoPocket/SourceStylePreview.swift
+      - StyleUITests/**
+      - Scripts/run_style_preview.sh
+      - .github/workflows/ui-check.yml
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+      - uses: actions/cache@v4
+        with:
+          path: NativeBuild
+          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh') }}
+      - name: Build real simulator application
+        run: |
+          set -euo pipefail
+          bash Scripts/build_native_git.sh iphonesimulator
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
+      - name: Exercise shipping local Git and code surfaces
+        run: bash Scripts/run_style_preview.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-style-preview
+          path: |
+            screenshots/*.png
+            screenshots/*.mp4
+            local-git-recording.log
+            preview-build.log
+            style-tests.log
+            style-tests.xcresult

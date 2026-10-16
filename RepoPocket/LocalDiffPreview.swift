@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct LocalDiffPreview: View {
     let change: LocalChange
@@ -8,6 +9,7 @@ struct LocalDiffPreview: View {
     @State private var expanded: Set<Int> = []
     @State private var cursor = -1
     @State private var failure: String?
+    @State private var codeWidth: CGFloat = 0
     private var before: String? { change.before ?? (change.kind == "新增" ? "" : nil) }
     private var after: String? { change.after ?? (change.kind == "删除" ? "" : nil) }
 
@@ -40,18 +42,25 @@ struct LocalDiffPreview: View {
         }
         .navigationTitle("变更对照")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: change.id) {
+        .task(id: change.id + ":" + String(whitespace)) {
             guard let before, let after else {
                 failure = "一侧文本不可用（二进制、超过 64 KiB 或旧基线缺少文本），无法准确计算差异。"
                 return
             }
-            let worker = Task.detached(priority: .userInitiated) {
-                try LocalDiffModel.compute(before: before, after: after)
+            let spaces = whitespace
+            let worker = Task.detached(priority: .utility) {
+                let computed = try LocalDiffModel.compute(before: before, after: after)
+                let font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+                let width = computed.rows.reduce(CGFloat(0)) { width, row in
+                    let value = LocalDiffModel.visible(row.runs.map(\.text).joined(), whitespace: spaces)
+                    return max(width, ceil((value as NSString).size(withAttributes: [.font: font]).width) + 70)
+                }
+                return (computed, width)
             }
             do {
-                let computed = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+                let (computed, width) = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
                 try Task.checkCancellation()
-                result = computed
+                codeWidth = width; result = computed
             } catch is CancellationError { } catch { failure = "差异计算失败，请查看全文。" }
         }
     }
@@ -79,6 +88,7 @@ struct LocalDiffPreview: View {
                         Button { jump(1, result, proxy) } label: { Label("下一处", systemImage: "chevron.down") }
                     }.font(.caption).padding(.horizontal).padding(.vertical, 10)
                 }
+              GeometryReader { viewport in
                 ScrollView([.horizontal, .vertical]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if result.changes.isEmpty { Text("文本内容相同（或两侧均为空文件）").foregroundStyle(.secondary).padding() }
@@ -97,8 +107,10 @@ struct LocalDiffPreview: View {
                                 }
                             }
                         }
-                    }.fixedSize(horizontal: true, vertical: false).textSelection(.enabled)
+                    }.frame(width: max(viewport.size.width, codeWidth), alignment: .leading)
+                        .frame(minHeight: viewport.size.height, alignment: .topLeading).textSelection(.enabled)
                 }
+              }
             }
         }
     }

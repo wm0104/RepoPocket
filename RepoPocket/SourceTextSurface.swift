@@ -24,18 +24,17 @@ final class SourceNativeTextView: UITextView {
     private var measuring = false
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
-        let container = NSTextContainer(size: .zero)
+        let container = NSTextContainer(size: CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
         let manager = NSLayoutManager()
         let storage = NSTextStorage()
         manager.addTextContainer(container)
         storage.addLayoutManager(manager)
         super.init(frame: frame, textContainer: container)
-        // UIKit documents zero container dimensions as unlimited. Hard newline
-        // characters still start new lines; the viewport never soft-wraps code.
+        // UITextView treats a zero-sized container as its default viewport.
+        // A positive unbounded size keeps hard lines intact on iOS as well.
         container.widthTracksTextView = false
         container.heightTracksTextView = false
         container.lineFragmentPadding = 0
-        container.size = .zero
         showsHorizontalScrollIndicator = true
         isDirectionalLockEnabled = false
     }
@@ -60,6 +59,10 @@ final class SourceNativeTextView: UITextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard !measuring, bounds.width > 0, bounds.height > 0 else { return }
+        if textContainer.size.width != .greatestFiniteMagnitude {
+            textContainer.size = CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+            geometryDirty = true
+        }
         if geometryDirty || measuredFont != font {
             measuring = true
             defer { measuring = false }
