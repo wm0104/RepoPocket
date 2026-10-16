@@ -147,6 +147,19 @@ class NativeGitBehavior(unittest.TestCase):
         self.assertTrue(diff['binary'])
         self.assertNotIn('secret', diff['text'])
 
+    def test_cancelled_commit_never_updates_head_and_large_scan_is_bounded(self):
+        status = self.change()
+        self.assertTrue(hasattr(self.native, 'rp_git_cancel'), 'Native cancellation is missing')
+        self.native.rp_git_cancel.argtypes = [ctypes.c_char_p]
+        self.native.rp_git_cancel(b'cancel-fixture')
+        response = self.call('commit', requestID='cancel-fixture', expectedHead=status['head'],
+                             files=[status['files'][0]], message='cancel', authorName='Fixture', authorEmail='fixture@example.invalid')
+        self.assertFalse(response['ok'])
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.head)
+        with (self.work/'large.bin').open('wb') as handle:
+            handle.truncate(129 * 1024 * 1024)
+        self.assertFalse(self.call('status')['ok'], 'Scan must reject oversized work before hashing it')
+
     def make_remote(self):
         self.remote = Path(self.temp.name) / 'remote.git'
         self.git('clone', '--bare', str(self.work), str(self.remote))
