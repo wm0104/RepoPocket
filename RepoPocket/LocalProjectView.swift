@@ -84,10 +84,15 @@ struct LocalProjectView: View {
                         TextField("作者邮箱（由你确认）",text:$authorEmail).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(bottom: true)
                     }
                     Section("本次选中文件") { ForEach(selected) { row in Text(row.path + " · " + row.label).softGroupedRow(top: row.id == selected.first?.id, bottom: row.id == selected.last?.id) } }
-                    Text("这里只创建本地提交，稍后可单独推送。未勾选文件保持原状。").font(.caption).softGroupedRow(top: true, bottom: true)
-                    Button("确认创建本地提交") { pendingCommit = true; sheet = nil }
-                        .disabled(commitMessage.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || authorEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .softGroupedRow(top: true, bottom: true)
+                    Section {
+                        SoftGroupRows {
+                            SoftGroupRow("help") { Text("这里只创建本地提交，稍后可单独推送。未勾选文件保持原状。").font(.caption) }
+                            SoftGroupRow("confirm") {
+                                Button("确认创建本地提交") { pendingCommit = true; sheet = nil }
+                                    .disabled(commitMessage.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || authorEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+                        }
+                    }
                 }.navigationTitle("确认本地提交").adaptiveWorkspaceLayout().toolbar { Button("取消") { sheet = nil } }
         }
     }

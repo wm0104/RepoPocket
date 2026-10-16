@@ -78,7 +78,7 @@ struct LocalProjectImportView: View {
                             SoftGroupRow("branch") { Text("分支：" + preview.branch) }
                             SoftGroupRow("head") { Text("基准：" + preview.head).font(.caption).textSelection(.enabled) }
                             SoftGroupRow("help") { Text("以下是原文件相对此基准的变化。ZIP 的下载时版本无法自动确认；删除和回退也会显示在这里。").font(.caption) }
-                            for row in preview.files { SoftGroupRow(row.path) { Label(row.path + " · " + row.label, systemImage: row.kind == "deleted" ? "minus.circle" : "doc") } }
+                            for row in preview.files { SoftGroupRow("file:" + row.path) { Label(row.path + " · " + row.label, systemImage: row.kind == "deleted" ? "minus.circle" : "doc") } }
                             if preview.files.isEmpty { SoftGroupRow("empty") { Text("没有内容变化") } }
                             if !preview.staged.isEmpty || preview.repoState != 0 { SoftGroupRow("blocked") { Text("已有暂存或未完成 Git 操作，请先在原工具处理。") } }
                             SoftGroupRow("attach") { Button("确认关联原目录") { do { try store.attach(folder); dismiss() } catch { message = error.localizedDescription } }.disabled(!preview.canCommit) }
@@ -90,9 +90,13 @@ struct LocalProjectImportView: View {
                         }.disabled(busy)
                     }
                 }
-                if busy { ProgressView("处理中，请保持前台…").softGroupedRow(top: true, bottom: true) }
-                if !message.isEmpty { Text(message).foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
-                Text("不会复制原目录或覆盖现有文件。首次获取仓库需要网络；后续可离线检查和本地提交。").font(.caption).foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true)
+                Section {
+                    SoftGroupRows {
+                        if busy { SoftGroupRow("busy") { ProgressView("处理中，请保持前台…") } }
+                        if !message.isEmpty { SoftGroupRow("message") { Text(message).foregroundStyle(.secondary) } }
+                        SoftGroupRow("help") { Text("不会复制原目录或覆盖现有文件。首次获取仓库需要网络；后续可离线检查和本地提交。").font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
             }.navigationTitle("添加本地项目").adaptiveWorkspaceLayout()
             .onChange(of: remote) { value in
                 if let selectedRepository, value != selectedRepository.full_name { self.selectedRepository = nil; branch = "" }

@@ -577,7 +577,8 @@ struct FileView: View {
                 SourceCodeEditor(text: $text, filename: entry.path)
                 if text.utf8.count > SourceTextRules.byteLimit { Text("内容超过 1 MiB，请缩小后再提交。").font(.caption).foregroundStyle(.red).padding(.horizontal) }
                 Divider()
-                TextField("提交说明", text: $commitMessage).textFieldStyle(.roundedBorder).padding()
+                Form { Section { TextField("提交说明", text: $commitMessage).softGroupedRow(top: true, bottom: true) } }
+                    .scrollDisabled(true).frame(height: 100)
             }.navigationTitle("编辑 " + entry.name).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { editing = false }.disabled(busy) }

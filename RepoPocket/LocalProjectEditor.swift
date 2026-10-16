@@ -90,7 +90,7 @@ struct LocalProjectFilesView: View {
         List {
           SoftGroupRows {
             for entry in entries {
-              SoftGroupRow(entry.id) {
+              SoftGroupRow("entry:" + entry.id) {
                 if entry.directory {
                     NavigationLink { AnyView(LocalProjectFilesView(project: project, internalRoot: internalRoot, directory: entry.path, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
                 } else {

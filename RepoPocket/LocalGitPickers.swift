@@ -59,7 +59,7 @@ struct LocalGitBranchPicker: View {
             Section {
                 SoftGroupRows {
                     for branch in branches {
-                        SoftGroupRow(branch.id) {
+                        SoftGroupRow("branch:" + branch.id) {
                             Button { select(branch.name); dismiss() } label: {
                                 HStack { Text(branch.name); Spacer(); if branch.name == current { Image(systemName: "checkmark") } }
                             }

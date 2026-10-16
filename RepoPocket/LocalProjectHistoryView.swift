@@ -37,7 +37,7 @@ struct LocalProjectCommitView: View {
                 Section("变更文件 · \(detail.files.count)") {
                     SoftGroupRows {
                         for file in detail.files {
-                            SoftGroupRow(file.id) {
+                            SoftGroupRow("file:" + file.id) {
                                 NavigationLink { CommitPatchDestination(file: file) } label: {
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(file.filename)
