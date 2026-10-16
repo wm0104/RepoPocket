@@ -207,31 +207,28 @@ struct LocalProjectView: View {
 struct LocalProjectDiffView:View {
     let project:LocalGitProject;let metadata:URL;let internalRoot:URL;let path:String;let head:String
     @Environment(\.dismiss) private var dismiss
-    @State private var diff: LocalGitDiff?
-    @State private var failure = ""
-    @State private var attempted=false
+    @StateObject private var request = RepositoryPageLoadState<LocalGitDiff>()
+    @State private var generation = AccountStore.generation
+    private var diff: LocalGitDiff? { request.value }
+    private var failure: String { request.error }
     var body:some View {
         NavigationStack {
             Group {
                 if let diff {
                     VStack(spacing: 0) {
                         if diff.truncated { Text("差异超过 256 KiB，未完整展示。").font(.caption).foregroundStyle(.secondary).padding() }
-                        CommitPatchView(file: DesktopCommit.File(filename: path, previous_filename: nil, status: "modified", additions: 0, deletions: 0, patch: diff.binary ? nil : diff.text))
+                        CommitPatchView(file: DesktopCommit.File(filename: path, previous_filename: nil, status: "modified", additions: 0, deletions: 0, patch: diff.binary ? nil : diff.text), workingTree: true)
                     }
                 } else if failure.isEmpty { ProgressView("读取文件差异…") }
-                else { Text(failure).foregroundStyle(.secondary).padding() }
+                else { VStack { Text(failure).foregroundStyle(.secondary); Button("重试") { Task { await load(refresh: true) } } }.padding() }
             }
                 .navigationTitle((path as NSString).lastPathComponent).toolbar { Button("关闭"){dismiss()} }
-                .task {
-                    guard !attempted else{return};attempted=true
-                    do {
-                        let value:LocalGitDiff = try await LocalGitEngine.shared.run("diff",project:project,metadata:metadata,internalRoot:internalRoot,arguments:["path":path,"expectedHead":head])
-                        try Task.checkCancellation(); diff = value
-                    } catch {
-                        if Task.isCancelled || RefreshFailure.isCancellation(error) { attempted = false }
-                        else { failure = error.localizedDescription }
-                    }
-                }
+                .task { await load() }
         }
+    }
+    private func load(refresh: Bool = false) async {
+        await request.load(key: project.id.uuidString + ":" + path + ":" + head + ":" + generation.uuidString, refresh: refresh,
+            operation: { try await LocalGitEngine.shared.run("diff", project: project, metadata: metadata, internalRoot: internalRoot, arguments: ["path":path,"expectedHead":head], generation: generation) },
+            isValid: { generation == AccountStore.generation })
     }
 }

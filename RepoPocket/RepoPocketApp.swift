@@ -509,7 +509,8 @@ struct FileView: View {
     @State private var confirmSave = false
     @State private var confirmDelete = false
     @State private var deleted = false
-    @State private var attemptedRead = false
+    private struct LoadedText { let text: String; let sha: String }
+    @StateObject private var sourceRequest = RepositoryPageLoadState<LoadedText>()
     @State private var readingError = ""
     @State private var editing = false
     @State private var originalText = ""
@@ -533,8 +534,7 @@ struct FileView: View {
         .navigationTitle(entry.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            guard !attemptedRead else { return }; attemptedRead = true
-            if SourceTextRules.automaticallyLoads(filename: entry.name, size: entry.size) { await read() }
+            if SourceTextRules.automaticallyLoads(filename: entry.name, size: entry.size) { await read(refresh: false) }
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
@@ -588,22 +588,24 @@ struct FileView: View {
             .interactiveDismissDisabled(busy)
         }
     }
-    private func read() async {
+    private func read(refresh: Bool = true) async {
         guard !busy, !deleted, api.isCurrentSession else { return }
+        if editable && !refresh { return }
         readingError = ""
         busy = true; defer { busy = false }
-        do {
+        await sourceRequest.load(key: api.accountID + ":" + repo + ":" + branch + ":" + entry.path, refresh: refresh, operation: {
             guard entry.size == nil || (entry.size ?? 0) <= SourceTextRules.byteLimit else { throw AppError(text: "编辑器只加载 1 MiB 内文本；其他文件可下载或替换上传。") }
             let f = try await api.file(repo, path: entry.path, branch: branch)
             guard f.encoding == "base64", let s = f.content,
                   let bytes = Data(base64Encoded: s, options: .ignoreUnknownCharacters) else { throw AppError(text: "此文件未提供可读取的文本内容，请下载后打开。") }
             let t = try SourceTextRules.decode(bytes)
-            try Task.checkCancellation(); guard api.isCurrentSession else { return }
-            text = t; originalText = t; currentSHA = f.sha; editable = true
-        } catch {
-            if RefreshFailure.isCancellation(error) { attemptedRead = false }
-            else if api.isCurrentSession { readingError = error.localizedDescription }
+            return LoadedText(text: t, sha: f.sha)
+        }, isValid: { api.isCurrentSession })
+        guard api.isCurrentSession else { return }
+        if sourceRequest.error.isEmpty, let document = sourceRequest.value {
+            text = document.text; originalText = document.text; currentSHA = document.sha; editable = true
         }
+        readingError = sourceRequest.error
     }
     private func save() async {
         guard writable, !busy, !currentSHA.isEmpty, text.utf8.count <= SourceTextRules.byteLimit else { return }

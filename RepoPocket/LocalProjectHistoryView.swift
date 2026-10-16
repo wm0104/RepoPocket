@@ -18,10 +18,10 @@ struct LocalProjectCommitView: View {
     let metadata: URL
     let internalRoot: URL
     let sha: String
-    @State private var detail: LocalGitCommitDetail?
-    @State private var attempted = false
-    @State private var busy = false
-    @State private var failure = ""
+    @StateObject private var request = RepositoryPageLoadState<LocalGitCommitDetail>()
+    private var detail: LocalGitCommitDetail? { request.value }
+    private var busy: Bool { request.loading }
+    private var failure: String { request.error }
     @State private var generation = AccountStore.generation
     var body: some View {
         List {
@@ -54,20 +54,14 @@ struct LocalProjectCommitView: View {
             if busy { ProgressView("读取本地提交…").softGroupedRow(top: true, bottom: true) }
             if !failure.isEmpty { Section {
                 Text(failure).font(.caption).softGroupedRow(top: true)
-                Button("重试") { Task { await load() } }.disabled(busy).softGroupedRow(bottom: true)
+                Button("重试") { Task { await load(refresh: true) } }.disabled(busy).softGroupedRow(bottom: true)
             } }
         }.listStyle(.insetGrouped).navigationTitle("提交详情").adaptiveWorkspaceLayout()
-        .task { guard !attempted else { return }; attempted = true; await load() }
+        .task { await load() }
     }
-    private func load() async {
-        guard !busy, generation == AccountStore.generation else { return }
-        busy = true; failure = ""; defer { busy = false }
-        do {
-            let value: LocalGitCommitDetail = try await LocalGitEngine.shared.run("commitDetail", project: project, metadata: metadata, internalRoot: internalRoot, arguments: ["sha":sha], generation: generation)
-            try Task.checkCancellation(); guard generation == AccountStore.generation else { return }; detail = value
-        } catch {
-            if Task.isCancelled || RefreshFailure.isCancellation(error) { attempted = false }
-            else { failure = error.localizedDescription }
-        }
+    private func load(refresh: Bool = false) async {
+        await request.load(key: project.id.uuidString + ":" + sha + ":" + generation.uuidString, refresh: refresh,
+            operation: { try await LocalGitEngine.shared.run("commitDetail", project: project, metadata: metadata, internalRoot: internalRoot, arguments: ["sha":sha], generation: generation) },
+            isValid: { generation == AccountStore.generation })
     }
 }
