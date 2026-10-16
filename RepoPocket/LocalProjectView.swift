@@ -16,7 +16,7 @@ struct LocalProjectView: View {
     @AppStorage("localGit.authorEmail") private var authorEmail = ""
     @State private var commitMessage = ""
     private var valid: Bool { generation == AccountStore.generation && api.isCurrentSession && store.projects.contains(where: { $0.id == project.id }) }
-    private var selected: [LocalGitChange] { state.snapshot?.status.files.filter { state.selected.contains($0.path) } ?? [] }
+    private var selected: [LocalGitChange] { state.snapshot?.status.files.filter { state.selected.contains($0.path) && $0.blocked.isEmpty } ?? [] }
     private var commitBlockedReason: String? {
         if state.busy { return "正在核对或执行 Git 操作，请稍候。" }
         if !state.fresh { return "结果尚未核对，请下拉刷新后再提交。" }
@@ -227,7 +227,10 @@ struct LocalProjectDiffView:View {
                     do {
                         let value:LocalGitDiff = try await LocalGitEngine.shared.run("diff",project:project,metadata:metadata,internalRoot:internalRoot,arguments:["path":path,"expectedHead":head])
                         try Task.checkCancellation(); diff = value
-                    } catch { if !RefreshFailure.isCancellation(error) { failure = error.localizedDescription } }
+                    } catch {
+                        if Task.isCancelled || RefreshFailure.isCancellation(error) { attempted = false }
+                        else { failure = error.localizedDescription }
+                    }
                 }
         }
     }

@@ -527,6 +527,7 @@ struct FileView: View {
                     Button("下载 / 存到文件") { Task { await download() } }.disabled(busy)
                 }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            if !readingError.isEmpty && editable { Text(readingError).font(.caption).foregroundStyle(.secondary).padding() }
             if !downloadNotice.isEmpty { Text(downloadNotice).font(.caption).foregroundStyle(.secondary).padding() }
         }.background(Color(uiColor: .systemBackground))
         .navigationTitle(entry.name)
@@ -574,6 +575,7 @@ struct FileView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 SourceCodeEditor(text: $text, filename: entry.path)
+                if text.utf8.count > SourceTextRules.byteLimit { Text("内容超过 1 MiB，请缩小后再提交。").font(.caption).foregroundStyle(.red).padding(.horizontal) }
                 Divider()
                 TextField("提交说明", text: $commitMessage).textFieldStyle(.roundedBorder).padding()
             }.navigationTitle("编辑 " + entry.name).navigationBarTitleDisplayMode(.inline)
@@ -598,7 +600,10 @@ struct FileView: View {
             let t = try SourceTextRules.decode(bytes)
             try Task.checkCancellation(); guard api.isCurrentSession else { return }
             text = t; originalText = t; currentSHA = f.sha; editable = true
-        } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { readingError = error.localizedDescription } }
+        } catch {
+            if RefreshFailure.isCancellation(error) { attemptedRead = false }
+            else if api.isCurrentSession { readingError = error.localizedDescription }
+        }
     }
     private func save() async {
         guard writable, !busy, !currentSHA.isEmpty, text.utf8.count <= SourceTextRules.byteLimit else { return }
@@ -609,7 +614,13 @@ struct FileView: View {
             originalText = text; editing = false; currentSHA = ""
             api.message = "修改已提交到 GitHub。"
             // A failed post-save read must not permit another PUT with an old SHA.
-            currentSHA = try await api.file(repo, path: entry.path, branch: branch).sha
+            do {
+                let fresh = try await api.file(repo, path: entry.path, branch: branch)
+                guard let content = fresh.content, let bytes = Data(base64Encoded: content, options: .ignoreUnknownCharacters) else { throw AppError(text: "无法重新读取文本") }
+                let confirmed = try SourceTextRules.decode(bytes)
+                if confirmed != originalText { originalText = confirmed; text = confirmed; api.message = "提交成功；远端随后有新修改，已重新载入，请确认后编辑。" }
+                currentSHA = fresh.sha
+            } catch { if api.isCurrentSession { readingError = "提交已成功，但无法重新读取当前文件；请从菜单重新加载后再编辑。" } }
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
     private func remove() async {

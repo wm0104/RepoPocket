@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct LocalProjectFile: Identifiable { let path: String; var id: String { path } }
+struct LocalProjectFile: Identifiable { let path: String; var deleting = false; var id: String { path } }
 struct LocalProjectEditor: View {
     let project: LocalGitProject
     let internalRoot: URL
@@ -84,7 +84,6 @@ struct LocalProjectFilesView: View {
     let changed: () -> Void
     @State private var entries: [LocalFileEntry] = []
     @State private var opened: LocalProjectFile?
-    @State private var deleting = false
     @State private var loaded = false
     @State private var error = ""
     var body: some View {
@@ -95,8 +94,8 @@ struct LocalProjectFilesView: View {
                 if entry.directory {
                     NavigationLink { AnyView(LocalProjectFilesView(project: project, internalRoot: internalRoot, directory: entry.path, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
                 } else {
-                    Button { deleting = false; opened = LocalProjectFile(path: entry.path) } label: { Label(entry.name, systemImage: "doc.text") }
-                        .contextMenu { Button("删除此文件", role: .destructive) { deleting = true; opened = LocalProjectFile(path: entry.path) } }
+                    Button { opened = LocalProjectFile(path: entry.path) } label: { Label(entry.name, systemImage: "doc.text") }
+                        .contextMenu { Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) } }
                 }
               }
             }
@@ -108,7 +107,7 @@ struct LocalProjectFilesView: View {
         .toolbar { Button("刷新列表") { Task { await load() } } }
         .refreshable { await load() }
         .sheet(item: $opened, onDismiss: { Task { await load() } }) { file in
-            LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: deleting, changed: changed)
+            LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
         }
     }
     private func load() async {

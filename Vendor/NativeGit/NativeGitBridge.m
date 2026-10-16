@@ -521,6 +521,23 @@ static NSDictionary *RPHistory(git_repository *repo, RPGitResources *c) {
     }
     return @{@"commits":commits, @"ahead":@(ahead), @"behind":@(behind), @"tracking":@(tracked), @"remote":remoteURL};
 }
+typedef struct {
+    size_t deltas, comparisons;
+    BOOL limited;
+    __unsafe_unretained NSString *requestID;
+} RPCommitDiffBudget;
+static int RPCommitDiffNotify(const git_diff *diff, const git_diff_delta *delta, const char *path, void *payload) {
+    RPCommitDiffBudget *budget = payload;
+    if (RPIsCancelled(budget->requestID)) return GIT_EUSER;
+    if (++budget->deltas > 200) { budget->limited = YES; return GIT_EUSER; }
+    return 0;
+}
+static int RPCommitDiffProgress(const git_diff *diff, const char *oldPath, const char *newPath, void *payload) {
+    RPCommitDiffBudget *budget = payload;
+    if (RPIsCancelled(budget->requestID)) return GIT_EUSER;
+    if (++budget->comparisons > 20000) { budget->limited = YES; return GIT_EUSER; }
+    return 0;
+}
 // Immutable tree-to-tree reads never inspect or modify the working directory.
 static NSDictionary *RPCommitDetail(git_repository *repo, NSDictionary *q, RPGitResources *c) {
     NSString *sha = RPString(q,@"sha"); git_oid oid;
@@ -535,27 +552,36 @@ static NSDictionary *RPCommitDetail(git_repository *repo, NSDictionary *q, RPGit
         RPCheck(git_commit_parent(&parent,commit,0), @"读取父提交失败。"); KEEP(parent,git_commit_free);
         RPCheck(git_commit_tree(&before,parent), @"读取父提交文件失败。"); KEEP(before,git_tree_free);
     }
+    RPCommitDiffBudget bounds = {0,0,NO,q[@"requestID"]};
     git_diff_options options = GIT_DIFF_OPTIONS_INIT; options.max_size = 256 * 1024;
+    options.notify_cb = RPCommitDiffNotify; options.progress_cb = RPCommitDiffProgress; options.payload = &bounds;
     git_diff *diff = NULL;
-    RPCheck(git_diff_tree_to_tree(&diff,repo,before,tree,&options), @"读取提交差异失败。"); KEEP(diff,git_diff_free);
-    NSMutableArray *files = [NSMutableArray array]; BOOL truncated = NO; size_t budget = 0;
-    for (size_t i=0; i<git_diff_num_deltas(diff); i++) {
+    int diffResult = git_diff_tree_to_tree(&diff,repo,before,tree,&options); KEEP(diff,git_diff_free);
+    if (!bounds.limited) RPCheck(diffResult, @"读取提交差异失败。");
+    NSMutableArray *files = [NSMutableArray array]; BOOL truncated = bounds.limited; size_t budget = 0;
+    for (size_t i=0; diff && i<git_diff_num_deltas(diff); i++) {
         RPRequire(!RPIsCancelled(q[@"requestID"]), @"Git 操作已取消。");
         if (files.count >= 200) { truncated = YES; break; }
         const git_diff_delta *delta = git_diff_get_delta(diff,i);
         git_patch *patch = NULL;
-        RPCheck(git_patch_from_diff(&patch,diff,i), @"生成提交差异失败。"); KEEP(patch,git_patch_free);
         size_t additions = 0, deletions = 0;
         NSString *text = nil;
-        if (patch && !(delta->flags & GIT_DIFF_FLAG_BINARY)) {
+        if (budget < 1024 * 1024) {
+          RPCheck(git_patch_from_diff(&patch,diff,i), @"生成提交差异失败。");
+          @try {
+           if (patch && !(delta->flags & GIT_DIFF_FLAG_BINARY)) {
             git_patch_line_stats(NULL,&additions,&deletions,patch);
             git_buf buffer = GIT_BUF_INIT;
             int rc = git_patch_to_buf(&buffer,patch);
             if (rc == 0 && buffer.size <= 256 * 1024 && budget + buffer.size <= 1024 * 1024) {
                 text = [[NSString alloc] initWithBytes:buffer.ptr length:buffer.size encoding:NSUTF8StringEncoding];
                 budget += buffer.size;
-            } else { truncated = YES; }
+            } else { truncated = YES; budget = 1024 * 1024; }
             git_buf_dispose(&buffer);
+           }
+          } @finally { git_patch_free(patch); }
+        } else {
+            truncated = YES;
         }
         const char *path = delta->new_file.path ?: delta->old_file.path;
         [files addObject:@{@"filename":@(path ?: ""), @"status":delta->status == GIT_DELTA_ADDED ? @"added" : (delta->status == GIT_DELTA_DELETED ? @"removed" : @"modified"),

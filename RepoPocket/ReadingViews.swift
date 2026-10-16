@@ -109,15 +109,13 @@ struct FileReadingView: View {
     @State private var markdown = true
     private var isMarkdown: Bool { ["md", "markdown", "mdown"].contains((path as NSString).pathExtension.lowercased()) }
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+          if isMarkdown { Toggle("Markdown 排版", isOn: $markdown).padding(.horizontal).padding(.vertical, 8) }
           if !isMarkdown || !markdown { SourceCodeView(text: text, filename: path) }
           else { ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if isMarkdown { Toggle("Markdown 排版", isOn: $markdown) }
-                if isMarkdown && markdown {
                     CommunityMarkdown(text: text, baseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: false),
                         imageBaseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: true), api: api)
-                }
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
           } }
         }.navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)

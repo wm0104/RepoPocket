@@ -33,7 +33,7 @@ struct LocalGitSnapshot { let status: LocalGitStatus; let history: LocalGitHisto
                 try Task.checkCancellation()
                 guard self.requestID == id, valid() else { return }
                 self.snapshot = value; self.fresh = version == self.revision
-                self.selected.formIntersection(Set(value.status.files.map(\.path)))
+                self.selected.formIntersection(Set(value.status.files.filter { $0.blocked.isEmpty }.map(\.path)))
             } catch {
                 if self.requestID == id, valid(), !(error is CancellationError) { self.error = error.localizedDescription }
             }

@@ -115,6 +115,26 @@ class NativeGitBehavior(unittest.TestCase):
         self.assertEqual({f['filename'] for f in initial['files']}, {'代码.py', 'other.txt', '.gitignore'})
         self.assertFalse(self.call('commitDetail', sha='HEAD~1')['ok'])
 
+    def test_commit_detail_stops_building_oversized_file_lists(self):
+        for number in range(201):
+            (self.work / f'file-{number:03}.txt').write_text('small\n')
+        self.git('add', '.')
+        self.git('commit', '-m', 'large file list')
+        detail = self.result('commitDetail', sha=self.git('rev-parse', 'HEAD'))
+        self.assertTrue(detail['truncated'])
+        self.assertLessEqual(len(detail['files']), 200)
+
+    def test_commit_detail_bounds_patch_bytes_but_preserves_file_names(self):
+        for number in range(12):
+            (self.work / f'large-{number:02}.txt').write_text('a' * 96000 + '\n')
+        self.git('add', '.')
+        self.git('commit', '-m', 'large content')
+        detail = self.result('commitDetail', sha=self.git('rev-parse', 'HEAD'))
+        self.assertTrue(detail['truncated'])
+        self.assertEqual(len(detail['files']), 12)
+        self.assertLessEqual(sum(len((f['patch'] or '').encode()) for f in detail['files']), 1024 * 1024)
+        self.assertIsNone(detail['files'][-1]['patch'])
+
     def test_commit_only_selected_and_preserve_other_changes(self):
         response = self.commit(self.change(), ['代码.py', 'new 空.txt'])
         self.assertTrue(response['ok'], response)

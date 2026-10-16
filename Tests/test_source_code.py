@@ -26,7 +26,7 @@ import Foundation
   let triple = "x = \"\"\"hello\n# not a comment\nreturn 4\"\"\"\nprint(x)"
   precondition(words(triple,"code.py",.string).count == 1 && words(triple,"code.py",.comment).isEmpty)
   precondition(words("let x = true // def None", "a.swift", .keyword) == ["let","true"])
-  precondition(words("const x = null; # private", "a.js", .keyword) == ["const","null"])
+  precondition(words("const None = null;", "a.js", .keyword) == ["const","null"])
   precondition(words("SELECT name FROM users WHERE id = 12 -- return", "a.sql", .keyword) == ["SELECT","FROM","WHERE"])
   precondition(words("{\"private\":true,\"x\":12}", "a.json", .keyword) == ["true"])
   precondition(SourceLexer.tokens("def True 123", filename:"note.unknown").isEmpty)

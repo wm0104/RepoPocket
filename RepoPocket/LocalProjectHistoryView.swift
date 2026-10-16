@@ -41,13 +41,13 @@ struct LocalProjectCommitView: View {
                                 NavigationLink { CommitPatchDestination(file: file) } label: {
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(file.filename)
-                                        Text("+\(file.additions)  −\(file.deletions)").font(.caption).foregroundStyle(.secondary)
+                                        Text(file.patch == nil ? "二进制、较大文件或差异超出预算" : "+\(file.additions)  −\(file.deletions)").font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
                             }
                         }
-                        if detail.files.isEmpty { SoftGroupRow("empty") { Text("此提交没有文件内容变化") } }
-                        if detail.truncated { SoftGroupRow("limit") { Text("最多展示 200 个文件、总计 1 MiB 差异；部分内容未展示。").font(.caption).foregroundStyle(.secondary) } }
+                        if detail.files.isEmpty && !detail.truncated { SoftGroupRow("empty") { Text("此提交没有文件内容变化") } }
+                        if detail.truncated { SoftGroupRow("limit") { Text("提交超过预览预算（200 个变化文件、20,000 项比较或 1 MiB 差异），未完整展示；可使用桌面工具查看。").font(.caption).foregroundStyle(.secondary) } }
                     }
                 }
             }
@@ -65,6 +65,9 @@ struct LocalProjectCommitView: View {
         do {
             let value: LocalGitCommitDetail = try await LocalGitEngine.shared.run("commitDetail", project: project, metadata: metadata, internalRoot: internalRoot, arguments: ["sha":sha], generation: generation)
             try Task.checkCancellation(); guard generation == AccountStore.generation else { return }; detail = value
-        } catch { if !RefreshFailure.isCancellation(error) { failure = error.localizedDescription } }
+        } catch {
+            if Task.isCancelled || RefreshFailure.isCancellation(error) { attempted = false }
+            else { failure = error.localizedDescription }
+        }
     }
 }

@@ -114,7 +114,11 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
             label.draw(at: CGPoint(x: rect.width - label.size(withAttributes: attributes).width - 8,
                 y: used.minY + self.textView.textContainerInset.top - self.textView.contentOffset.y + 1), withAttributes: attributes)
         }
-        if textView.text.isEmpty { ("1" as NSString).draw(at: CGPoint(x: rect.width - 16,y: 13),withAttributes: attributes) }
+        if manager.extraLineFragmentTextContainer != nil {
+            let label = String(lineStarts.count) as NSString
+            let y = manager.extraLineFragmentRect.minY + textView.textContainerInset.top - textView.contentOffset.y + 1
+            label.draw(at: CGPoint(x: rect.width - label.size(withAttributes: attributes).width - 8,y: y),withAttributes: attributes)
+        }
     }
 }
 private final class SourceLineGutter: UIView {

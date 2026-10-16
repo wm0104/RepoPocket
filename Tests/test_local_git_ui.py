@@ -81,6 +81,17 @@ import Foundation
   await Task.yield();cancelled.cancel();await interrupted.value
   await cancelled.check(valid:{true}) {retried+=1;return snapshot}
   precondition(cancelled.fresh && retried==1, "A cancelled check must be retryable on return")
+  let changed=LocalProjectState();var scans=0
+  let old=Task {await changed.check(valid:{true}) {scans+=1;try await Task.sleep(nanoseconds:40_000_000);return snapshot}}
+  await Task.yield();changed.filesChanged()
+  await changed.check(force:true,valid:{true}) {scans+=1;return snapshot}
+  await old.value
+  precondition(changed.fresh && scans==2, "A save during an older scan requires one subsequent scan")
+  let blocked=LocalGitChange(path:"blocked.py",kind:"modified",fingerprint:"x",blocked:"unsupported")
+  let blockedStatus=LocalGitStatus(head:status.head,branch:"main",reference:status.reference,files:[blocked],staged:[],repoState:0)
+  changed.selected=["blocked.py"]
+  await changed.check(force:true,valid:{true}) {LocalGitSnapshot(status:blockedStatus,history:history)}
+  precondition(changed.selected.isEmpty, "Newly unsupported files cannot remain selected for commit")
   print("PASS twenty appearances, empty result, coalesced requests, cancelled selection and account invalidation")
  }
 }
