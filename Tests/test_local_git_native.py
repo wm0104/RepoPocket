@@ -4,6 +4,7 @@ import ctypes
 import json
 import os
 import platform
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -236,6 +237,57 @@ class NativeGitBehavior(unittest.TestCase):
         self.result('push', expectedHead=local)
         self.assertEqual(self.git('rev-parse', 'main', cwd=self.remote), local)
         self.assertEqual(self.result('history')['ahead'], 0)
+
+    def test_tracked_files_remain_bounded_inside_ignored_directories(self):
+        folder = self.work/'tracked'
+        folder.mkdir()
+        (folder/'file').write_text('tracked')
+        self.git('add', '.')
+        self.git('commit', '-m', 'track before ignore')
+        (self.work/'.gitignore').write_text('ignored\ntracked/\n')
+        (folder/'file').write_text('changed tracked content')
+        self.assertIn('tracked/file', {r['path'] for r in self.result('status')['files']})
+        with (folder/'file').open('wb') as handle:
+            handle.truncate(129 * 1024 * 1024)
+        self.assertFalse(self.call('status')['ok'])
+
+    def test_interrupted_commit_is_readable_and_recoverable_without_user_file_changes(self):
+        self.assertTrue(self.commit(self.change(), ['代码.py'])['ok'])
+        new = self.git('rev-parse', 'HEAD')
+        prepared = self.work/'.git/repopocket-index-fixture'
+        shutil.copyfile(self.work/'.git/index', prepared)
+        self.git('read-tree', self.head)
+        journal = self.work/'.git/repopocket-transaction.json'
+        journal.write_text(json.dumps(dict(operation='commit', oldHead=self.head, newHead=new,
+                                           reference='refs/heads/main', preparedIndex=prepared.name)))
+        self.assertEqual(self.result('status')['repoState'], 100)
+        self.result('recover', expectedHead=new)
+        self.assertFalse(journal.exists())
+        self.assertEqual(self.git('diff', '--cached', '--name-only'), '')
+        self.assertEqual((self.work/'代码.py').read_text(), 'print("new")\n')
+        self.assertFalse((self.work/'other.txt').exists())
+
+    def test_interrupted_pull_resume_refuses_external_edits(self):
+        self.make_remote()
+        other = Path(self.temp.name)/'computer'
+        self.git('clone', str(self.remote), str(other))
+        self.git('config', 'user.name', 'Computer', cwd=other)
+        self.git('config', 'user.email', 'computer@example.invalid', cwd=other)
+        (other/'代码.py').write_text('remote update')
+        self.git('add', '.', cwd=other)
+        self.git('commit', '-m', 'remote update', cwd=other)
+        self.git('push', 'origin', 'main', cwd=other)
+        self.git('fetch', 'origin')
+        remote_head=self.git('rev-parse', 'origin/main')
+        journal=self.work/'.git/repopocket-transaction.json'
+        journal.write_text(json.dumps(dict(operation='pull', oldHead=self.head, newHead=remote_head, reference='refs/heads/main')))
+        (self.work/'代码.py').write_text('preserve phone edit')
+        self.assertFalse(self.call('recover',expectedHead=self.head)['ok'])
+        self.assertEqual((self.work/'代码.py').read_text(),'preserve phone edit')
+        (self.work/'代码.py').write_text('print("old")\n')
+        self.result('recover',expectedHead=self.head)
+        self.assertEqual(self.git('rev-parse','HEAD'),remote_head)
+        self.assertEqual((self.work/'代码.py').read_text(),'remote update')
 
 
 if __name__ == '__main__':

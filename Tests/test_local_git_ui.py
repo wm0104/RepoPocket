@@ -46,6 +46,10 @@ import Foundation
   await first.value;await second.value;precondition(loads==1)
   valid=false
   await another.check(force:true,valid:{valid}) {preconditionFailure("old account loaded")}
+  let invalidated=LocalProjectState();var session=true
+  let pending=Task {await invalidated.check(valid:{session}) {try await Task.sleep(nanoseconds:20_000_000);return snapshot}}
+  await Task.yield();session=false;await pending.value
+  precondition(!invalidated.busy && !invalidated.fresh && invalidated.snapshot==nil)
   print("PASS twenty appearances, empty result, coalesced requests, cancelled selection and account invalidation")
  }
 }
