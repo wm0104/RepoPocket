@@ -1,4 +1,4 @@
-"""Export the fixed-data native swipe and README screenshots from Xcode 15."""
+"""Export native UI regression screenshots from Xcode 15."""
 import json
 from pathlib import Path
 import subprocess
@@ -11,6 +11,10 @@ pending = [None]
 seen = set()
 exported = set()
 expected = {'swipe-first', 'swipe-middle', 'swipe-last', 'readme-badges'}
+expected.update({'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
+                 'local-commit-patch', 'local-history-after-folding'})
+expected.update({'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'})
+expected.update({'patch-highlight-left', 'patch-highlight-right', 'patch-raw-left', 'patch-raw-right'})
 
 while pending:
     reference = pending.pop()
@@ -40,5 +44,5 @@ while pending:
             stack.extend(item.values())
 
 if exported != expected:
-    raise RuntimeError(f'Expected native swipe and README screenshots; got {exported}')
-print('PASS exported first, middle and last native swipe boundaries and README badges')
+    raise RuntimeError(f'Expected native UI regression screenshots; got {exported}')
+print('PASS exported native swipe, README, local commit, folding and source scrolling screenshots')

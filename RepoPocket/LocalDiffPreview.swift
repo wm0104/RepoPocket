@@ -56,13 +56,13 @@ struct LocalDiffPreview: View {
         }
     }
     private var originalText: some View {
-        ScrollView {
+        ScrollView([.horizontal, .vertical]) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("基线文本").font(.headline)
-                Text(change.before ?? "（无文本基线：新增、二进制或超过 64 KiB）")
+                Text(change.before ?? "（无文本基线：新增、二进制或超过 64 KiB）").fixedSize(horizontal: true, vertical: false)
                 Divider()
                 Text("当前文本").font(.headline)
-                Text(change.after ?? "（无当前文本：已删除、二进制或超过 64 KiB）")
+                Text(change.after ?? "（无当前文本：已删除、二进制或超过 64 KiB）").fixedSize(horizontal: true, vertical: false)
             }.font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading).padding()
         }
@@ -79,7 +79,7 @@ struct LocalDiffPreview: View {
                         Button { jump(1, result, proxy) } label: { Label("下一处", systemImage: "chevron.down") }
                     }.font(.caption).padding(.horizontal).padding(.vertical, 10)
                 }
-                ScrollView {
+                ScrollView([.horizontal, .vertical]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if result.changes.isEmpty { Text("文本内容相同（或两侧均为空文件）").foregroundStyle(.secondary).padding() }
                         ForEach(result.entries) { entry in
@@ -97,7 +97,7 @@ struct LocalDiffPreview: View {
                                 }
                             }
                         }
-                    }.textSelection(.enabled)
+                    }.fixedSize(horizontal: true, vertical: false).textSelection(.enabled)
                 }
             }
         }
@@ -105,7 +105,7 @@ struct LocalDiffPreview: View {
     private func jump(_ direction: Int, _ result: LocalDiffModel.Result, _ proxy: ScrollViewProxy) {
         cursor = cursor < 0 ? (direction > 0 ? 0 : result.changes.count - 1)
             : (cursor + direction + result.changes.count) % result.changes.count
-        withAnimation { proxy.scrollTo(result.changes[cursor], anchor: .top) }
+        withAnimation { proxy.scrollTo(result.changes[cursor], anchor: .topLeading) }
     }
     private func row(_ row: LocalDiffModel.Row) -> some View {
         let color: Color = row.kind == .addition ? .green : (row.kind == .deletion ? .red : .secondary)
@@ -124,7 +124,7 @@ struct LocalDiffPreview: View {
                     var value = AttributedString(displayed)
                     if run.emphasized { value.backgroundColor = color.opacity(0.32); value.foregroundColor = .primary }
                     return text + Text(value)
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                }.fixedSize(horizontal: true, vertical: false)
                 if !row.raw.hasSuffix("\n") {
                     Text("无末尾换行").font(.system(size: 9)).foregroundStyle(.secondary)
                 }

@@ -13,6 +13,17 @@ struct StylePreviewGallery: View {
     private var readme: Bool { ProcessInfo.processInfo.arguments.contains("-readme-style-preview") }
     private let sample = "# RepoPocket\n\n适用于 iOS 16 的 GitHub 客户端。\n\n- 原生代码浏览\n- Issue 与 PR\n- Actions 与发行版\n\n" + String(repeating: "支持在 App 内浏览与管理仓库。\n\n", count: 30)
     var body: some View {
+        if ProcessInfo.processInfo.arguments.contains("-local-git-style-preview") {
+            LocalGitStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-source-style-preview") {
+            SourceStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-patch-style-preview") {
+            PatchStylePreview()
+        } else {
+            gallery
+        }
+    }
+    private var gallery: some View {
         NavigationStack {
             List {
                 if swipe {

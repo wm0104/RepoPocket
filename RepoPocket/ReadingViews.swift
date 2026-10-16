@@ -75,7 +75,7 @@ struct RepositoryReadmeView: View {
                         readingLink = ReadingLink(url: $0)
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let source = document.source {
-                    ScrollView { Text(source).font(.system(size: 16, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                    SourceCodeView(text: source, filename: entryPath)
                 }
             } else if error.isEmpty { ProgressView("加载自述文件…") }
             if !error.isEmpty { Text(error); Button("重试") { revision += 1 } }

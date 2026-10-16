@@ -5,23 +5,89 @@ struct SourceTextSurface: UIViewRepresentable {
     @Binding var text: String
     let filename: String
     let editable: Bool
-    let wrap: Bool
     let dark: Bool
     func makeUIView(context: Context) -> SourceTextContainer { SourceTextContainer() }
     func updateUIView(_ view: SourceTextContainer, context: Context) {
         view.changed = { text = $0 }
-        view.configure(text: text, filename: filename, editable: editable, wrap: wrap, dark: dark)
+        view.configure(text: text, filename: filename, editable: editable, dark: dark)
     }
     static func dismantleUIView(_ view: SourceTextContainer, coordinator: ()) { view.cancelHighlight() }
 }
 
+/// UITextView otherwise restores a viewport-wide scroll range during layout.
+/// Keep its native editing/selection behavior while sizing both axes from the
+/// actual unwrapped TextKit layout, rather than from an arbitrary wide canvas.
+final class SourceNativeTextView: UITextView {
+    private var measuredSize: CGSize?
+    private var measuredFont: UIFont?
+    private var geometryDirty = true
+    private var measuring = false
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        let container = NSTextContainer(size: .zero)
+        let manager = NSLayoutManager()
+        let storage = NSTextStorage()
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        super.init(frame: frame, textContainer: container)
+        // UIKit documents zero container dimensions as unlimited. Hard newline
+        // characters still start new lines; the viewport never soft-wraps code.
+        container.widthTracksTextView = false
+        container.heightTracksTextView = false
+        container.lineFragmentPadding = 0
+        container.size = .zero
+        showsHorizontalScrollIndicator = true
+        isDirectionalLockEnabled = false
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var contentSize: CGSize {
+        get { super.contentSize }
+        set {
+            guard let measuredSize else { super.contentSize = newValue; return }
+            // Preserve the measured range when UITextView performs its own
+            // layout after selection, typing or a bounds/contentOffset change.
+            super.contentSize = CGSize(width: max(bounds.width, measuredSize.width),
+                                       height: max(bounds.height, measuredSize.height))
+        }
+    }
+
+    func invalidateSourceGeometry() {
+        geometryDirty = true
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard !measuring, bounds.width > 0, bounds.height > 0 else { return }
+        if geometryDirty || measuredFont != font {
+            measuring = true
+            defer { measuring = false }
+            // This work runs only after content/font changes. Scrolling and
+            // selection reuse the result without scanning the document again.
+            layoutManager.ensureLayout(for: textContainer)
+            let used = layoutManager.usedRect(for: textContainer)
+            let extra = layoutManager.extraLineFragmentTextContainer == nil ? CGRect.zero : layoutManager.extraLineFragmentUsedRect
+            let insets = textContainerInset
+            measuredSize = CGSize(width: ceil(max(used.maxX, extra.maxX) + insets.left + insets.right),
+                                  height: ceil(max(used.maxY, extra.maxY) + insets.top + insets.bottom))
+            measuredFont = font
+            geometryDirty = false
+        }
+        if let measuredSize {
+            let target = CGSize(width: max(bounds.width, measuredSize.width),
+                                height: max(bounds.height, measuredSize.height))
+            if super.contentSize != target { super.contentSize = target }
+        }
+    }
+}
+
 final class SourceTextContainer: UIView, UITextViewDelegate {
-    let textView = UITextView()
+    let textView = SourceNativeTextView(frame: .zero, textContainer: nil)
     private let gutter = SourceLineGutter()
     var changed: ((String) -> Void)?
     private var filename = ""
     private var dark = false
-    private var wrap = false
     private var configured = false
     private var coloring = false
     private var highlight: Task<Void, Never>?
@@ -48,24 +114,19 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
         let width: CGFloat = 46
         gutter.frame = CGRect(x: 0, y: 0, width: width, height: bounds.height)
         textView.frame = CGRect(x: width, y: 0, width: max(0,bounds.width - width), height: bounds.height)
-        textView.textContainer.size = CGSize(width: wrap ? max(1,textView.bounds.width - 20) : 100_000, height: .greatestFiniteMagnitude)
         gutter.setNeedsDisplay()
     }
-    func configure(text: String, filename: String, editable: Bool, wrap: Bool, dark: Bool) {
+    func configure(text: String, filename: String, editable: Bool, dark: Bool) {
         let recolor = !configured || self.filename != filename || self.dark != dark || textView.text != text
-        if textView.text != text { textView.text = text; rebuildLines() }
+        if textView.text != text { textView.text = text; rebuildLines(); textView.invalidateSourceGeometry() }
         self.filename = filename; self.dark = dark
         textView.isEditable = editable; textView.isSelectable = true
-        if self.wrap != wrap || !configured {
-            self.wrap = wrap; textView.textContainer.widthTracksTextView = false
-            setNeedsLayout()
-        }
         configured = true
         if recolor { scheduleHighlight() }
     }
     func textViewDidChange(_ textView: UITextView) {
         guard !coloring else { return }
-        rebuildLines(); changed?(textView.text); scheduleHighlight()
+        rebuildLines(); self.textView.invalidateSourceGeometry(); changed?(textView.text); scheduleHighlight()
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) { gutter.setNeedsDisplay() }
     private func rebuildLines() {

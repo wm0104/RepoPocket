@@ -153,9 +153,13 @@ struct LocalProjectView: View {
 
     private func historySection(_ snapshot: LocalGitSnapshot) -> some View {
         Section {
-            SoftGroupRows {
+            SoftGroupRows(animateBackground: false) {
                 SoftGroupRow("disclosure") {
-                    Button { withAnimation { historyExpanded.toggle() } } label: {
+                    Button {
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { historyExpanded.toggle() }
+                    } label: {
                         HStack { Label("本地提交历史", systemImage: "clock.arrow.circlepath"); Spacer(); Text("\(snapshot.history.commits.count)").foregroundStyle(.secondary); Image(systemName: historyExpanded ? "chevron.up" : "chevron.down").font(.caption) }
                     }.buttonStyle(.plain).accessibilityValue(historyExpanded ? "已展开" : "已折叠")
                 }
@@ -173,10 +177,17 @@ struct LocalProjectView: View {
                             }
                         }
                     }
-                    SoftGroupRow("collapse") { Button("收起提交记录") { withAnimation { historyExpanded = false } } }
+                    SoftGroupRow("collapse") {
+                        Button("收起提交记录") {
+                            var transaction = Transaction(animation: nil)
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { historyExpanded = false }
+                        }
+                    }
                 }
             }
         }
+        .transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
     private func snapshot() async throws -> LocalGitSnapshot {
         guard valid else { throw CancellationError() }

@@ -17,8 +17,8 @@ struct CommitPatchView: View {
     @Environment(\.colorScheme) private var colorScheme
     private var renderKey: String { file.id + ":" + String(whitespace) + ":" + (colorScheme == .dark ? "dark" : "light") }
     var body: some View {
-        ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(file.filename).font(.caption).frame(maxWidth: .infinity, alignment: .leading).padding(8)
                 Text(workingTree ? "显示工作区相对当前提交的变化" : (pullRequest ? "显示此 PR 的文件变化" : "仅显示本次提交的变化")).font(.caption).padding(8)
                 Toggle("显示空白（· 空格 / ⇥ Tab）", isOn: $whitespace).padding(8)
@@ -29,10 +29,14 @@ struct CommitPatchView: View {
                     if result.limited { Text("已达预览预算（1 MiB / 10,000行 / 单行8,192字）；仅显示部分内容。").foregroundColor(.orange).padding(8) }
                     if result.malformed { Text("部分 patch 位置不完整或格式异常；仅按可解析区块显示行号。").foregroundColor(.orange).padding(8) }
                     if raw {
-                        Text(String(decoding: (file.patch ?? "").utf8.prefix(CommitPatchParser.byteLimit), as: UTF8.self))
-                            .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .topLeading).padding(8)
+                        ScrollView([.horizontal, .vertical]) {
+                            Text(String(decoding: (file.patch ?? "").utf8.prefix(CommitPatchParser.byteLimit), as: UTF8.self))
+                                .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                                .fixedSize(horizontal: true, vertical: false).padding(8)
+                        }
                     } else {
+                      ScrollView([.horizontal, .vertical]) {
+                       LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(result.rows.filter { row in
                             raw || !(row.kind == .note && ["diff --git ", "index ", "--- ", "+++ "].contains(where: row.text.hasPrefix))
                         }) { row in
@@ -41,16 +45,18 @@ struct CommitPatchView: View {
                                 Text(row.new.map(String.init) ?? "").frame(width: 40, alignment: .trailing).foregroundColor(.secondary)
                                 Text(row.marker).frame(width: 10)
                                 Text(colored[row.id] ?? AttributedString(row.text))
-                                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .topLeading)
+                                    .textSelection(.enabled).fixedSize(horizontal: true, vertical: false)
                             }.font(.system(.caption, design: .monospaced))
                             .padding(.vertical, 3).padding(.horizontal, 6)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(row.kind == .addition ? Color.green.opacity(0.12) : (row.kind == .deletion ? Color.red.opacity(0.12) : Color.clear))
                         }
+                       }.fixedSize(horizontal: true, vertical: false)
+                      }
                     }
                 } else if failure.isEmpty { ProgressView("解析差异…").padding(8) }
                 if !failure.isEmpty { Text(failure).padding(8) }
-            }.frame(maxWidth: .infinity, alignment: .topLeading)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }.navigationTitle((file.filename as NSString).lastPathComponent)
         .task(id: renderKey) {
             guard let patch = file.patch else { return }

@@ -33,20 +33,18 @@ struct SourceCodeEditor: View {
     @Binding var text: String
     let filename: String
     var readOnly = false
-    @State private var wrap = false
     @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text(SourceLanguage.detect(filename).rawValue).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button { wrap.toggle() } label: { Label(wrap ? "取消换行" : "自动换行", systemImage: "text.word.spacing") }.font(.caption)
             }.padding(.horizontal).padding(.vertical, 10)
             if text.utf8.count > SourceHighlighter.byteLimit {
                 Text("前 128 KiB 使用语法高亮，其余内容显示原文。").font(.caption).foregroundStyle(.secondary).padding(.horizontal)
             }
             Divider()
-            SourceTextSurface(text: $text, filename: filename, editable: !readOnly, wrap: wrap, dark: colorScheme == .dark)
+            SourceTextSurface(text: $text, filename: filename, editable: !readOnly, dark: colorScheme == .dark)
         }.background(Color(uiColor: .systemBackground))
     }
 }

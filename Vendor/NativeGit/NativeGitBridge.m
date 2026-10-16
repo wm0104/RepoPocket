@@ -589,7 +589,7 @@ static NSDictionary *RPCommitDetail(git_repository *repo, NSDictionary *q, RPGit
     }
     return @{@"sha":RPOID(&oid), @"message":@(git_commit_message(commit) ?: ""),
              @"author":@(git_commit_author(commit)->name ?: ""), @"time":@(git_commit_time(commit)),
-             @"files":files, @"truncated":@(truncated), @"merge":@(parents > 1)};
+             @"files":files, @"truncated":@(truncated), @"merge":parents > 1 ? @YES : @NO};
 }
 static git_transaction *RPLockHead(git_repository *repo, git_reference *head, RPGitResources *c) {
     NSString *metadata=@(git_repository_path(repo));RPLeaseBegin(metadata,head,c);
