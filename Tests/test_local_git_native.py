@@ -6,7 +6,9 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +27,7 @@ class NativeGitBehavior(unittest.TestCase):
         cls.library_dir = tempfile.TemporaryDirectory()
         prefix = ROOT / 'NativeBuild/macosx'
         library = Path(cls.library_dir.name) / 'bridge.dylib'
+        cls.library_path = str(library)
         subprocess.run(['xcrun', 'clang', '-dynamiclib', '-fobjc-arc', '-DRP_GIT_TESTING=1',
                         '-I' + str(prefix / 'include'), str(ROOT / 'Vendor/NativeGit/NativeGitBridge.m'),
                         '-L' + str(prefix / 'lib'), '-lgit2', '-lz', '-liconv',
@@ -59,7 +62,7 @@ class NativeGitBehavior(unittest.TestCase):
         self.head = self.git('rev-parse', 'HEAD')
 
     def call(self, operation, **values):
-        request = dict(repository=str(self.work / '.git'), workdir=str(self.work))
+        request = dict(repository=str(self.work / '.git'), workdir=str(self.work), expectedRef='refs/heads/main')
         request.update(values)
         pointer = self.native.rp_git_execute(operation.encode(), json.dumps(request).encode())
         self.assertTrue(pointer)
@@ -295,6 +298,71 @@ class NativeGitBehavior(unittest.TestCase):
         self.result('recover',expectedHead=self.head)
         self.assertEqual(self.git('rev-parse','HEAD'),remote_head)
         self.assertEqual((self.work/'代码.py').read_text(),'remote update')
+
+    def test_fetch_mapping_cannot_force_update_local_heads(self):
+        self.make_remote()
+        other=Path(self.temp.name)/'computer'
+        self.git('clone',str(self.remote),str(other))
+        self.git('config','user.name','Computer',cwd=other)
+        self.git('config','user.email','computer@example.invalid',cwd=other)
+        self.git('commit','--allow-empty','-m','remote branch',cwd=other)
+        self.git('push','origin','main',cwd=other)
+        self.git('commit','--allow-empty','-m','local unpushed')
+        local=self.git('rev-parse','HEAD')
+        self.git('config','--replace-all','remote.origin.fetch','+refs/heads/*:refs/heads/*')
+        self.result('fetch')
+        self.assertEqual(self.git('rev-parse','HEAD'),local)
+
+    def test_pull_cannot_use_another_remote_upstream(self):
+        self.make_remote()
+        self.git('commit','--allow-empty','-m','other cached remote')
+        cached=self.git('rev-parse','HEAD')
+        self.git('update-ref','refs/remotes/upstream/main',cached)
+        self.git('update-ref','refs/heads/main',self.head)
+        self.git('remote','add','upstream',self.remote.as_uri())
+        self.git('config','branch.main.remote','upstream')
+        self.assertFalse(self.call('pull',expectedHead=self.head)['ok'])
+        self.assertEqual(self.git('rev-parse','HEAD'),self.head)
+
+    def test_same_sha_other_branch_rejects_stale_commit(self):
+        status=self.change()
+        self.git('checkout','-b','feature')
+        self.assertFalse(self.commit(status,['代码.py'])['ok'])
+        self.assertEqual(self.git('rev-parse','HEAD'),self.head)
+
+    def test_same_sha_other_branch_rejects_stale_push(self):
+        self.make_remote()
+        self.git('checkout','-b','feature')
+        self.assertFalse(self.call('push',expectedHead=self.head)['ok'])
+        self.assertEqual(self.git('rev-parse','HEAD'),self.head)
+
+    def test_real_process_kill_recovers_only_owned_locks(self):
+        for stage in ('beforeJournal','afterPublish'):
+            with self.subTest(stage=stage):
+                (self.work/'代码.py').write_text('stage '+stage)
+                status=self.result('status')
+                request=dict(repository=str(self.work/'.git'),workdir=str(self.work),expectedHead=status['head'],
+                             expectedRef='refs/heads/main',files=[r for r in status['files'] if r['path']=='代码.py'],
+                             authorName='Fixture',authorEmail='fixture@example.invalid',message='crash fixture',testCrashStage=stage)
+                script='import ctypes,sys;lib=ctypes.CDLL(sys.argv[1]);lib.rp_git_execute.argtypes=[ctypes.c_char_p,ctypes.c_char_p];lib.rp_git_execute.restype=ctypes.c_void_p;lib.rp_git_execute(b"commit",sys.argv[2].encode())'
+                child=subprocess.Popen([sys.executable,'-c',script,self.library_path,json.dumps(request)])
+                marker=self.work/'.git/repopocket-test-paused'
+                try:
+                    deadline=time.monotonic()+8
+                    while not marker.exists() and child.poll() is None and time.monotonic()<deadline:
+                        time.sleep(.02)
+                    self.assertTrue(marker.exists(),'Missing controlled crash boundary')
+                    child.kill();child.wait(timeout=5)
+                    marker.unlink()
+                    self.assertTrue((self.work/'.git/index.lock').exists())
+                    current=self.git('rev-parse','HEAD')
+                    self.assertEqual(self.result('status')['repoState'],100)
+                    self.result('recover',expectedHead=current)
+                    self.assertFalse((self.work/'.git/index.lock').exists())
+                    self.assertFalse((self.work/'.git/HEAD.lock').exists())
+                    self.assertEqual((self.work/'代码.py').read_text(),'stage '+stage)
+                finally:
+                    if child.poll() is None:child.kill();child.wait(timeout=5)
 
 
 if __name__ == '__main__':
