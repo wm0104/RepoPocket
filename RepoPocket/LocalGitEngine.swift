@@ -17,7 +17,7 @@ actor LocalGitEngine {
                     try job.check()
                     if let generation, generation != AccountStore.generation { throw CancellationError() }
                     let result: T = try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot) { root in
-                        try LocalGitFileAccess.coordinate(root, writing: ["commit", "pull", "associate", "clone"].contains(operation)) { coordinated in
+                        try LocalGitFileAccess.coordinate(root, writing: ["commit", "pull", "associate", "clone", "recover"].contains(operation)) { coordinated in
                             guard try LocalGitFileAccess.identity(coordinated) == project.identity else { throw LocalGitError(text: "文件提供器切换了目录，请重新授权原目录。") }
                             var request = arguments
                             request["requestID"] = job.id

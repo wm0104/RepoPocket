@@ -46,6 +46,7 @@ struct LocalProjectView: View {
                     if !snapshot.status.canCommit { Text("已有暂存、冲突或未完成操作。请先在原工具处理，不会撤销原暂存。").foregroundStyle(.red).font(.caption) }
                 }
                 Section {
+                    if snapshot.status.repoState == 100 { Button("检查并恢复中断操作") { syncing = "recover" }.disabled(state.busy) }
                     Button("创建本地提交（\(selected.count) 个文件）") { if authorName.isEmpty { authorName = api.login }; commitSheet = true }
                         .disabled(state.busy || !state.fresh || !snapshot.status.canCommit || selected.isEmpty)
                     Button("拉取远端（仅快进）") { syncing = "pull" }.disabled(state.busy || !state.fresh || snapshot.history.remote.isEmpty)
@@ -90,7 +91,7 @@ struct LocalProjectView: View {
                 }.navigationTitle("确认本地提交").toolbar { Button("取消") { commitSheet = false } }
             }
         }
-        .confirmationDialog(syncing == "push" ? "推送当前分支？" : "拉取远端当前分支？",isPresented:Binding(get:{syncing != nil},set:{if !$0 {syncing=nil}}),titleVisibility:.visible) {
+        .confirmationDialog(syncing == "recover" ? "核对并继续中断操作？" : (syncing == "push" ? "推送当前分支？" : "拉取远端当前分支？"),isPresented:Binding(get:{syncing != nil},set:{if !$0 {syncing=nil}}),titleVisibility:.visible) {
             Button("确认") { guard let action=syncing else{return};syncing=nil;sync(action) }
         } message: { Text("账号：" + api.login + "\n" + (state.snapshot?.history.remote ?? "") + "\n分支：" + (state.snapshot?.status.branch ?? "")) }
     }
@@ -117,7 +118,7 @@ struct LocalProjectView: View {
         Task { await state.check(force:true,valid:{valid}) {
             let _:LocalGitReply = try await LocalGitEngine.shared.run(action,project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
                 arguments:["expectedHead":current.status.head,"expectedRemote":current.history.remote,"token":token],generation:generation)
-            note=action == "push" ? "推送完成。" : "拉取完成。";return try await snapshot()
+            note=action == "recover" ? "恢复完成，文件和历史已重新检查。" : (action == "push" ? "推送完成。" : "拉取完成。");return try await snapshot()
         } }
     }
 }

@@ -20,6 +20,7 @@ struct LocalGitSnapshot { let status: LocalGitStatus; let history: LocalGitHisto
         attempted = true; busy = true; fresh = false; error = ""
         let id = UUID(); requestID = id
         let pending = Task {
+            defer { if self.requestID == id { self.requestID = nil; self.request = nil; self.busy = false } }
             do {
                 let value = try await load()
                 try Task.checkCancellation()
@@ -29,7 +30,6 @@ struct LocalGitSnapshot { let status: LocalGitStatus; let history: LocalGitHisto
             } catch {
                 if self.requestID == id, valid(), !(error is CancellationError) { self.error = error.localizedDescription }
             }
-            if self.requestID == id { self.requestID = nil; self.request = nil; self.busy = false }
         }
         request = pending; await pending.value
     }
