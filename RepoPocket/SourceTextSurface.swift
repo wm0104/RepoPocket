@@ -24,7 +24,7 @@ final class SourceNativeTextView: UITextView {
     private var measuring = false
 
     override init(frame: CGRect, textContainer: NSTextContainer?) {
-        let container = NSTextContainer(size: CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
+        let container = NSTextContainer(size: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
         let manager = NSLayoutManager()
         let storage = NSTextStorage()
         manager.addTextContainer(container)
@@ -60,7 +60,7 @@ final class SourceNativeTextView: UITextView {
         super.layoutSubviews()
         guard !measuring, bounds.width > 0, bounds.height > 0 else { return }
         if textContainer.size.width != .greatestFiniteMagnitude {
-            textContainer.size = CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+            textContainer.size = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
             geometryDirty = true
         }
         if geometryDirty || measuredFont != font {
