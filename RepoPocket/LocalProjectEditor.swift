@@ -15,20 +15,30 @@ struct LocalProjectEditor: View {
     @State private var attempted = false
     @State private var generation = AccountStore.generation
     @State private var task: Task<Void, Never>?
+    @State private var editing = false
+    @State private var originalText = ""
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                Text(path).font(.caption).textSelection(.enabled)
                 if deleting {
-                    Text("只删除这个文件。远端不会立即变化，之后仍需勾选删除记录并提交、推送。")
-                    Button("确认删除此文件", role: .destructive) { save() }.disabled(busy || fingerprint.isEmpty)
-                } else { TextEditor(text: $text).font(.system(.body, design: .monospaced)).disabled(busy || fingerprint.isEmpty) }
+                    Form { Section {
+                        Text(path).font(.caption).softGroupedRow(top: true)
+                        Text("只删除这个文件。远端不会立即变化，之后仍需勾选删除记录并提交、推送。").softGroupedRow()
+                        Button("确认删除此文件", role: .destructive) { save() }.disabled(busy || fingerprint.isEmpty).softGroupedRow(bottom: true)
+                    } }
+                } else if !fingerprint.isEmpty {
+                    SourceCodeEditor(text: $text, filename: path, readOnly: !editing).disabled(busy)
+                }
                 if busy { ProgressView() }
                 if !error.isEmpty { Text(error).foregroundStyle(.red).font(.caption) }
-            }.padding().navigationTitle(deleting ? "删除文件" : "编辑文本")
+                if fingerprint.isEmpty && !busy && !error.isEmpty { Button("重试读取") { Task { await open() } } }
+            }.navigationTitle(deleting ? "删除文件" : (path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-                if !deleting { ToolbarItem(placement: .confirmationAction) { Button("保存") { save() }.disabled(busy || fingerprint.isEmpty) } }
+                if !deleting { ToolbarItem(placement: .confirmationAction) {
+                    Button(editing ? "保存" : "编辑") { if editing { save() } else { editing = true } }
+                        .disabled(busy || fingerprint.isEmpty || (editing && text == originalText))
+                } }
             }
             .task { guard !attempted else { return }; attempted = true; await open() }
             .onDisappear { task?.cancel() }
@@ -45,7 +55,7 @@ struct LocalProjectEditor: View {
                 let document = try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
                     try LocalGitFileAccess.read(root: root, path: path)
                 }
-                text = document.text; fingerprint = document.fingerprint
+                text = document.text; originalText = document.text; fingerprint = document.fingerprint
             }
         } catch { self.error = error.localizedDescription }
     }
@@ -79,19 +89,24 @@ struct LocalProjectFilesView: View {
     @State private var error = ""
     var body: some View {
         List {
-            ForEach(entries) { entry in
+          SoftGroupRows {
+            for entry in entries {
+              SoftGroupRow(entry.id) {
                 if entry.directory {
                     NavigationLink { AnyView(LocalProjectFilesView(project: project, internalRoot: internalRoot, directory: entry.path, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
                 } else {
                     Button { deleting = false; opened = LocalProjectFile(path: entry.path) } label: { Label(entry.name, systemImage: "doc.text") }
                         .contextMenu { Button("删除此文件", role: .destructive) { deleting = true; opened = LocalProjectFile(path: entry.path) } }
                 }
+              }
             }
-            if loaded && entries.isEmpty && error.isEmpty { Text("文件夹为空") }
-            if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.red) }
-        }.navigationTitle(directory.isEmpty ? "项目文件" : (directory as NSString).lastPathComponent)
+            if loaded && entries.isEmpty && error.isEmpty { SoftGroupRow("empty") { Text("文件夹为空") } }
+            if !error.isEmpty { SoftGroupRow("failure") { Text(error).font(.caption).foregroundStyle(.red) } }
+          }
+        }.listStyle(.insetGrouped).navigationTitle(directory.isEmpty ? "项目文件" : (directory as NSString).lastPathComponent).adaptiveWorkspaceLayout()
         .task { guard !loaded else { return }; await load() }
         .toolbar { Button("刷新列表") { Task { await load() } } }
+        .refreshable { await load() }
         .sheet(item: $opened, onDismiss: { Task { await load() } }) { file in
             LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: deleting, changed: changed)
         }

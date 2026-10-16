@@ -47,6 +47,16 @@ struct LocalGitHistory: Codable {
 }
 struct LocalGitDocument { let text: String; let fingerprint: String }
 struct LocalGitReply: Codable { let commit: String?; let head: String? }
+enum LocalGitDate {
+    static func string(_ time: Double) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = "yyyy年M月d日 ah:mm"
+        return formatter.string(from: Date(timeIntervalSince1970: time))
+    }
+}
 
 enum LocalGitRules {
     static func remote(_ input: String) throws -> String {

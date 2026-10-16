@@ -521,6 +521,50 @@ static NSDictionary *RPHistory(git_repository *repo, RPGitResources *c) {
     }
     return @{@"commits":commits, @"ahead":@(ahead), @"behind":@(behind), @"tracking":@(tracked), @"remote":remoteURL};
 }
+// Immutable tree-to-tree reads never inspect or modify the working directory.
+static NSDictionary *RPCommitDetail(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    NSString *sha = RPString(q,@"sha"); git_oid oid;
+    RPRequire(sha.length == GIT_OID_HEXSZ, @"提交标识无效。");
+    RPCheck(git_oid_fromstr(&oid,sha.UTF8String), @"提交标识无效。");
+    git_commit *commit = NULL; git_tree *tree = NULL, *before = NULL;
+    RPCheck(git_commit_lookup(&commit,repo,&oid), @"找不到本地提交。"); KEEP(commit,git_commit_free);
+    RPCheck(git_commit_tree(&tree,commit), @"读取提交文件失败。"); KEEP(tree,git_tree_free);
+    unsigned int parents = git_commit_parentcount(commit);
+    if (parents) {
+        git_commit *parent = NULL;
+        RPCheck(git_commit_parent(&parent,commit,0), @"读取父提交失败。"); KEEP(parent,git_commit_free);
+        RPCheck(git_commit_tree(&before,parent), @"读取父提交文件失败。"); KEEP(before,git_tree_free);
+    }
+    git_diff_options options = GIT_DIFF_OPTIONS_INIT; options.max_size = 256 * 1024;
+    git_diff *diff = NULL;
+    RPCheck(git_diff_tree_to_tree(&diff,repo,before,tree,&options), @"读取提交差异失败。"); KEEP(diff,git_diff_free);
+    NSMutableArray *files = [NSMutableArray array]; BOOL truncated = NO; size_t budget = 0;
+    for (size_t i=0; i<git_diff_num_deltas(diff); i++) {
+        RPRequire(!RPIsCancelled(q[@"requestID"]), @"Git 操作已取消。");
+        if (files.count >= 200) { truncated = YES; break; }
+        const git_diff_delta *delta = git_diff_get_delta(diff,i);
+        git_patch *patch = NULL;
+        RPCheck(git_patch_from_diff(&patch,diff,i), @"生成提交差异失败。"); KEEP(patch,git_patch_free);
+        size_t additions = 0, deletions = 0;
+        NSString *text = nil;
+        if (patch && !(delta->flags & GIT_DIFF_FLAG_BINARY)) {
+            git_patch_line_stats(NULL,&additions,&deletions,patch);
+            git_buf buffer = GIT_BUF_INIT;
+            int rc = git_patch_to_buf(&buffer,patch);
+            if (rc == 0 && buffer.size <= 256 * 1024 && budget + buffer.size <= 1024 * 1024) {
+                text = [[NSString alloc] initWithBytes:buffer.ptr length:buffer.size encoding:NSUTF8StringEncoding];
+                budget += buffer.size;
+            } else { truncated = YES; }
+            git_buf_dispose(&buffer);
+        }
+        const char *path = delta->new_file.path ?: delta->old_file.path;
+        [files addObject:@{@"filename":@(path ?: ""), @"status":delta->status == GIT_DELTA_ADDED ? @"added" : (delta->status == GIT_DELTA_DELETED ? @"removed" : @"modified"),
+                           @"additions":@(additions), @"deletions":@(deletions), @"patch":text ?: NSNull.null}];
+    }
+    return @{@"sha":RPOID(&oid), @"message":@(git_commit_message(commit) ?: ""),
+             @"author":@(git_commit_author(commit)->name ?: ""), @"time":@(git_commit_time(commit)),
+             @"files":files, @"truncated":@(truncated), @"merge":@(parents > 1)};
+}
 static git_transaction *RPLockHead(git_repository *repo, git_reference *head, RPGitResources *c) {
     NSString *metadata=@(git_repository_path(repo));RPLeaseBegin(metadata,head,c);
     git_transaction *tx = NULL; RPCheck(git_transaction_new(&tx,repo), @"创建 Git 事务失败。"); KEEP(tx,git_transaction_free);
@@ -724,6 +768,7 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
                 else if ([op isEqual:@"diff"]) result = RPDiff(repo, q, c);
                 else if ([op isEqual:@"commit"]) result = RPCommit(repo, q, c);
                 else if ([op isEqual:@"history"]) result = RPHistory(repo,c);
+                else if ([op isEqual:@"commitDetail"]) result = RPCommitDetail(repo,q,c);
                 else if ([op isEqual:@"fetch"]) { RPFetch(repo,q,c); result = RPHistory(repo,c); }
                 else if ([op isEqual:@"pull"]) result = RPPull(repo,q,c);
                 else if ([op isEqual:@"push"]) result = RPPush(repo,q,c);

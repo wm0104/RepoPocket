@@ -509,68 +509,107 @@ struct FileView: View {
     @State private var confirmSave = false
     @State private var confirmDelete = false
     @State private var deleted = false
+    @State private var attemptedRead = false
+    @State private var readingError = ""
+    @State private var editing = false
+    @State private var originalText = ""
+    @State private var showFileInfo = false
     var body: some View {
-        Form {
-            Section("文件") {
-                Label(entry.name, systemImage: entry.name.lowercased().hasSuffix(".deb") ? "shippingbox.fill" : "doc.text.fill")
-                    .font(.headline).foregroundColor(.primary).padding(.vertical, 4).softGroupedRow(top: true)
-                LabeledContent("路径") { Text(entry.path).textSelection(.enabled) }.softGroupedRow()
-                LabeledContent("仓库", value: repo).softGroupedRow()
-                LabeledContent("分支", value: branch.isEmpty ? "默认分支" : branch).softGroupedRow(bottom: true)
+        VStack(spacing: 0) {
+            if deleted { Text("文件已删除，请返回目录刷新。").padding(); Spacer() }
+            else if editable { FileReadingView(text: originalText, path: entry.path, repo: repo, branch: branch, api: api) }
+            else if busy { ProgressView("正在加载文件…").frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else {
+                VStack(spacing: 16) {
+                    Image(systemName: "doc").font(.largeTitle).foregroundStyle(.secondary)
+                    Text(readingError.isEmpty ? "此文件需下载后使用对应应用打开。" : readingError).foregroundStyle(.secondary)
+                    if !readingError.isEmpty { Button("重试读取") { Task { await read() } } }
+                    Button("下载 / 存到文件") { Task { await download() } }.disabled(busy)
+                }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            Section {
-                if writable && entry.name.lowercased().hasSuffix(".deb") { Button("编辑包信息") { showDeb = true }.disabled(busy || deleted).softGroupedRow(top: true) }
-                if writable && entry.name.lowercased().hasSuffix(".dylib") { Button("编辑插件信息") { showMetadata = true }.disabled(busy || deleted).softGroupedRow(top: true) }
-                Button("下载 / 存到文件") { Task { await download() } }.disabled(busy || deleted).softGroupedRow(top: !(writable && (entry.name.lowercased().hasSuffix(".deb") || entry.name.lowercased().hasSuffix(".dylib"))))
-                if !downloadNotice.isEmpty { Text(downloadNotice).font(.caption).foregroundStyle(.secondary).softGroupedRow() }
-                Button("加载文本（最多 1 MiB）") { Task { await read() } }.disabled(busy || deleted).softGroupedRow(bottom: !busy)
-                if busy { ProgressView().softGroupedRow(bottom: true) }
-            }
-            if editable && !deleted {
-                Section {
-                    NavigationLink("阅读预览 / 代码高亮") { FileReadingView(text: text, path: entry.path, repo: repo, branch: branch, api: api) }.softGroupedRow(top: true)
-                    NavigationLink("此文件的历史记录") { NativeFileHistoryView(api: api, repo: repo, path: entry.path, branch: branch) }.softGroupedRow(bottom: true)
-                }
-                if !writable { Section("文本预览") { Text(text).font(.system(.body, design: .monospaced)).textSelection(.enabled).softGroupedRow(top: true, bottom: true) } }
-                else {
-                Section("编辑") { TextEditor(text: $text).font(.system(.body, design: .monospaced)).frame(minHeight: 260).softGroupedRow(top: true, bottom: true) }
-                Section("提交") {
-                    TextField("提交说明", text: $commitMessage).softGroupedRow(top: true)
-                    Button("提交文本修改") { confirmSave = true }.disabled(busy).softGroupedRow(bottom: true)
-                }
-            }
-            }
-            if writable { Section { Button("删除仓库里的此文件", role: .destructive) { confirmDelete = true }.disabled(busy || deleted).softGroupedRow(top: true, bottom: true) } }
-            if deleted { Text("文件已删除，请返回目录刷新。").softGroupedRow(top: true, bottom: true) }
-        }
+            if !downloadNotice.isEmpty { Text(downloadNotice).font(.caption).foregroundStyle(.secondary).padding() }
+        }.background(Color(uiColor: .systemBackground))
         .navigationTitle(entry.name)
-        .adaptiveWorkspaceLayout()
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            guard !attemptedRead else { return }; attemptedRead = true
+            if SourceTextRules.automaticallyLoads(filename: entry.name, size: entry.size) { await read() }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if writable && editable && !deleted { Button("编辑") { text = originalText; editing = true }.disabled(busy || currentSHA.isEmpty) }
+                Menu {
+                    Button("文件信息") { showFileInfo = true }
+                    Button("下载 / 存到文件") { Task { await download() } }.disabled(busy || deleted)
+                    NavigationLink("此文件的历史记录") { NativeFileHistoryView(api: api, repo: repo, path: entry.path, branch: branch) }
+                    if editable { Button("重新加载") { Task { await read() } }.disabled(busy || deleted) }
+                    if writable && entry.name.lowercased().hasSuffix(".deb") { Button("编辑包信息") { showDeb = true }.disabled(busy || deleted) }
+                    if writable && entry.name.lowercased().hasSuffix(".dylib") { Button("编辑插件信息") { showMetadata = true }.disabled(busy || deleted) }
+                    if writable { Button("删除仓库里的此文件", role: .destructive) { confirmDelete = true }.disabled(busy || deleted) }
+                } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("文件操作")
+            }
+        }
+        .sheet(isPresented: $showFileInfo) { fileInformation }
+        .sheet(isPresented: $editing, onDismiss: { text = originalText }) { editor }
         .sheet(isPresented: $showDeb) { DebEditorView(api: api, remote: (repo, entry, branch), canWrite: writable) }
         .sheet(isPresented: $showMetadata) { TrollMetadataView(api: api, repo: repo, entry: entry, branch: branch, canWrite: writable) }
-        .confirmationDialog("把修改提交到 \(repo)？", isPresented: $confirmSave, titleVisibility: .visible) {
-            Button("确认提交") { Task { await save() } }
-        }
         .confirmationDialog("永久删除仓库中的 \(entry.name)？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("确认删除", role: .destructive) { Task { await remove() } }
         }
     }
+    private var fileInformation: some View {
+        NavigationStack {
+            Form { Section {
+                SoftGroupRows {
+                    SoftGroupRow("name") { Text(entry.name).font(.headline) }
+                    SoftGroupRow("path") { LabeledContent("路径") { Text(entry.path).textSelection(.enabled) } }
+                    SoftGroupRow("repo") { LabeledContent("仓库", value: repo) }
+                    SoftGroupRow("branch") { LabeledContent("分支", value: branch.isEmpty ? "默认分支" : branch) }
+                    SoftGroupRow("language") { LabeledContent("语言", value: SourceLanguage.detect(entry.name).rawValue) }
+                }
+            } }.navigationTitle("文件信息").adaptiveWorkspaceLayout().toolbar { Button("关闭") { showFileInfo = false } }
+        }
+    }
+    private var editor: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                SourceCodeEditor(text: $text, filename: entry.path)
+                Divider()
+                TextField("提交说明", text: $commitMessage).textFieldStyle(.roundedBorder).padding()
+            }.navigationTitle("编辑 " + entry.name).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { editing = false }.disabled(busy) }
+                ToolbarItem(placement: .confirmationAction) { Button(busy ? "提交中…" : "提交") { confirmSave = true }
+                    .disabled(busy || !writable || text == originalText || text.utf8.count > SourceTextRules.byteLimit || commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+            }
+            .confirmationDialog("把修改提交到 \(repo)？", isPresented: $confirmSave, titleVisibility: .visible) { Button("确认提交") { Task { await save() } } }
+            .interactiveDismissDisabled(busy)
+        }
+    }
     private func read() async {
+        guard !busy, !deleted, api.isCurrentSession else { return }
+        readingError = ""
         busy = true; defer { busy = false }
         do {
-            guard (entry.size ?? Int.max) <= 1024 * 1024 else { throw AppError(text: "编辑器只加载 1 MiB 内文本；其他文件可下载或替换上传。") }
+            guard entry.size == nil || (entry.size ?? 0) <= SourceTextRules.byteLimit else { throw AppError(text: "编辑器只加载 1 MiB 内文本；其他文件可下载或替换上传。") }
             let f = try await api.file(repo, path: entry.path, branch: branch)
             guard f.encoding == "base64", let s = f.content,
-                  let bytes = Data(base64Encoded: s, options: .ignoreUnknownCharacters), !bytes.contains(0),
-                  let t = String(data: bytes, encoding: .utf8) else { throw AppError(text: "不是支持的 UTF-8 文本，不会强行编辑二进制文件。") }
-            text = t; currentSHA = f.sha; editable = true
-        } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
+                  let bytes = Data(base64Encoded: s, options: .ignoreUnknownCharacters) else { throw AppError(text: "此文件未提供可读取的文本内容，请下载后打开。") }
+            let t = try SourceTextRules.decode(bytes)
+            try Task.checkCancellation(); guard api.isCurrentSession else { return }
+            text = t; originalText = t; currentSHA = f.sha; editable = true
+        } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { readingError = error.localizedDescription } }
     }
     private func save() async {
+        guard writable, !busy, !currentSHA.isEmpty, text.utf8.count <= SourceTextRules.byteLimit else { return }
         busy = true; defer { busy = false }
         do {
+            try await api.requireWriteAccess(repo)
             try await api.commit(repo, path: entry.path, bytes: Data(text.utf8), sha: currentSHA, message: commitMessage, branch: branch)
-            currentSHA = try await api.file(repo, path: entry.path, branch: branch).sha
+            originalText = text; editing = false; currentSHA = ""
             api.message = "修改已提交到 GitHub。"
+            // A failed post-save read must not permit another PUT with an old SHA.
+            currentSHA = try await api.file(repo, path: entry.path, branch: branch).sha
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
     private func remove() async {

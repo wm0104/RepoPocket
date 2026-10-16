@@ -43,7 +43,8 @@ assert '.sheet(isPresented: $showOpen)' in ui
 assert 'NavigationLink("浏览")' in ui
 assert '.softGroupedRow().softGroupedRow' not in ui + workspace + upload
 assert ui.count('top: e.id == entries.first?.id, bottom: e.id == entries.last?.id') == 3
-assert 'if busy { ProgressView().softGroupedRow(bottom: true) }' in ui
+# The file reader is now a full-height code surface; its loading indicator is
+# no longer a terminal row inside the old metadata/download Form.
 # Import buttons moved into the toolbar Menu (not List rows).
 for marker in ['Text(binding.repo + " · " + binding.branch)', 'TextField("提交说明", text: $commitMessage)']:
     row = next(line for line in workspace.splitlines() if marker in line)

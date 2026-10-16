@@ -11,21 +11,28 @@ struct LocalGitSnapshot { let status: LocalGitStatus; let history: LocalGitHisto
     private var attempted = false
     private var request: Task<Void, Never>?
     private var requestID: UUID?
+    private var revision = 0
+    private var requestRevision = 0
 
     func check(force: Bool = false, valid: @escaping () -> Bool,
                load: @escaping () async throws -> LocalGitSnapshot) async {
         guard valid() else { return }
-        if let request { await request.value; return }
+        if let request {
+            let wanted = revision
+            await request.value
+            if wanted > requestRevision { await check(force: true, valid: valid, load: load) }
+            return
+        }
         if attempted && !force { return }
         attempted = true; busy = true; fresh = false; error = ""
-        let id = UUID(); requestID = id
+        let id = UUID(), version = revision; requestID = id; requestRevision = version
         let pending = Task {
             defer { if self.requestID == id { self.requestID = nil; self.request = nil; self.busy = false } }
             do {
                 let value = try await load()
                 try Task.checkCancellation()
                 guard self.requestID == id, valid() else { return }
-                self.snapshot = value; self.fresh = true
+                self.snapshot = value; self.fresh = version == self.revision
                 self.selected.formIntersection(Set(value.status.files.map(\.path)))
             } catch {
                 if self.requestID == id, valid(), !(error is CancellationError) { self.error = error.localizedDescription }
@@ -34,6 +41,11 @@ struct LocalGitSnapshot { let status: LocalGitStatus; let history: LocalGitHisto
         request = pending; await pending.value
     }
     func cancel() {
-        requestID = nil; request?.cancel(); request = nil; busy = false; fresh = false
+        // Navigating to a read-only child must not invalidate a completed result.
+        guard request != nil else { return }
+        requestID = nil; request?.cancel(); request = nil; busy = false; fresh = false; attempted = false
+    }
+    func filesChanged() {
+        revision += 1; fresh = false; attempted = false
     }
 }
