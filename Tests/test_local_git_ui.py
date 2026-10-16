@@ -9,6 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LocalGitUITests(unittest.TestCase):
+    def test_folder_result_is_consumed_before_picker_dismissal(self):
+        page = (ROOT/'RepoPocket/LocalProjectImportView.swift').read_text(encoding='utf-8')
+        # Files may close its own presentation. The picked URL must be consumed
+        # by the delegate callback, while access is valid, without onDismiss.
+        self.assertNotIn('onDismiss: acceptPicker', page)
+        self.assertNotIn('@State private var pickedURL', page)
+        callback = page.split('WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false)', 1)[1].split('.id(request.id)', 1)[0]
+        self.assertIn('acceptPicker(url)', callback)
+        self.assertLess(callback.index('acceptPicker(url)'), callback.index('picker = nil'))
+        self.assertIn('.id(request.id)', page)
+
     def test_new_pages_keep_old_workspace_disconnected(self):
         for name in ['LocalProjectsView.swift', 'LocalProjectView.swift', 'LocalProjectEditor.swift', 'LocalProjectImportView.swift', 'LocalProjectState.swift']:
             self.assertTrue((ROOT/'RepoPocket'/name).exists(), 'Missing page: ' + name)

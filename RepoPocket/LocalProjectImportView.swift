@@ -7,7 +7,6 @@ struct LocalProjectImportView: View {
     @State private var clone = false
     @State private var folder: LocalGitProject?
     @State private var picker: WorkspaceImportRequest?
-    @State private var pickedURL: URL?
     @State private var remote = ""
     @State private var branch = "main"
     @State private var revision = ""
@@ -17,13 +16,18 @@ struct LocalProjectImportView: View {
     @State private var message = ""
     @State private var job: Task<Void, Never>?
     @State private var generation = AccountStore.generation
+    private var folderButtonTitle: String {
+        if folder != nil { return "重新选择文件夹" }
+        return clone ? "选择保存位置" : "选择原文件夹"
+    }
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     Toggle("克隆到新子文件夹", isOn: $clone)
-                    Button(folder == nil ? "选择原文件夹" : "重新选择文件夹") { picker = WorkspaceImportRequest(kind: .folder) }
-                    if let folder { Text(folder.name).foregroundStyle(.secondary) }
+                    Button(folderButtonTitle) { picker = WorkspaceImportRequest(kind: .folder) }
+                    if let folder { Label("已选：" + folder.name, systemImage: "folder").foregroundStyle(.secondary) }
+                    if clone { Text("选择存放仓库的文件夹，克隆时会在里面新建子文件夹。").font(.caption).foregroundStyle(.secondary) }
                 }.disabled(busy || preview != nil)
                 if let folder {
                     if clone || folder.usesPrivateGit {
@@ -56,14 +60,18 @@ struct LocalProjectImportView: View {
                 Text("不会复制原目录或覆盖现有文件。首次获取仓库需要网络；后续可离线检查和本地提交。").font(.caption).foregroundStyle(.secondary)
             }.navigationTitle("添加本地项目")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { job?.cancel(); dismiss() } } }
-            .sheet(item: $picker, onDismiss: acceptPicker) { request in
-                WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false) { urls in pickedURL = urls?.first; picker = nil }
+            .sheet(item: $picker) { request in
+                WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false) { urls in
+                    // Consume the delegate's URL while its grant is available.
+                    // Files may dismiss itself without SwiftUI's onDismiss.
+                    if let url = urls?.first { acceptPicker(url) }
+                    picker = nil
+                }.id(request.id)
             }
             .onDisappear { job?.cancel() }
         }
     }
-    private func acceptPicker() {
-        guard let url = pickedURL else { return }; pickedURL = nil
+    private func acceptPicker(_ url: URL) {
         do { folder = try store.prepare(url); preview = nil; message = "" }
         catch { message = error.localizedDescription }
     }
