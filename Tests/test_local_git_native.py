@@ -25,6 +25,7 @@ class NativeGitBehavior(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.library_dir = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.library_dir.cleanup)
         prefix = ROOT / 'NativeBuild/macosx'
         library = Path(cls.library_dir.name) / 'bridge.dylib'
         cls.library_path = str(library)
@@ -38,9 +39,39 @@ class NativeGitBehavior(unittest.TestCase):
         cls.native.rp_git_execute.restype = ctypes.c_void_p
         cls.native.rp_git_free.argtypes = [ctypes.c_void_p]
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.library_dir.cleanup()
+        # Decode the bridge's original bytes with the same Swift declarations
+        # as the app. Python truthiness alone accepts JSON 0/1 as booleans and
+        # cannot catch an Objective-C NSNumber/Swift Bool contract mismatch.
+        engine = (ROOT / 'RepoPocket/LocalGitEngine.swift').read_text(encoding='utf-8')
+        envelope = engine[engine.index('private struct NativeEnvelope<'):
+                          engine.index('private final class LocalGitJob:')]
+        history = (ROOT / 'RepoPocket/LocalProjectHistoryView.swift').read_text(encoding='utf-8')
+        detail_model = history[history.index('struct LocalGitCommitDetail:'):
+                               history.index('struct LocalProjectCommitView:')]
+        fixture = Path(cls.library_dir.name) / 'main.swift'
+        fixture.write_text('import Foundation\nimport Darwin\n' + envelope + '\n' + detail_model + r'''
+do {
+    let bytes = FileHandle.standardInput.readDataToEndOfFile()
+    let reply = try JSONDecoder().decode(NativeEnvelope<LocalGitCommitDetail>.self, from: bytes)
+    if reply.ok {
+        guard reply.result != nil else {
+            throw NSError(domain: "CommitDetailFixture", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "Success reply has no decoded detail"])
+        }
+    } else {
+        guard reply.result == nil, let message = reply.error, !message.isEmpty else {
+            throw NSError(domain: "CommitDetailFixture", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Error reply lost its error envelope"])
+        }
+    }
+} catch {
+    FileHandle.standardError.write(Data("Production Swift commit detail decode failed: \(error)\n".utf8))
+    exit(1)
+}
+''', encoding='utf-8')
+        cls.detail_decoder = str(Path(cls.library_dir.name) / 'decode-commit-detail')
+        subprocess.run(['xcrun', 'swiftc', str(ROOT / 'RepoPocket/DesktopModels.swift'),
+                        str(fixture), '-o', cls.detail_decoder], check=True)
 
     def git(self, *args, cwd=None):
         return subprocess.check_output(['git', '-c', 'commit.gpgsign=false', '-c', 'core.quotepath=false', *args],
@@ -67,9 +98,14 @@ class NativeGitBehavior(unittest.TestCase):
         pointer = self.native.rp_git_execute(operation.encode(), json.dumps(request).encode())
         self.assertTrue(pointer)
         try:
-            return json.loads(ctypes.string_at(pointer))
+            raw = ctypes.string_at(pointer)
         finally:
             self.native.rp_git_free(pointer)
+        if operation == 'commitDetail':
+            decoded = subprocess.run([self.detail_decoder], input=raw, capture_output=True)
+            self.assertEqual(decoded.returncode, 0,
+                             decoded.stderr.decode('utf-8', errors='replace'))
+        return json.loads(raw)
 
     def result(self, operation, **values):
         response = self.call(operation, **values)
@@ -105,15 +141,59 @@ class NativeGitBehavior(unittest.TestCase):
         (self.work / '代码.py').write_text('uncommitted content\n')
         detail = self.result('commitDetail', sha=commit)
         self.assertEqual(detail['sha'], commit)
+        self.assertIs(detail['merge'], False)
+        self.assertIs(detail['truncated'], False)
         self.assertIn('Full description', detail['message'])
         self.assertEqual(detail['files'][0]['filename'], '代码.py')
         self.assertIn('+print("committed")', detail['files'][0]['patch'])
         self.assertNotIn('uncommitted', detail['files'][0]['patch'])
         self.assertEqual((self.work / '代码.py').read_text(), 'uncommitted content\n')
         self.assertEqual(self.git('rev-parse', 'HEAD'), commit)
+
+    def test_initial_commit_detail_decodes_without_a_parent(self):
         initial = self.result('commitDetail', sha=self.head)
+        self.assertEqual(initial['sha'], self.head)
+        self.assertIs(initial['merge'], False)
+        self.assertIs(initial['truncated'], False)
         self.assertEqual({f['filename'] for f in initial['files']}, {'代码.py', 'other.txt', '.gitignore'})
-        self.assertFalse(self.call('commitDetail', sha='HEAD~1')['ok'])
+        self.assertTrue(all(file['status'] == 'added' for file in initial['files']))
+
+    def test_commit_detail_error_reply_decodes_without_a_result(self):
+        for sha in ('HEAD~1', '0' * 40):
+            with self.subTest(sha=sha):
+                reply = self.call('commitDetail', sha=sha)
+                self.assertIs(reply['ok'], False)
+                self.assertNotIn('result', reply)
+                self.assertTrue(reply['error'])
+
+    def test_merge_commit_detail_decodes_true_and_compares_first_parent(self):
+        self.git('checkout', '-b', 'feature')
+        (self.work / '分支.txt').write_text('from feature\n')
+        self.git('add', '.')
+        self.git('commit', '-m', 'feature change')
+        self.git('checkout', 'main')
+        (self.work / 'main.txt').write_text('from main\n')
+        self.git('add', '.')
+        self.git('commit', '-m', 'main change')
+        self.git('merge', '--no-ff', 'feature', '-m', 'Merge feature')
+        detail = self.result('commitDetail', sha=self.git('rev-parse', 'HEAD'))
+        self.assertIs(detail['merge'], True)
+        self.assertIs(detail['truncated'], False)
+        self.assertEqual([file['filename'] for file in detail['files']], ['分支.txt'])
+        self.assertIn('+from feature', detail['files'][0]['patch'])
+
+    def test_binary_commit_detail_decodes_null_patch(self):
+        (self.work / '图片.bin').write_bytes(b'\x00binary fixture\x01')
+        self.git('add', '.')
+        self.git('commit', '-m', 'binary content')
+        detail = self.result('commitDetail', sha=self.git('rev-parse', 'HEAD'))
+        self.assertIs(detail['merge'], False)
+        self.assertIs(detail['truncated'], False)
+        self.assertEqual(len(detail['files']), 1)
+        self.assertEqual(detail['files'][0]['filename'], '图片.bin')
+        self.assertIsNone(detail['files'][0]['patch'])
+        self.assertEqual(detail['files'][0]['additions'], 0)
+        self.assertEqual(detail['files'][0]['deletions'], 0)
 
     def test_commit_detail_stops_building_oversized_file_lists(self):
         for number in range(201):
@@ -121,7 +201,7 @@ class NativeGitBehavior(unittest.TestCase):
         self.git('add', '.')
         self.git('commit', '-m', 'large file list')
         detail = self.result('commitDetail', sha=self.git('rev-parse', 'HEAD'))
-        self.assertTrue(detail['truncated'])
+        self.assertIs(detail['truncated'], True)
         self.assertLessEqual(len(detail['files']), 200)
 
     def test_commit_detail_bounds_patch_bytes_but_preserves_file_names(self):
@@ -130,7 +210,7 @@ class NativeGitBehavior(unittest.TestCase):
         self.git('add', '.')
         self.git('commit', '-m', 'large content')
         detail = self.result('commitDetail', sha=self.git('rev-parse', 'HEAD'))
-        self.assertTrue(detail['truncated'])
+        self.assertIs(detail['truncated'], True)
         self.assertEqual(len(detail['files']), 12)
         self.assertLessEqual(sum(len((f['patch'] or '').encode()) for f in detail['files']), 1024 * 1024)
         self.assertIsNone(detail['files'][-1]['patch'])
