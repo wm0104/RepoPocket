@@ -40,7 +40,7 @@ targets:
         embed: true
     type: application
     platform: iOS
-    sources: [RepoPocket, Vendor/DebCodecs, SharedInbox]
+    sources: [RepoPocket, Vendor/DebCodecs, Vendor/NativeGit, SharedInbox]
     info:
       path: RepoPocket/Info.plist
       properties:
@@ -67,6 +67,10 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
+        CLANG_ENABLE_OBJC_ARC: YES
+        HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/NativeBuild/$(PLATFORM_NAME)/include"
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/NativeBuild/$(PLATFORM_NAME)/lib"
+        OTHER_LDFLAGS: "$(inherited) -lgit2 -lz -liconv -framework Security -framework CoreFoundation"
   RepoPocketShare:
     type: app-extension
     platform: iOS

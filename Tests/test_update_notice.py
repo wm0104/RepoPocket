@@ -77,7 +77,7 @@ class NoticeTests(unittest.TestCase):
         self.assertNotIn('Authorization', warm)
         self.assertNotIn('CredentialStore', warm)
         self.assertIn('type: application', (REPO_ROOT / 'project.yml').read_text())
-        self.assertIn('sources: [RepoPocket, Vendor/DebCodecs, SharedInbox]', (REPO_ROOT / 'project.yml').read_text())
+        self.assertIn('sources: [RepoPocket, Vendor/DebCodecs, Vendor/NativeGit, SharedInbox]', (REPO_ROOT / 'project.yml').read_text())
 
     def test_pasted_token_survives_failed_verification(self):
         accounts = (REPO_ROOT / 'RepoPocket/AccountManagement.swift').read_text()

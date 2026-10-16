@@ -29,6 +29,22 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+      - uses: actions/cache@v4
+        with:
+          path: NativeBuild
+          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh') }}
+      - name: Prepare native Git libraries
+        run: |
+          bash Scripts/build_native_git.sh macosx
+          bash Scripts/build_native_git.sh iphoneos
+      - name: Test native local Git backend
+        run: python3 Tests/test_local_git_native.py
+      - name: Test original-folder persistence and editing
+        run: python3 Tests/test_local_git_store.py
+      - name: Test local project page lifecycle
+        run: python3 Tests/test_local_git_ui.py
       - name: Test build workflow entry points
         run: python3 Tests/test_build_workflow.py
       - name: Test community reads, pagination, filters and OAuth rules
@@ -119,8 +135,6 @@ jobs:
         run: python3 Tests/test_repository_page_lifecycle.py
       - name: Test Swift source structure before compiling
         run: python3 Tests/test_swift_structure.py
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
       - name: Generate Xcode project
         run: |
           brew install xcodegen
@@ -216,6 +230,7 @@ jobs:
         if: ${{ inputs.style_preview }}
         run: |
           set -o pipefail
+          bash Scripts/build_native_git.sh iphonesimulator
           xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
       - name: Render fixed-data account and repository screens
         if: ${{ inputs.style_preview }}

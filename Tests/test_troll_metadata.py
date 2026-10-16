@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory() as d:
  subprocess.run(['swiftc',str(p),'-o',d+'/fixture'],check=True)
  subprocess.run([d+'/fixture'],check=True)
 # Test-only top-level code and AppError stubs must not enter the app target.
-assert 'sources: [RepoPocket, Vendor/DebCodecs, SharedInbox]' in Path(REPO_ROOT, 'project.yml').read_text()
+assert 'sources: [RepoPocket, Vendor/DebCodecs, Vendor/NativeGit, SharedInbox]' in Path(REPO_ROOT, 'project.yml').read_text()
 g=Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text();m=g[g.index('    func saveMetadata'):g.index('    func saveRemoteDeb')]
 assert 'workspaceHead(original.binding.repo, branch: original.binding.branch) == original.binding.head' in m
 assert 'writes: [WorkspaceWrite(path: "trollpackages.json", bytes: bytes)]' in m
