@@ -58,7 +58,8 @@ class NativeGitBehavior(unittest.TestCase):
         self.head = self.git('rev-parse', 'HEAD')
 
     def call(self, operation, **values):
-        request = dict(repository=str(self.work / '.git'), workdir=str(self.work), **values)
+        request = dict(repository=str(self.work / '.git'), workdir=str(self.work))
+        request.update(values)
         pointer = self.native.rp_git_execute(operation.encode(), json.dumps(request).encode())
         self.assertTrue(pointer)
         try:
