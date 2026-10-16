@@ -94,11 +94,13 @@ private struct SourcePreviewProbe: UIViewRepresentable {
             .offsetBy(dx: text.textContainerInset.left - text.contentOffset.x,
                       dy: text.textContainerInset.top - text.contentOffset.y)
         let visible = CGRect(origin: .zero, size: text.bounds.size).contains(tailRect)
+        let viewport = text.convert(text.bounds, to: window)
+        let onScreenTail = tailRect.offsetBy(dx: viewport.minX, dy: viewport.minY)
         var fragments = 0
         manager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs)) { _, _, _, _, _ in fragments += 1 }
         let hardLines = content.components(separatedBy: "\n").count
         let gutterRect = gutter.convert(gutter.bounds, to: window)
-        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(text.contentOffset.x))|width=\(Int(text.contentSize.width))|viewport=\(Int(text.bounds.width))|tail=\(visible ? 1 : 0)|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))"
+        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(text.contentOffset.x))|width=\(Int(text.contentSize.width))|viewport=\(Int(text.bounds.width))|tail=\(visible ? 1 : 0)|tailX=\(Int(onScreenTail.minX))|tailY=\(Int(onScreenTail.minY))|tailWidth=\(Int(onScreenTail.width.rounded(.up)))|tailHeight=\(Int(onScreenTail.height.rounded(.up)))|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))"
     }
 }
 

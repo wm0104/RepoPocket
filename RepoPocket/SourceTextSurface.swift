@@ -59,15 +59,12 @@ final class SourceNativeTextView: UITextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard !measuring, bounds.width > 0, bounds.height > 0 else { return }
-        if textContainer.size.width != .greatestFiniteMagnitude {
-            textContainer.size = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-            geometryDirty = true
-        }
         if geometryDirty || measuredFont != font {
             measuring = true
             defer { measuring = false }
             // This work runs only after content/font changes. Scrolling and
             // selection reuse the result without scanning the document again.
+            textContainer.size = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
             layoutManager.ensureLayout(for: textContainer)
             let used = layoutManager.usedRect(for: textContainer)
             let extra = layoutManager.extraLineFragmentTextContainer == nil ? CGRect.zero : layoutManager.extraLineFragmentUsedRect
@@ -76,6 +73,12 @@ final class SourceNativeTextView: UITextView {
                                   height: ceil(max(used.maxY, extra.maxY) + insets.top + insets.bottom))
             measuredFont = font
             geometryDirty = false
+            // UIKit's text drawing view must have a finite full-line width too.
+            // Merely widening UIScrollView.contentSize leaves the glyphs clipped
+            // to the old viewport, even though their TextKit rectangles exist.
+            textContainer.size = CGSize(width: max(ceil(used.maxX) + 1, bounds.width - insets.left - insets.right),
+                                        height: CGFloat.greatestFiniteMagnitude)
+            super.layoutSubviews()
         }
         if let measuredSize {
             let target = CGSize(width: max(bounds.width, measuredSize.width),

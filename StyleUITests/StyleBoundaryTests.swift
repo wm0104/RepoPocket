@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
     func testWorkflowStepOpensActualOutputInline() {
@@ -70,6 +71,7 @@ final class StyleBoundaryTests: XCTestCase {
                 report = sourceReport(app)
             }
             XCTAssertEqual(report["tail"], "1", "A real horizontal gesture must bring the tail glyph into view")
+            assertTailIsRendered(app, report: report)
             XCTAssertGreaterThan(Int(report["offset"] ?? "0") ?? 0, 0)
             XCTAssertEqual(report["fragments"], "3")
             XCTAssertEqual(report["gutterX"], gutterX)
@@ -98,6 +100,24 @@ final class StyleBoundaryTests: XCTestCase {
             let pair = field.split(separator: "=", maxSplits: 1)
             return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
         })
+    }
+
+    private func assertTailIsRendered(_ app: XCUIApplication, report: [String: String]) {
+        guard let image = app.screenshot().image.cgImage else { XCTFail("Missing screen image"); return }
+        let scale = CGFloat(image.width) / app.frame.width
+        func value(_ key: String) -> CGFloat { CGFloat(Int(report[key] ?? "0") ?? 0) }
+        let region = CGRect(x: value("tailX") * scale, y: value("tailY") * scale,
+                            width: value("tailWidth") * scale, height: value("tailHeight") * scale).integral
+        guard let crop = image.cropping(to: region), crop.width > 0, crop.height > 0 else { XCTFail("Tail is outside the actual screenshot"); return }
+        var pixels = [UInt8](repeating: 255, count: crop.width * crop.height * 4)
+        pixels.withUnsafeMutableBytes { bytes in
+            let context = CGContext(data: bytes.baseAddress, width: crop.width, height: crop.height,
+                bitsPerComponent: 8, bytesPerRow: crop.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: CGFloat(crop.width), height: CGFloat(crop.height)))
+        }
+        let ink = stride(from: 0, to: pixels.count, by: 4).filter { pixels[$0] < 220 || pixels[$0 + 1] < 220 || pixels[$0 + 2] < 220 }.count
+        XCTAssertGreaterThan(ink, 20, "The tail must be drawn on screen, not only have a visible TextKit rectangle")
     }
 
     func testLocalHistoryCommitDetailAndFolding() {
