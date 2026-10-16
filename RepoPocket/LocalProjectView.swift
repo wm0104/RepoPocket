@@ -18,6 +18,23 @@ struct LocalProjectView: View {
     private var valid: Bool { generation == AccountStore.generation && api.isCurrentSession && store.projects.contains(where: { $0.id == project.id }) }
     private var selected: [LocalGitChange] { state.snapshot?.status.files.filter { state.selected.contains($0.path) } ?? [] }
     var body: some View {
+        projectSheets.confirmationDialog(syncTitle, isPresented: syncPresented, titleVisibility: .visible) {
+            Button("确认") { guard let action = syncing else { return }; syncing = nil; sync(action) }
+        } message: { Text(syncMessage) }
+    }
+    private var syncTitle: String {
+        if syncing == "recover" { return "核对并继续中断操作？" }
+        return syncing == "push" ? "推送当前分支？" : "拉取远端当前分支？"
+    }
+    private var syncPresented: Binding<Bool> {
+        Binding(get: { syncing != nil }, set: { if !$0 { syncing = nil } })
+    }
+    private var syncMessage: String {
+        let remote = state.snapshot?.history.remote ?? ""
+        let branch = state.snapshot?.status.branch ?? ""
+        return "账号：\(api.login)\n\(remote)\n分支：\(branch)"
+    }
+    private var projectList: some View {
         List {
             if let snapshot = state.snapshot {
                 summarySection(snapshot)
@@ -35,12 +52,17 @@ struct LocalProjectView: View {
         }.navigationTitle(project.name)
         .task { await check() }
         .onDisappear { state.cancel() }
+    }
+    private var projectSheets: some View {
+        projectList
         .sheet(item: $diffFile) { file in
             LocalProjectDiffView(project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
                                  path:file.path,head:state.snapshot?.status.head ?? "")
         }
-        .sheet(isPresented:$commitSheet,onDismiss:finishCommit) {
-            NavigationStack {
+        .sheet(isPresented:$commitSheet,onDismiss:finishCommit) { commitForm }
+    }
+    private var commitForm: some View {
+        NavigationStack {
                 Form {
                     Section("提交到本地分支：" + (state.snapshot?.status.branch ?? "")) {
                         TextField("提交说明",text:$commitMessage)
@@ -52,11 +74,7 @@ struct LocalProjectView: View {
                     Button("确认创建本地提交") { pendingCommit = true; commitSheet = false }
                         .disabled(commitMessage.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || authorName.isEmpty || authorEmail.isEmpty)
                 }.navigationTitle("确认本地提交").toolbar { Button("取消") { commitSheet = false } }
-            }
         }
-        .confirmationDialog(syncing == "recover" ? "核对并继续中断操作？" : (syncing == "push" ? "推送当前分支？" : "拉取远端当前分支？"),isPresented:Binding(get:{syncing != nil},set:{if !$0 {syncing=nil}}),titleVisibility:.visible) {
-            Button("确认") { guard let action=syncing else{return};syncing=nil;sync(action) }
-        } message: { Text("账号：" + api.login + "\n" + (state.snapshot?.history.remote ?? "") + "\n分支：" + (state.snapshot?.status.branch ?? "")) }
     }
     private func summarySection(_ snapshot: LocalGitSnapshot) -> some View {
         Section("当前分支") {
