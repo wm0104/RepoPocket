@@ -38,10 +38,10 @@ import Foundation
   let opened=try LocalGitFileAccess.read(root:folder,path:"代码.py")
   try Data("external edit".utf8).write(to:file)
   do {try LocalGitFileAccess.write(root:folder,path:"代码.py",text:"overwrite",expected:opened.fingerprint);preconditionFailure("stale editor saved")}
-  catch {precondition(try String(contentsOf:file)=="external edit")}
+  catch {precondition((try? String(contentsOf:file))=="external edit")}
   let current=try LocalGitFileAccess.read(root:folder,path:"代码.py")
   try LocalGitFileAccess.write(root:folder,path:"代码.py",text:"edited",expected:current.fingerprint)
-  precondition(try String(contentsOf:file)=="edited")
+  precondition((try? String(contentsOf:file))=="edited")
   do {_=try LocalGitFileAccess.read(root:folder,path:"../registry");preconditionFailure("escaped root")} catch {}
   let link=folder.appendingPathComponent("link")
   try FileManager.default.createSymbolicLink(at:link,withDestinationURL:sibling)
@@ -49,7 +49,7 @@ import Foundation
   let last=try LocalGitFileAccess.read(root:folder,path:"代码.py")
   try LocalGitFileAccess.delete(root:folder,path:"代码.py",expected:last.fingerprint)
   precondition(!FileManager.default.fileExists(atPath:file.path))
-  precondition(try String(contentsOf:sibling)=="keep")
+  precondition((try? String(contentsOf:sibling))=="keep")
   try store.remove(project)
   precondition(FileManager.default.fileExists(atPath:folder.path))
   let loaded=LocalGitRegistry(directory:parent.appendingPathComponent("registry"),internalRoot:parent)

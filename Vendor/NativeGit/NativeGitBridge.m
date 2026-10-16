@@ -7,6 +7,27 @@
 #include <limits.h>
 #include "NativeGitBridge.h"
 
+static NSLock *RPCancelLock;
+static NSMutableSet<NSString *> *RPCancelled;
+static NSMutableSet<NSString *> *RPActive;
+static void RPInitCancellation(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ RPCancelLock = [NSLock new]; RPCancelled = [NSMutableSet new]; RPActive = [NSMutableSet new]; });
+}
+void rp_git_cancel(const char *requestID) {
+    if (!requestID || strlen(requestID)>80) return;
+    RPInitCancellation(); [RPCancelLock lock];
+    [RPCancelled addObject:@(requestID)];
+    if (RPCancelled.count>1024) for (NSString *key in RPCancelled.allObjects) {
+        if (![RPActive containsObject:key]) { [RPCancelled removeObject:key]; break; }
+    }
+    [RPCancelLock unlock];
+}
+static BOOL RPIsCancelled(NSString *identifier) {
+    if (!identifier) return NO;
+    RPInitCancellation(); [RPCancelLock lock]; BOOL result = [RPCancelled containsObject:identifier]; [RPCancelLock unlock]; return result;
+}
+
 // No Git subprocesses, hooks or credentials in persistent configuration.
 @interface RPGitResources : NSObject
 @property NSMutableArray *releases;
@@ -102,6 +123,33 @@ static git_tree *RPTree(git_repository *repo, git_reference *head, RPGitResource
     RPCheck(git_commit_lookup(&commit, repo, git_reference_target(head)), @"读取当前提交失败。"); KEEP(commit, git_commit_free);
     RPCheck(git_commit_tree(&tree, commit), @"读取当前文件树失败。"); KEEP(tree, git_tree_free);
     return tree;
+}
+static void RPScanBudget(git_repository *repo, NSString *requestID, RPGitResources *c) {
+    git_index *index = NULL; RPCheck(git_repository_index(&index,repo), @"读取文件列表失败。"); KEEP(index,git_index_free);
+    RPRequire(git_index_entrycount(index)<=10000,@"项目超过 10000 个跟踪文件，请使用桌面 Git。");
+    NSURL *root = [NSURL fileURLWithPath:@(git_repository_workdir(repo)) isDirectory:YES];
+    NSDirectoryEnumerator *walker = [[NSFileManager defaultManager] enumeratorAtURL:root
+         includingPropertiesForKeys:@[NSURLIsDirectoryKey,NSURLIsSymbolicLinkKey,NSURLFileSizeKey] options:0 errorHandler:nil];
+    RPRequire(walker!=nil,@"无法枚举原目录。");
+    NSUInteger visited=0; unsigned long long bytes=0;
+    for (NSURL *url in walker) {
+        RPRequire(++visited<=20000 && !RPIsCancelled(requestID),@"检查已取消或目录超过 20000 项，已停止扫描。");
+        if ([url.lastPathComponent.lowercaseString isEqual:@".git"]) {
+            RPRequire([url.URLByDeletingLastPathComponent.path isEqual:root.path],@"目录内含嵌套 Git 仓库，请单独关联。");
+            [walker skipDescendants]; continue;
+        }
+        NSString *relative = [url.path substringFromIndex:root.path.length+1];
+        BOOL tracked = git_index_get_bypath(index,relative.UTF8String,0)!=NULL;
+        int ignored=0; if (!tracked) RPCheck(git_ignore_path_is_ignored(&ignored,repo,relative.UTF8String),@"读取忽略规则失败。");
+        NSNumber *directory=nil,*link=nil,*size=nil;
+        RPRequire([url getResourceValue:&directory forKey:NSURLIsDirectoryKey error:nil] &&
+                  [url getResourceValue:&link forKey:NSURLIsSymbolicLinkKey error:nil],@"目录项目不可访问，请重新检查文件提供器。");
+        if (ignored) { if (directory.boolValue) [walker skipDescendants]; continue; }
+        if (link.boolValue || directory.boolValue) continue;
+        RPRequire([url getResourceValue:&size forKey:NSURLFileSizeKey error:nil],@"读取文件大小失败。");
+        bytes+=size.unsignedLongLongValue;
+        RPRequire(size.unsignedLongLongValue<=128*1024*1024 && bytes<=512*1024*1024,@"检查范围超过单文件 128 MiB 或总计 512 MiB，已停止；请使用桌面 Git。");
+    }
 }
 static NSDictionary *RPStatus(git_repository *repo, RPGitResources *c) {
     git_reference *head = RPHead(repo, c);
@@ -257,11 +305,14 @@ static BOOL RPAllowedRemote(NSString *raw) {
 }
 static int RPCredentials(git_credential **out, const char *url, const char *username, unsigned types, void *payload) {
     NSMutableDictionary *q = (__bridge NSMutableDictionary *)payload;
-    if (!url || !RPAllowedRemote(@(url)) || ![@(url) isEqual:q[@"credentialRemote"]] ||
+    if (RPIsCancelled(q[@"requestID"]) || !url || !RPAllowedRemote(@(url)) || ![@(url) isEqual:q[@"credentialRemote"]] ||
         ![q[@"token"] isKindOfClass:NSString.class] || ![q[@"token"] length] ||
         !(types & GIT_CREDENTIAL_USERPASS_PLAINTEXT) || [q[@"credentialUsed"] boolValue]) return GIT_EAUTH;
     q[@"credentialUsed"] = @YES;
     return git_credential_userpass_plaintext_new(out, "x-access-token", [q[@"token"] UTF8String]);
+}
+static int RPTransfer(const git_indexer_progress *progress, void *payload) {
+    return RPIsCancelled(((__bridge NSDictionary *)payload)[@"requestID"]) ? GIT_EUSER : 0;
 }
 static int RPCertificate(git_cert *certificate, int valid, const char *host, void *payload) {
     return valid && host && [@(host).lowercaseString isEqual:@"github.com"] ? 0 : GIT_ECERTIFICATE;
@@ -281,6 +332,7 @@ static git_remote_callbacks RPCallbacks(NSMutableDictionary *q) {
     callbacks.credentials = RPCredentials; callbacks.certificate_check = RPCertificate;
     callbacks.remote_ready = RPReady; callbacks.push_update_reference = RPPushResult;
     callbacks.payload = (__bridge void *)q;
+    callbacks.transfer_progress = RPTransfer;
     return callbacks;
 }
 static void RPBranch(NSString *branch) {
@@ -441,16 +493,20 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
     @autoreleasepool {
         static dispatch_once_t initialized;
         dispatch_once(&initialized, ^{ git_libgit2_init(); });
-        RPGitResources *c = [RPGitResources new]; NSDictionary *answer;
+        RPGitResources *c = [RPGitResources new]; NSDictionary *answer; NSString *requestID = nil;
         @try {
             RPRequire(operation && requestJSON && strlen(requestJSON) <= 2 * 1024 * 1024, @"Git 请求无效。");
             NSData *bytes = [NSData dataWithBytes:requestJSON length:strlen(requestJSON)];
             NSMutableDictionary *q = [NSJSONSerialization JSONObjectWithData:bytes options:NSJSONReadingMutableContainers error:nil];
             RPRequire([q isKindOfClass:NSDictionary.class], @"Git 请求无效。");
+            requestID = [q[@"requestID"] isKindOfClass:NSString.class] ? q[@"requestID"] : nil;
+            RPInitCancellation(); [RPCancelLock lock]; if (requestID) [RPActive addObject:requestID]; [RPCancelLock unlock];
+            RPRequire(!RPIsCancelled(requestID),@"Git 操作已取消。");
             NSString *op = @(operation); NSDictionary *result = nil;
             if ([op isEqual:@"clone"] || [op isEqual:@"associate"]) result = RPCreate(op,q,c);
             else {
                 git_repository *repo = RPOpen(q, c);
+                if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"]) RPScanBudget(repo,requestID,c);
                 if ([op isEqual:@"status"] || [op isEqual:@"inspect"]) result = RPStatus(repo, c);
                 else if ([op isEqual:@"diff"]) result = RPDiff(repo, q, c);
                 else if ([op isEqual:@"commit"]) result = RPCommit(repo, q, c);
@@ -464,7 +520,10 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
         } @catch (NSException *error) {
             // Never copy libgit2 transport/config diagnostics (which may contain URLs or credentials).
             answer = @{@"ok":@NO, @"error":[error.name isEqual:@"RPGit"] ? error.reason : @"Git 操作失败，文件已保留。"};
-        } @finally { [c close]; }
+        } @finally {
+            [c close];
+            if (requestID) { [RPCancelLock lock]; [RPActive removeObject:requestID]; [RPCancelled removeObject:requestID]; [RPCancelLock unlock]; }
+        }
         NSData *encoded = [NSJSONSerialization dataWithJSONObject:answer options:0 error:nil];
         NSString *json = [[NSString alloc] initWithData:encoded encoding:NSUTF8StringEncoding];
         return strdup(json.UTF8String ?: "{\"ok\":false,\"error\":\"Git response failed\"}");

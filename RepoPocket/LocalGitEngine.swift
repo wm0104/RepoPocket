@@ -7,15 +7,20 @@ actor LocalGitEngine {
 
     func run<T: Decodable>(_ operation: String, project: LocalGitProject, metadata: URL,
                            internalRoot: URL, arguments: [String: Any] = [:],
-                           as: T.Type = T.self) async throws -> T {
+                           generation: UUID? = nil, as: T.Type = T.self) async throws -> T {
         try Task.checkCancellation()
-        let value: T = try await withCheckedThrowingContinuation { continuation in
+        let job = LocalGitJob()
+        let value: T = try await withTaskCancellationHandler(operation: {
+          try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {
+                    try job.check()
+                    if let generation, generation != AccountStore.generation { throw CancellationError() }
                     let result: T = try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot) { root in
                         try LocalGitFileAccess.coordinate(root, writing: ["commit", "pull", "associate"].contains(operation)) { coordinated in
                             guard try LocalGitFileAccess.identity(coordinated) == project.identity else { throw LocalGitError(text: "文件提供器切换了目录，请重新授权原目录。") }
                             var request = arguments
+                            request["requestID"] = job.id
                             request["repository"] = project.usesPrivateGit ? metadata.path : root.appendingPathComponent(".git").path
                             request["workdir"] = root.path
                             request["privateGit"] = project.usesPrivateGit
@@ -25,17 +30,21 @@ actor LocalGitEngine {
                     continuation.resume(returning: result)
                 } catch { continuation.resume(throwing: error) }
             }
-        }
+          }
+        }, onCancel: { job.cancel() })
         try Task.checkCancellation()
         return value
     }
     func file<T>(project: LocalGitProject, internalRoot: URL, operation: @escaping (URL) throws -> T) async throws -> T {
         try Task.checkCancellation()
-        let result: T = try await withCheckedThrowingContinuation { continuation in
+        let job = LocalGitJob()
+        let result: T = try await withTaskCancellationHandler(operation: {
+          try await withCheckedThrowingContinuation { continuation in
             queue.async {
-                continuation.resume(with: Result { try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot, operation: operation) })
+                continuation.resume(with: Result { try job.check(); return try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot, operation: operation) })
             }
-        }
+          }
+        }, onCancel: { job.cancel() })
         try Task.checkCancellation(); return result
     }
     func clone(parent: LocalGitProject, internalRoot: URL, name: String, remote: String, branch: String, token: String) async throws -> URL {
@@ -60,3 +69,16 @@ actor LocalGitEngine {
     }
 }
 private struct NativeEnvelope<T: Decodable>: Decodable { let ok: Bool; let result: T?; let error: String? }
+private final class LocalGitJob: @unchecked Sendable {
+    let id = UUID().uuidString
+    private let lock = NSLock()
+    private var cancelled = false
+    func cancel() {
+        lock.lock(); cancelled = true; lock.unlock()
+        rp_git_cancel(id)
+    }
+    func check() throws {
+        lock.lock(); let stopped = cancelled; lock.unlock()
+        if stopped { throw CancellationError() }
+    }
+}

@@ -5,6 +5,7 @@ extern "C" {
 #endif
 char *rp_git_execute(const char *operation, const char *requestJSON);
 void rp_git_free(char *value);
+void rp_git_cancel(const char *requestID);
 #ifdef __cplusplus
 }
 #endif
