@@ -55,6 +55,25 @@ enum LocalGitFileAccess {
             if let permissions = attributes[.posixPermissions] { try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: coordinated.path) }
         }
     }
+    static func replaceBinary(root: URL, path: String, source: URL, expected: String) throws {
+        let target = try self.path(root: root, relative: path)
+        let info = try FileManager.default.attributesOfItem(atPath: source.path)
+        guard info[.type] as? FileAttributeType == .typeRegular,
+              let size = info[.size] as? NSNumber, size.int64Value <= 128 * 1024 * 1024 else {
+            throw LocalGitError(text: "仅保存 128 MiB 内的普通文件。")
+        }
+        let bytes = try Data(contentsOf: source, options: .mappedIfSafe)
+        guard bytes.count <= 128 * 1024 * 1024 else { throw LocalGitError(text: "文件过大，未保存。") }
+        try coordinate(target, writing: true) { coordinated in
+            guard coordinated.standardizedFileURL == target.standardizedFileURL,
+                  try fileFingerprint(root: root, path: path) == expected else {
+                throw LocalGitError(text: "本地文件已被其他工具修改，未覆盖，请重新打开。")
+            }
+            let attributes = try FileManager.default.attributesOfItem(atPath: target.path)
+            try bytes.write(to: coordinated, options: .atomic)
+            if let mode = attributes[.posixPermissions] { try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: coordinated.path) }
+        }
+    }
     static func delete(root: URL, path: String, expected: String) throws {
         let url = try self.path(root: root, relative: path)
         try coordinate(url, writing: true) { coordinated in

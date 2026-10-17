@@ -27,7 +27,7 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.6"', self.source)
         project = (REPO_ROOT / 'project.yml').read_text()
         self.assertIn('MARKETING_VERSION: "1.0.6"', project)
-        self.assertIn('CURRENT_PROJECT_VERSION: "12"', project)
+        self.assertIn('CURRENT_PROJECT_VERSION: "13"', project)
 
     def test_release_version_is_readable_by_installed_1_0_5(self):
         import re

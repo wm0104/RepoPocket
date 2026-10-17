@@ -7,6 +7,7 @@ struct LocalProjectView: View {
     @StateObject private var state = LocalProjectState()
     @StateObject private var importer = LocalGitImportState()
     @State private var expandedFolders = Set<String>()
+    @State private var fileSizes: [String: Int64] = [:]
     @State private var generation = AccountStore.generation
     @State private var accountID = AccountStore.activeID
     @State private var sheet: LocalProjectSheet?
@@ -47,6 +48,12 @@ struct LocalProjectView: View {
     }
     private var projectList: some View {
         List {
+            if importer.busy || !importer.message.isEmpty {
+                Section { SoftGroupRows {
+                    if importer.busy { SoftGroupRow("import-progress") { ProgressView("正在导入整个选择，请保持前台…") } }
+                    if !importer.message.isEmpty { SoftGroupRow("import-summary") { Text(importer.message).font(.caption).textSelection(.enabled) } }
+                } }
+            }
             if let snapshot = state.snapshot {
                 summarySection(snapshot)
                 changesSection(snapshot)
@@ -60,7 +67,6 @@ struct LocalProjectView: View {
                         SoftGroupRow("cancel") { Button("取消等待") { state.cancel(); importer.cancel(); note = "已取消等待。写入可能已完成，请下拉检查真实状态后再操作。" } }
                     }
                     if !state.error.isEmpty { SoftGroupRow("error") { Text(state.error).font(.caption).foregroundStyle(.red) } }
-                    if !importer.message.isEmpty { SoftGroupRow("import-result") { Text(importer.message).font(.caption).foregroundStyle(.secondary) } }
                     if !note.isEmpty { SoftGroupRow("note") { Text(note).font(.caption).foregroundStyle(.secondary) } }
                 }
             }
@@ -83,6 +89,7 @@ struct LocalProjectView: View {
             case .diff(let path): LocalProjectDiffView(project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
                                  path:path,head:state.snapshot?.status.head ?? "")
             case .commit: commitForm
+            case .deb(let path): LocalProjectDebEditor(api: api, project: project, internalRoot: store.internalRoot, path: path) { imported([path]) }
             }
         }
     }
@@ -118,7 +125,7 @@ struct LocalProjectView: View {
                 }
                 if !snapshot.history.remote.isEmpty { SoftGroupRow("remote") { Text(snapshot.history.remote).font(.caption).textSelection(.enabled) } }
                 SoftGroupRow("files") {
-                    NavigationLink("浏览与编辑项目文件") { LocalProjectFilesView(project: project, internalRoot: store.internalRoot) {
+                    NavigationLink("浏览与编辑项目文件") { LocalProjectFilesView(api: api, project: project, internalRoot: store.internalRoot) {
                         state.filesChanged(); note = "文件已修改，正在检查变化。"
                         Task { await check(force: true) }
                     } }.disabled(busy)
@@ -134,10 +141,10 @@ struct LocalProjectView: View {
                 else {
                     SoftGroupRow("selection") {
                         HStack {
-                            Button("全选") { state.selectAll() }.disabled(busy || snapshot.status.files.allSatisfy { !$0.blocked.isEmpty })
+                            let paths = Set(snapshot.status.files.filter { $0.blocked.isEmpty }.map(\.path))
+                            Button(!paths.isEmpty && paths.isSubset(of: state.selected) ? "取消全选" : "全选") { state.toggleSelection(paths) }.disabled(busy || paths.isEmpty)
                             Spacer()
                             Text("已选 \(selected.count)").font(.caption).foregroundStyle(.secondary)
-                            Button("取消全选") { state.selected.removeAll() }.disabled(busy || state.selected.isEmpty)
                         }.buttonStyle(.borderless)
                     }
                     for row in LocalGitChangeTree.rows(snapshot.status.files, expanded: expandedFolders) {
@@ -174,11 +181,15 @@ struct LocalProjectView: View {
                     .accessibilityValue(expandedFolders.contains(row.path) ? "已展开" : "已折叠")
             } else if let file = row.files.first {
                 Button { sheet = .diff(file.path) } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(row.name).lineLimit(2)
-                        Text(file.blocked.isEmpty ? file.label : file.blocked).font(.caption).foregroundStyle(.secondary)
-                    }
+                    LocalGitFileLabel(name: row.name, size: fileSizes[file.path], detail: file.blocked.isEmpty ? file.label : file.blocked)
                 }.buttonStyle(.borderless).disabled(busy)
+                if row.name.lowercased().hasSuffix(".deb"), file.kind != "deleted" {
+                    Menu {
+                        Button("编辑包信息") { sheet = .deb(file.path) }
+                        Button("查看变化") { sheet = .diff(file.path) }
+                    } label: { Image(systemName: "ellipsis").padding(8) }.disabled(busy)
+                        .accessibilityLabel("更多操作：" + row.name)
+                }
             }
         }.padding(.leading, CGFloat(min(row.depth, 5)) * 16)
     }
@@ -243,6 +254,16 @@ struct LocalProjectView: View {
         if ProcessInfo.processInfo.thermalState == .serious || ProcessInfo.processInfo.thermalState == .critical { throw LocalGitError(text:"设备当前温度较高，已暂停 Git 检查；降温后可手动重试。") }
         let status:LocalGitStatus = try await LocalGitEngine.shared.run("status",project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,generation:generation)
         let history:LocalGitHistory = try await LocalGitEngine.shared.run("history",project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,generation:generation)
+        let files = status.files
+        fileSizes = try await LocalGitEngine.shared.file(project: project, internalRoot: store.internalRoot, generation: generation) { root in
+            var sizes: [String: Int64] = [:]
+            for file in files where file.kind != "deleted" {
+                if let url = try? LocalGitFileAccess.path(root: root, relative: file.path),
+                   let info = try? FileManager.default.attributesOfItem(atPath: url.path),
+                   let size = info[.size] as? NSNumber { sizes[file.path] = size.int64Value }
+            }
+            return sizes
+        }
         return LocalGitSnapshot(status:status,history:history)
     }
     private func check(force:Bool=false) async {
@@ -250,10 +271,15 @@ struct LocalProjectView: View {
         await state.check(force:force,valid:{valid}) { try await snapshot() }
         if force, state.fresh, state.error.isEmpty { note = "检查完成，已显示当前文件变化。" }
     }
-    private func imported() {
+    private func imported(_ paths: [String]) {
         guard valid else { return }
         state.filesChanged()
-        Task { await check(force: true) }
+        Task {
+            await check(force: true)
+            guard valid, let snapshot = state.snapshot else { return }
+            let eligible = Set(snapshot.status.files.filter { $0.blocked.isEmpty }.map(\.path))
+            state.selected.formUnion(Set(paths).intersection(eligible))
+        }
     }
     private func finishCommit() {
         guard pendingCommit,valid,let current=state.snapshot else{return};pendingCommit=false

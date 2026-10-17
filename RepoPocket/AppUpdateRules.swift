@@ -62,6 +62,16 @@ enum AppUpdateRules {
         let reason = error.localizedDescription
         if reason.contains("速率") || reason.contains("过于频繁") { return "请求过于频繁，请稍后再试" }
         if reason.contains("凭据") || reason.contains("HTTP 401") { return "请重新登录" }
+        if reason.contains("发布版本格式") { return "发行版版本号无法识别，请打开官方发行版页手动安装" }
+        if let network = error as? URLError {
+            switch network.code {
+            case .notConnectedToInternet: return "网络未连接，请检查网络后重试"
+            case .timedOut: return "连接 GitHub 超时，请检查网络后重试"
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: return "无法连接 GitHub，请检查网络或代理后重试"
+            case .secureConnectionFailed, .serverCertificateUntrusted: return "GitHub 安全连接失败，请检查网络和系统时间"
+            default: break
+            }
+        }
         return "检查失败，请稍后重试"
     }
     static func statusError(_ status: Int, headers: [AnyHashable: Any] = [:], body: Data = Data(), authenticated: Bool = false) -> String {

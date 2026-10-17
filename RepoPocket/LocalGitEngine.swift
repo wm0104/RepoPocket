@@ -64,7 +64,7 @@ actor LocalGitEngine {
         }
     }
     func importFiles(_ sources: LocalGitImportSources, project: LocalGitProject, internalRoot: URL,
-                     directory: String = "", generation: UUID) async throws -> LocalGitImportResult {
+                     directory: String = "", replaceExisting: Bool = false, generation: UUID) async throws -> LocalGitImportResult {
         try Task.checkCancellation()
         let job = LocalGitJob()
         let result: LocalGitImportResult = try await withTaskCancellationHandler(operation: {
@@ -72,7 +72,7 @@ actor LocalGitEngine {
                 queue.async {
                     continuation.resume(with: Result {
                         try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot) { root in
-                            try LocalGitImport.copy(sources: sources.urls, into: root, directory: directory) {
+                            try LocalGitImport.copy(sources: sources.urls, into: root, directory: directory, replaceExisting: replaceExisting) {
                                 try job.check()
                                 guard generation == AccountStore.generation else { throw CancellationError() }
                             }

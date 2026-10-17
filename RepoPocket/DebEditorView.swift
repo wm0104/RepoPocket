@@ -7,6 +7,7 @@ struct DebEditorView: View {
     var remote: (repo: String, entry: Entry, branch: String)? = nil
     var canWrite: Bool = false
     var initialFile: URL? = nil
+    var onSaveLocal: ((URL) async throws -> Void)? = nil
     var onUseForUpload: ((URL) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var folder: URL?
@@ -134,12 +135,20 @@ struct DebEditorView: View {
                 if !resultMessage.isEmpty { Text(resultMessage).softGroupedRow() }
             } else if remote != nil {
                 Text("此仓库为只读，生成文件仅可保存到本地。").softGroupedRow()
+            } else if let onSaveLocal {
+                Button("保存到本地项目") {
+                    Task { @MainActor in
+                        busy = true; defer { busy = false }
+                        do { try await onSaveLocal(output); dismiss() }
+                        catch { self.error = error.localizedDescription }
+                    }
+                }.disabled(busy).softGroupedRow()
             } else if let onUseForUpload {
                 Button("使用新 deb 提交 / 发布") { onUseForUpload(output) }.disabled(busy).softGroupedRow()
             } else {
                 Button("使用新 deb 提交 / 发布") { showUpload = true }.disabled(busy).softGroupedRow()
             }
-            Text("提交仓库须明确选择目录及目标；Release 只上传附件，不会自动公开发布。").font(.caption).softGroupedRow(bottom: true)
+            Text(onSaveLocal == nil ? "提交仓库须明确选择目录及目标；Release 只上传附件，不会自动公开发布。" : "保存只更新当前本地 DEB，之后需创建本地提交并推送；其他项目文件不变。").font(.caption).softGroupedRow(bottom: true)
         }
     }
 

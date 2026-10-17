@@ -14,6 +14,7 @@ final class LocalGitImportSources {
 struct LocalGitImportResult {
     let paths: [String]
     let bytes: Int64
+    let skipped: [String]
 }
 
 /// Imports bytes into the original worktree. Never edits the index or pushes.
@@ -23,7 +24,7 @@ enum LocalGitImport {
         let directory: Bool
         let size: Int64
     }
-    static func copy(sources: [URL], into root: URL, directory: String = "",
+    static func copy(sources: [URL], into root: URL, directory: String = "", replaceExisting: Bool = false,
                      check: () throws -> Void = {}) throws -> LocalGitImportResult {
         guard !sources.isEmpty, sources.count <= 1000 else { throw LocalGitError(text: "请选择 1 至 1000 个文件或文件夹。") }
         let base = directory.isEmpty ? root : try LocalGitFileAccess.path(root: root, relative: directory)
@@ -34,8 +35,7 @@ enum LocalGitImport {
         for source in sources {
             try check()
             let name = try LocalGitRules.child(source.lastPathComponent)
-            guard names.insert(name.precomposedStringWithCanonicalMapping.lowercased()).inserted,
-                  !FileManager.default.fileExists(atPath: base.appendingPathComponent(name).path) else {
+            guard names.insert(name.precomposedStringWithCanonicalMapping.lowercased()).inserted else {
                 throw LocalGitError(text: "目标已有同名项目：\(name)。请先重命名；不会覆盖或合并原文件。")
             }
             let path = source.resolvingSymlinksInPath().standardizedFileURL.path
@@ -45,6 +45,15 @@ enum LocalGitImport {
             }
             try LocalGitFileAccess.coordinate(source, writing: false) { coordinated in
                 try scan(coordinated, relative: name, entries: &entries, bytes: &bytes, files: &files, check: check)
+            }
+        }
+        var expected: [String: String] = [:]
+        for entry in entries where !entry.directory {
+            try check()
+            let target = base.appendingPathComponent(entry.relative)
+            if FileManager.default.fileExists(atPath: target.path) {
+                let relative = (directory.isEmpty ? "" : directory + "/") + entry.relative
+                expected[entry.relative] = try LocalGitFileAccess.fileFingerprint(root: root, path: relative)
             }
         }
         let stage = base.appendingPathComponent(".repopocket-import-" + UUID().uuidString, isDirectory: true)
@@ -71,14 +80,15 @@ enum LocalGitImport {
                 }
             }
         }
-        var published = [String]()
+        var published = [String](), skipped = [String]()
         do {
             for source in sources {
                 try check()
+                guard try LocalGitFileAccess.identity(base) == identity else { throw LocalGitError(text: "目标文件夹已变化，已停止。") }
                 let name = source.lastPathComponent
-                try publish(stage.appendingPathComponent(name), to: base.appendingPathComponent(name),
-                            parentIdentity: identity, stageIdentity: stageIdentity, check: check)
-                published.append(name)
+                try merge(stage.appendingPathComponent(name), to: base.appendingPathComponent(name), relative: name,
+                          root: root, directory: directory, entries: entries, expected: expected,
+                          replaceExisting: replaceExisting, check: check, published: &published, skipped: &skipped)
             }
         } catch {
             // Preserve published items if another app changes the destination.
@@ -87,7 +97,44 @@ enum LocalGitImport {
             throw error
         }
         let prefix = directory.isEmpty ? "" : directory + "/"
-        return LocalGitImportResult(paths: entries.filter { !$0.directory }.map { prefix + $0.relative }, bytes: bytes)
+        return LocalGitImportResult(paths: published.map { prefix + $0 }, bytes: bytes, skipped: skipped.map { prefix + $0 })
+    }
+    private static func merge(_ source: URL, to target: URL, relative: String, root: URL, directory: String,
+                              entries: [Entry], expected: [String: String], replaceExisting: Bool,
+                              check: () throws -> Void, published: inout [String], skipped: inout [String]) throws {
+        try check()
+        let relativeTarget = (directory.isEmpty ? "" : directory + "/") + relative
+        let parentParts = relativeTarget.split(separator: "/").dropLast()
+        if !parentParts.isEmpty { _ = try LocalGitFileAccess.path(root: root, relative: parentParts.joined(separator: "/")) }
+        let parent = target.deletingLastPathComponent()
+        let parentID = try LocalGitFileAccess.identity(parent)
+        let sourceID = try LocalGitFileAccess.identity(source.deletingLastPathComponent())
+        if !FileManager.default.fileExists(atPath: target.path) {
+            try publish(source, to: target, parentIdentity: parentID, stageIdentity: sourceID, check: check)
+            published += entries.filter { !$0.directory && ($0.relative == relative || $0.relative.hasPrefix(relative + "/")) }.map(\.relative)
+            return
+        }
+        let inputType = try FileManager.default.attributesOfItem(atPath: source.path)[.type] as? FileAttributeType
+        let targetType = try FileManager.default.attributesOfItem(atPath: target.path)[.type] as? FileAttributeType
+        if inputType == .typeDirectory && targetType == .typeDirectory {
+            let targetID = try LocalGitFileAccess.identity(target)
+            let children = try FileManager.default.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)
+            for child in children.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                guard try LocalGitFileAccess.identity(parent) == parentID,
+                      try LocalGitFileAccess.identity(target) == targetID,
+                      try LocalGitFileAccess.identity(source.deletingLastPathComponent()) == sourceID else { throw LocalGitError(text: "导入目录已变化，已停止。") }
+                try merge(child, to: target.appendingPathComponent(child.lastPathComponent), relative: relative + "/" + child.lastPathComponent,
+                          root: root, directory: directory, entries: entries, expected: expected, replaceExisting: replaceExisting,
+                          check: check, published: &published, skipped: &skipped)
+            }
+        } else if inputType == .typeRegular && targetType == .typeRegular {
+            guard let fingerprint = expected[relative] else { throw LocalGitError(text: "导入期间出现新的同名文件，未覆盖。") }
+            if replaceExisting {
+                try LocalGitFileAccess.replaceBinary(root: root, path: (directory.isEmpty ? "" : directory + "/") + relative,
+                                                     source: source, expected: fingerprint)
+                published.append(relative)
+            } else { skipped.append(relative) }
+        } else { throw LocalGitError(text: "同名项目类型不一致或为符号链接，未替换：" + relative) }
     }
     private static func coordinateCopy(_ source: URL, into stage: URL, operation: (URL, URL) throws -> Void) throws {
         var failure: NSError?, result: Result<Void, Error>?

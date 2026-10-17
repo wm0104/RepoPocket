@@ -76,8 +76,9 @@ struct LocalProjectEditor: View {
     }
 }
 
-private struct LocalFileEntry: Identifiable { let path: String; let name: String; let directory: Bool; var id: String { path } }
+private struct LocalFileEntry: Identifiable { let path: String; let name: String; let directory: Bool; let size: Int64?; var id: String { path } }
 struct LocalProjectFilesView: View {
+    @ObservedObject var api: GitHub
     let project: LocalGitProject
     let internalRoot: URL
     var directory = ""
@@ -98,9 +99,17 @@ struct LocalProjectFilesView: View {
             for entry in entries {
               SoftGroupRow("entry:" + entry.id) {
                 if entry.directory {
-                    NavigationLink { AnyView(LocalProjectFilesView(project: project, internalRoot: internalRoot, directory: entry.path, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
+                    NavigationLink { AnyView(LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
                 } else {
-                    Button { opened = LocalProjectFile(path: entry.path) } label: { Label(entry.name, systemImage: "doc.text") }
+                    HStack {
+                        Button { opened = LocalProjectFile(path: entry.path) } label: { LocalGitFileLabel(name: entry.name, size: entry.size) }
+                            .buttonStyle(.borderless)
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        if entry.name.lowercased().hasSuffix(".deb") {
+                            Menu { Button("编辑包信息") { opened = LocalProjectFile(path: entry.path) } }
+                                label: { Image(systemName: "ellipsis").padding(8) }.accessibilityLabel("更多操作：" + entry.name)
+                        }
+                    }
                         .contextMenu { Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) } }
                 }
               }
@@ -113,12 +122,16 @@ struct LocalProjectFilesView: View {
         .toolbar { Button("刷新列表") { Task { await load() } }.disabled(importer.busy) }
         .refreshable { guard !importer.busy else { return }; await load() }
         .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: internalRoot,
-                                              directory: directory, generation: generation) {
+                                              directory: directory, generation: generation) { _ in
             changed(); Task { await load() }
         })
         .onDisappear { importer.cancel() }
         .sheet(item: $opened, onDismiss: { Task { await load() } }) { file in
-            LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
+            if !file.deleting && file.path.lowercased().hasSuffix(".deb") {
+                LocalProjectDebEditor(api: api, project: project, internalRoot: internalRoot, path: file.path, changed: changed)
+            } else {
+                LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
+            }
         }
     }
     private func load() async {
@@ -131,7 +144,8 @@ struct LocalProjectFilesView: View {
                 return try children.filter { $0.lastPathComponent.lowercased() != ".git" }.compactMap { child in
                     let info = try child.resourceValues(forKeys: [.isDirectoryKey,.isSymbolicLinkKey])
                     guard info.isSymbolicLink != true else { return nil }
-                    return LocalFileEntry(path: (directory.isEmpty ? "" : directory + "/") + child.lastPathComponent, name: child.lastPathComponent, directory: info.isDirectory == true)
+                    let size = try FileManager.default.attributesOfItem(atPath: child.path)[.size] as? NSNumber
+                    return LocalFileEntry(path: (directory.isEmpty ? "" : directory + "/") + child.lastPathComponent, name: child.lastPathComponent, directory: info.isDirectory == true, size: size?.int64Value)
                 }.sorted { $0.directory != $1.directory ? $0.directory : $0.name.localizedStandardCompare($1.name) == .orderedAscending }
             }
         } catch { self.error = error.localizedDescription }
