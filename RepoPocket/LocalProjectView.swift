@@ -125,7 +125,7 @@ struct LocalProjectView: View {
                 }
                 if !snapshot.history.remote.isEmpty { SoftGroupRow("remote") { Text(snapshot.history.remote).font(.caption).textSelection(.enabled) } }
                 SoftGroupRow("files") {
-                    NavigationLink("浏览与编辑项目文件") { LocalProjectFilesView(api: api, project: project, internalRoot: store.internalRoot) {
+                    NavigationLink("浏览与编辑项目文件") { LocalProjectFilesView(api: api, project: project, internalRoot: store.internalRoot, imported: imported) {
                         state.filesChanged(); note = "文件已修改，正在检查变化。"
                         Task { await check(force: true) }
                     } }.disabled(busy)

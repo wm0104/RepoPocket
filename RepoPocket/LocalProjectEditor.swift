@@ -82,6 +82,7 @@ struct LocalProjectFilesView: View {
     let project: LocalGitProject
     let internalRoot: URL
     var directory = ""
+    var imported: (([String]) -> Void)? = nil
     let changed: () -> Void
     @StateObject private var importer = LocalGitImportState()
     @State private var generation = AccountStore.generation
@@ -99,7 +100,7 @@ struct LocalProjectFilesView: View {
             for entry in entries {
               SoftGroupRow("entry:" + entry.id) {
                 if entry.directory {
-                    NavigationLink { AnyView(LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
+                    NavigationLink { AnyView(LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, imported: imported, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
                 } else {
                     HStack {
                         Button { opened = LocalProjectFile(path: entry.path) } label: { LocalGitFileLabel(name: entry.name, size: entry.size) }
@@ -122,8 +123,9 @@ struct LocalProjectFilesView: View {
         .toolbar { Button("刷新列表") { Task { await load() } }.disabled(importer.busy) }
         .refreshable { guard !importer.busy else { return }; await load() }
         .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: internalRoot,
-                                              directory: directory, generation: generation) { _ in
-            changed(); Task { await load() }
+                                              directory: directory, generation: generation) { paths in
+            if let imported { imported(paths) } else { changed() }
+            Task { await load() }
         })
         .onDisappear { importer.cancel() }
         .sheet(item: $opened, onDismiss: { Task { await load() } }) { file in

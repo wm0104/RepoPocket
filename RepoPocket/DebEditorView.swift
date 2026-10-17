@@ -70,7 +70,7 @@ struct DebEditorView: View {
     private var sourceSection: some View {
         Section("源文件") {
             if remote == nil && initialFile == nil { Button("从“文件”选择 .deb") { showPicker = true }.disabled(busy).softGroupedRow(top: true) }
-            if let source { Text(source.lastPathComponent).softGroupedRow(top: remote != nil || initialFile != nil); Text("只修改副本；原文件不会覆盖").font(.caption).foregroundColor(.secondary).softGroupedRow() }
+            if let source { Text(source.lastPathComponent).softGroupedRow(top: remote != nil || initialFile != nil); Text(onSaveLocal == nil ? "只修改副本；原文件不会覆盖" : "先编辑副本，点击“保存到本地项目”才更新原文件").font(.caption).foregroundColor(.secondary).softGroupedRow() }
             if busy { ProgressView("读取 / 生成中，请保持前台").softGroupedRow(top: source == nil && (remote != nil || initialFile != nil)) }
             Text("支持 control.tar、gz、xz、zst；xz/zst 编辑后输出 gzip。bz2/lzma 暂不支持编辑，但仍可原样上传。").font(.caption).foregroundColor(.secondary).softGroupedRow(top: source == nil && !busy && (remote != nil || initialFile != nil), bottom: true)
         }
