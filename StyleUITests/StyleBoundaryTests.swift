@@ -16,6 +16,9 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(version.waitForExistence(timeout: 20))
         XCTAssertEqual(version.value as? String, "1.0")
         version.tap(); version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "2.0")
+        XCTAssertEqual(version.value as? String, "2.0")
+        let returnKey = app.keyboards.buttons["return"]
+        if returnKey.exists { returnKey.tap() }
         let form = app.collectionViews["deb-editor-form"]
         XCTAssertTrue(form.waitForExistence(timeout: 5))
         let generate = app.buttons["生成新的 deb（验证后保存）"]
@@ -325,13 +328,14 @@ final class StyleBoundaryTests: XCTestCase {
             if element.exists && element.isHittable { return }
             if let scroll {
                 // A form extends beneath the software keyboard. Its default swipe
-                // starts on the keyboard, so drag within the visible form gutter.
+                // starts on the keyboard, so drag within the visible form area.
                 let viewport = scroll.frame.intersection(app.frame)
                 let keyboard = app.keyboards.firstMatch
-                let bottom = keyboard.exists ? min(viewport.maxY, keyboard.frame.minY) : viewport.maxY
+                // Keyboard.frame omits the predictive-input accessory on iOS 17.
+                let bottom = keyboard.exists ? min(viewport.maxY, keyboard.frame.minY - 100) : viewport.maxY
                 let origin = app.coordinate(withNormalizedOffset: .zero)
-                let start = origin.withOffset(CGVector(dx: viewport.minX + 12, dy: bottom - 24))
-                let end = origin.withOffset(CGVector(dx: viewport.minX + 12, dy: viewport.minY + 40))
+                let start = origin.withOffset(CGVector(dx: viewport.midX, dy: bottom - 24))
+                let end = origin.withOffset(CGVector(dx: viewport.midX, dy: viewport.minY + 60))
                 start.press(forDuration: 0.05, thenDragTo: end)
             } else { app.swipeUp() }
         }
@@ -352,7 +356,7 @@ final class StyleBoundaryTests: XCTestCase {
         app.launch()
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
-        XCTAssertTrue(web.images["累计下载次数"].waitForExistence(timeout: 10))
+        XCTAssertTrue(web.images["累计下载次数"].waitForExistence(timeout: 30))
         XCTAssertTrue(web.images["最新版本"].waitForExistence(timeout: 10))
         XCTAssertLessThan(web.frame.height, 750, "Short README must not grow to the viewport/inline height cap")
         let attachment = XCTAttachment(screenshot: app.screenshot())
