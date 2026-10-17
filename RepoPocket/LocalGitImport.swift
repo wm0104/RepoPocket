@@ -54,20 +54,18 @@ enum LocalGitImport {
         }
         let stageIdentity = try LocalGitFileAccess.identity(stage)
         // This UUID directory is created by this operation, never supplied by a user.
-        defer {
-            if (try? LocalGitFileAccess.identity(stage)) == stageIdentity { try? FileManager.default.removeItem(at: stage) }
-        }
+        defer { removeStage(stage, identity: stageIdentity) }
         for source in sources {
             try check()
             let name = source.lastPathComponent
-            try LocalGitFileAccess.coordinate(source, writing: false) { coordinated in
+            try coordinateCopy(source, into: stage) { coordinated, destination in
                 for entry in entries where entry.relative == name || entry.relative.hasPrefix(name + "/") {
                     try check()
                     guard try LocalGitFileAccess.identity(base) == identity,
-                          try LocalGitFileAccess.identity(stage) == stageIdentity else { throw LocalGitError(text: "导入目录已变化，已停止。") }
+                          try LocalGitFileAccess.identity(destination) == stageIdentity else { throw LocalGitError(text: "导入目录已变化，已停止。") }
                     let suffix = String(entry.relative.dropFirst(name.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
                     let input = suffix.isEmpty ? coordinated : try LocalGitFileAccess.path(root: coordinated, relative: suffix)
-                    let output = stage.appendingPathComponent(entry.relative, isDirectory: entry.directory)
+                    let output = destination.appendingPathComponent(entry.relative, isDirectory: entry.directory)
                     if entry.directory { try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false) }
                     else { try copyFile(input, to: output, expectedSize: entry.size, check: check) }
                 }
@@ -75,18 +73,12 @@ enum LocalGitImport {
         }
         var published = [String]()
         do {
-            try LocalGitFileAccess.coordinate(base, writing: true) { destination in
-                guard try LocalGitFileAccess.identity(destination) == identity else { throw LocalGitError(text: "目标文件夹已变化，请重新选择。") }
-                for source in sources {
-                    try check()
-                    let name = source.lastPathComponent
-                    let target = destination.appendingPathComponent(name)
-                    guard !FileManager.default.fileExists(atPath: target.path) else { throw LocalGitError(text: "导入时出现同名项目：\(name)，未覆盖。") }
-                    // Stage and destination share a provider/volume. Publish a
-                    // complete top-level folder, rather than flattening its files.
-                    try FileManager.default.moveItem(at: stage.appendingPathComponent(name), to: target)
-                    published.append(name)
-                }
+            for source in sources {
+                try check()
+                let name = source.lastPathComponent
+                try publish(stage.appendingPathComponent(name), to: base.appendingPathComponent(name),
+                            parentIdentity: identity, stageIdentity: stageIdentity, check: check)
+                published.append(name)
             }
         } catch {
             // Preserve published items if another app changes the destination.
@@ -96,6 +88,40 @@ enum LocalGitImport {
         }
         let prefix = directory.isEmpty ? "" : directory + "/"
         return LocalGitImportResult(paths: entries.filter { !$0.directory }.map { prefix + $0.relative }, bytes: bytes)
+    }
+    private static func coordinateCopy(_ source: URL, into stage: URL, operation: (URL, URL) throws -> Void) throws {
+        var failure: NSError?, result: Result<Void, Error>?
+        NSFileCoordinator().coordinate(readingItemAt: source, options: [], writingItemAt: stage, options: [], error: &failure) { input, output in
+            result = Result { try operation(input, output) }
+        }
+        if let failure { throw failure }
+        guard let result else { throw LocalGitError(text: "文件提供器未完成导入。") }
+        try result.get()
+    }
+    private static func publish(_ source: URL, to target: URL, parentIdentity: String, stageIdentity: String,
+                                check: () throws -> Void) throws {
+        let coordinator = NSFileCoordinator()
+        var failure: NSError?, result: Result<Void, Error>?
+        coordinator.coordinate(writingItemAt: source, options: .forMoving, writingItemAt: target, options: [], error: &failure) { input, output in
+            result = Result {
+                try check()
+                guard try LocalGitFileAccess.identity(input.deletingLastPathComponent()) == stageIdentity,
+                      try LocalGitFileAccess.identity(output.deletingLastPathComponent()) == parentIdentity else { throw LocalGitError(text: "导入目录已变化，已停止。") }
+                guard !FileManager.default.fileExists(atPath: output.path) else { throw LocalGitError(text: "导入时出现同名项目：\(target.lastPathComponent)，未覆盖。") }
+                coordinator.item(at: input, willMoveTo: output)
+                try FileManager.default.moveItem(at: input, to: output)
+                coordinator.item(at: input, didMoveTo: output)
+            }
+        }
+        if let failure { throw failure }
+        guard let result else { throw LocalGitError(text: "文件提供器未完成保存。") }
+        try result.get()
+    }
+    private static func removeStage(_ stage: URL, identity: String) {
+        var failure: NSError?
+        NSFileCoordinator().coordinate(writingItemAt: stage, options: .forDeleting, error: &failure) { owned in
+            if (try? LocalGitFileAccess.identity(owned)) == identity { try? FileManager.default.removeItem(at: owned) }
+        }
     }
     private static func scan(_ source: URL, relative: String, entries: inout [Entry],
                              bytes: inout Int64, files: inout Int, check: () throws -> Void) throws {

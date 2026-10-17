@@ -97,7 +97,7 @@ final class ImportPresenter: NSObject, NSFilePresenter {
  let moved = DispatchSemaphore(value: 0)
  init(_ root: URL) { presentedItemURL=root;super.init();presentedItemOperationQueue.maxConcurrentOperationCount=1 }
  func presentedSubitem(at oldURL: URL, didMoveTo newURL: URL) {
-  if newURL.deletingLastPathComponent()==presentedItemURL { moved.signal() }
+  if newURL.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL == presentedItemURL?.resolvingSymlinksInPath().standardizedFileURL { moved.signal() }
  }
 }
 @main struct Fixture {
