@@ -52,7 +52,9 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["已选 3"].waitForExistence(timeout: 30), "One folder selection must select all three imported files, including the nested DEB")
         let folder = app.buttons["localgit.folder.debs"]
         reveal(folder, in: app); folder.tap()
-        XCTAssertTrue(app.staticTexts["插件甲.deb"].waitForExistence(timeout: 5))
+        let nested = app.buttons["localgit.folder.debs/nested"]
+        XCTAssertTrue(nested.waitForExistence(timeout: 5)); nested.tap()
+        XCTAssertTrue(app.staticTexts["插件乙.deb"].waitForExistence(timeout: 5), "Folder import must preserve the nested directory and its DEB")
         keepScreenshot(app, name: "local-whole-folder-import")
     }
 
