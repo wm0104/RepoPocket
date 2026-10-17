@@ -135,7 +135,12 @@ final class ImportPresenter: NSObject, NSFilePresenter {
   precondition((try? Data(contentsOf:debs.appendingPathComponent("插件.deb")))==binary)
   precondition(!fm.fileExists(atPath:root.appendingPathComponent("插件.deb").path), "Folder was flattened")
   precondition((try? fm.attributesOfItem(atPath:root.appendingPathComponent("run.sh").path)[.posixPermissions] as? NSNumber)?.intValue==0o755)
-  do { _=try LocalGitImport.copy(sources:[debs],into:root);preconditionFailure("Overwrote existing folder") } catch {}
+  try Data("new binary".utf8).write(to:debs.appendingPathComponent("新插件.deb"))
+  try Data("replacement must not overwrite".utf8).write(to:debs.appendingPathComponent("插件.deb"))
+  let supplemented = try LocalGitImport.copy(sources:[debs],into:root)
+  precondition(supplemented.paths == ["debs/新插件.deb"], "Same-name folders must import new children")
+  precondition((try? Data(contentsOf:root.appendingPathComponent("debs/插件.deb")))==binary, "Existing children must stay byte-identical")
+  precondition((try? String(contentsOf:root.appendingPathComponent("debs/新插件.deb")))=="new binary")
   precondition((try? Data(contentsOf:keep))==binary)
   let link = inbox.appendingPathComponent("linked.deb")
   try fm.createSymbolicLink(at:link,withDestinationURL:keep)

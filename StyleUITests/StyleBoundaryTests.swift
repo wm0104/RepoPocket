@@ -12,6 +12,7 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["package-01.deb"].exists, "Collapsed folders must not flatten their files")
         app.buttons["全选"].tap()
         XCTAssertTrue(app.staticTexts["已选 45"].exists)
+        XCTAssertFalse(app.buttons["全选"].exists, "Bulk selection must use one toggling button")
         app.buttons["取消全选"].tap()
         XCTAssertTrue(app.staticTexts["已选 0"].exists)
         folder.tap()
