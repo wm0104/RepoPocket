@@ -108,6 +108,11 @@ struct PatchStylePreview: View {
     @State private var revision = 0
     @State private var report = "待检查"
     private var file: DesktopCommit.File {
+        if ProcessInfo.processInfo.arguments.contains("-recorded-patch-style-preview") {
+            // The real commit/file shown in IMG_2331, including its long constraint line.
+            return DesktopCommit.File(filename: "ShareExtension/ShareViewController.swift", previous_filename: nil,
+                                      status: "modified", additions: 4, deletions: 0, patch: "diff --git a/ShareExtension/ShareViewController.swift b/ShareExtension/ShareViewController.swift\nindex a87aba2..acae28f 100644\n--- a/ShareExtension/ShareViewController.swift\n+++ b/ShareExtension/ShareViewController.swift\n@@ -29,6 +29,10 @@ final class ShareViewController: UIViewController {\n         stack.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(stack)\n         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24), stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24), stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 32)])\n     }\n+    override func viewDidDisappear(_ animated: Bool) {\n+        super.viewDidDisappear(animated)\n+        cancellation.cancel(); progress?.cancel(); task?.cancel()\n+    }\n     @objc private func closeShare() {\n         cancellation.cancel(); progress?.cancel(); task?.cancel()\n         extensionContext?.completeRequest(returningItems: nil)\n")
+        }
         let prefix = String(repeating: "abcdefgh", count: ProcessInfo.processInfo.arguments.contains("-long-patch-style-preview") ? 600 : 12)
         let patch = "@@ -1,2 +1,2 @@\n-message = \"" + prefix + "BEFORE_TAIL\"\n+message = \"" + prefix + "AFTER_TAIL\"\n print(\"第二行\")\n"
         return DesktopCommit.File(filename: "长行差异.py", previous_filename: nil, status: "modified", additions: 1, deletions: 1, patch: patch)

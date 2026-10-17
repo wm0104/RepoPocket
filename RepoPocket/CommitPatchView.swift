@@ -18,6 +18,7 @@ struct CommitPatchView: View {
     @State private var codeWidth: CGFloat = 0
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var origin: String { "patch-leading:" + file.id }
     private var renderKey: String { file.id + ":" + String(whitespace) + ":" + (colorScheme == .dark ? "dark" : "light") + ":" + String(describing: dynamicTypeSize) }
     var body: some View {
         VStack(spacing: 0) {
@@ -32,16 +33,22 @@ struct CommitPatchView: View {
                     if result.limited { Text("已达预览预算（1 MiB / 10,000行 / 单行8,192字）；仅显示部分内容。").foregroundColor(.orange).padding(8) }
                     if result.malformed { Text("部分 patch 位置不完整或格式异常；仅按可解析区块显示行号。").foregroundColor(.orange).padding(8) }
                   GeometryReader { viewport in
+                   ScrollViewReader { proxy in
+                    Group {
                     if raw {
                         ScrollView([.horizontal, .vertical]) {
+                          VStack(alignment: .leading, spacing: 0) {
+                            Color.clear.frame(width: 1, height: 1).id(origin)
                             Text(String(decoding: (file.patch ?? "").utf8.prefix(CommitPatchParser.byteLimit), as: UTF8.self))
                                 .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                                 .fixedSize(horizontal: true, vertical: false).padding(8)
                                 .frame(minWidth: viewport.size.width, minHeight: viewport.size.height, alignment: .topLeading)
+                          }
                         }
                     } else {
                       ScrollView([.horizontal, .vertical]) {
                        LazyVStack(alignment: .leading, spacing: 0) {
+                        Color.clear.frame(width: 1, height: 1).id(origin)
                         ForEach(result.rows.filter { row in
                             raw || !(row.kind == .note && ["diff --git ", "index ", "--- ", "+++ "].contains(where: row.text.hasPrefix))
                         }) { row in
@@ -60,6 +67,18 @@ struct CommitPatchView: View {
                         .frame(minHeight: viewport.size.height, alignment: .topLeading)
                       }
                     }
+                    }
+                    .environment(\.layoutDirection, .leftToRight)
+                    .task(id: renderKey + ":" + String(raw) + ":" + String(describing: codeWidth)) {
+                        // iOS 16 can retain a centered offset when a pushed
+                        // view receives its final long-line width. Set the
+                        // origin after layout; scrolling never repeats this.
+                        await Task.yield()
+                        guard !Task.isCancelled else { return }
+                        var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
+                        withTransaction(transaction) { proxy.scrollTo(origin, anchor: .topLeading) }
+                    }
+                   }
                   }
                 } else if failure.isEmpty { ProgressView("解析差异…").padding(8) }
                 if !failure.isEmpty { Text(failure).padding(8) }

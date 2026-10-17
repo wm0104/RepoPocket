@@ -225,6 +225,25 @@ do {
         self.assertFalse((self.work / 'other.txt').exists())
         self.assertEqual(self.git('diff', '--cached', '--name-only'), '')
 
+    def test_bulk_binary_commit_keeps_outer_folder_and_unselected_work(self):
+        folder = self.work/'debs'; folder.mkdir()
+        expected = {}
+        for number in range(44):
+            name = f'debs/package-{number:02}.deb'
+            expected[name] = b'!<arch>\n\x00\xff' + bytes([number])
+            (self.work/name).write_bytes(expected[name])
+        (self.work/'other.txt').write_text('not selected')
+        status = self.result('status')
+        response = self.commit(status, set(expected))
+        self.assertTrue(response['ok'], response)
+        files = self.result('commitDetail', sha=self.git('rev-parse','HEAD'))['files']
+        self.assertEqual({row['filename'] for row in files}, set(expected))
+        for name, data in expected.items():
+            stored = subprocess.check_output(['git','-C',str(self.work),'show','HEAD:' + name])
+            self.assertEqual(stored, data)
+        self.assertEqual(self.git('show','HEAD:other.txt'), 'unchanged')
+        self.assertEqual((self.work/'other.txt').read_text(), 'not selected')
+
     def test_changed_after_preview_and_head_change_are_rejected(self):
         status = self.change()
         (self.work / '代码.py').write_text('later edit')

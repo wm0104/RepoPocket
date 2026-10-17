@@ -30,6 +30,7 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(app.buttons["导入文件夹"].exists)
         app.buttons["导入文件"].tap()
         XCTAssertTrue(app.buttons["取消导入"].waitForExistence(timeout: 10))
+        keepScreenshot(app, name: "local-import-picker")
         app.buttons["取消导入"].tap()
         XCTAssertTrue(app.buttons["导入文件夹"].exists)
     }
@@ -47,6 +48,26 @@ final class StyleBoundaryTests: XCTestCase {
         report = sourceReport(app)
         XCTAssertEqual(Int(report["offset"] ?? "-999"), 0, "Reformatting whitespace must retain the leading origin")
         keepScreenshot(app, name: "long-patch-leading")
+    }
+
+    func testRecordedCommitPatchStartsAtLeadingEdgeAfterReopening() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-patch-style-preview", "-recorded-patch-style-preview"]
+        app.launch()
+        app.buttons["打开提交差异"].tap()
+        XCTAssertTrue(app.staticTexts["仅显示本次提交的变化"].waitForExistence(timeout: 10))
+        var report = sourceReport(app)
+        XCTAssertEqual(Int(report["offset"] ?? "-999"), 0)
+        app.scrollViews.firstMatch.swipeLeft()
+        report = sourceReport(app)
+        XCTAssertGreaterThan(Int(report["offset"] ?? "0") ?? 0, 0)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["打开提交差异"].tap()
+        XCTAssertTrue(app.staticTexts["仅显示本次提交的变化"].waitForExistence(timeout: 10))
+        report = sourceReport(app)
+        XCTAssertEqual(Int(report["offset"] ?? "-999"), 0, "Reopening a real commit file must start from its leading edge")
+        keepScreenshot(app, name: "recorded-patch-leading")
     }
 
     func testWorkflowStepOpensActualOutputInline() {
