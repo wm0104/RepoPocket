@@ -98,6 +98,9 @@ precondition(response(404).contains("尚无"))
 precondition(response(500).contains("HTTP 500"))
 for status in [401, 403, 404, 429, 500] { precondition(response(status).contains("官方仓库下载页")) }
 print("PASS mocked primary/secondary limits, reset/retry, generic403/401/404/429/500 and official download fallback")
+precondition(AppUpdateRules.conciseCheckError(URLError(.notConnectedToInternet)).contains("网络未连接"))
+precondition(AppUpdateRules.conciseCheckError(URLError(.timedOut)).contains("超时"))
+precondition(AppUpdateRules.conciseCheckError(AppError(text: "发布版本格式无效或不是正式版本")).contains("版本号无法识别"))
 print("PASS production SemVer/build, draft/prerelease, missing/equal/new versions, trusted IPA and public API errors")
 '''
         # Throwing expressions cannot be evaluated in precondition's nonthrowing autoclosure.

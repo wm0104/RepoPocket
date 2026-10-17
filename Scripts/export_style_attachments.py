@@ -12,6 +12,7 @@ seen = set()
 exported = set()
 expected = {'swipe-first', 'swipe-middle', 'swipe-last', 'readme-badges'}
 expected.update({'workflow-step-output', 'local-folder-selection', 'long-patch-leading', 'local-import-picker', 'recorded-patch-leading'})
+expected.update({'local-deb-editor', 'local-whole-folder-import'})
 expected.update({'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
                  'local-commit-patch', 'local-history-after-folding'})
 expected.update({'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'})

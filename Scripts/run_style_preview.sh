@@ -36,6 +36,33 @@ mkdir -p "$PREVIEW_ROOT/debs"
 for number in $(seq -w 1 44); do
   printf '!<arch>\nDEB fixture %s\n' "$number" > "$PREVIEW_ROOT/debs/package-$number.deb"
 done
+python3 - "$APP_CONTAINER" "$PREVIEW_ROOT" <<'PY'
+import io
+from pathlib import Path
+import sys
+import tarfile
+
+def deb(path, version):
+    def tar(name, data):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode='w:gz') as archive:
+            entry = tarfile.TarInfo(name); entry.size = len(data); entry.mode = 0o644
+            archive.addfile(entry, io.BytesIO(data))
+        return output.getvalue()
+    fields = ('Package: app.fixture\nName: 本地插件\nVersion: ' + version + '\nArchitecture: iphoneos-arm\nMaintainer: RepoPocket <fixture@example.invalid>\nDescription: Local DEB fixture\n').encode()
+    members = [('debian-binary', b'2.0\n'), ('control.tar.gz', tar('./control', fields)), ('data.tar.gz', tar('./payload', b'unchanged payload\x00\xff'))]
+    result = b'!<arch>\n'
+    for name, data in members:
+        header = (name + '/').ljust(16) + '0'.ljust(12) + '0'.ljust(6) + '0'.ljust(6) + '100644'.ljust(8) + str(len(data)).ljust(10) + '`\n'
+        result += header.encode() + data + (b'\n' if len(data) % 2 else b'')
+    path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(result)
+
+deb(Path(sys.argv[2]) / 'debs/package-01.deb', '1.0')
+source = Path(sys.argv[1]) / 'Documents/导入测试/debs'
+deb(source / 'package-01.deb', '3.0')
+deb(source / '插件甲.deb', '1.0')
+deb(source / 'nested/插件乙.deb', '1.0')
+PY
 xcrun simctl launch "$DEVICE" com.wm0104.RepoPocket -style-preview -account-preview
 sleep 5
 xcrun simctl io "$DEVICE" screenshot screenshots/account.png

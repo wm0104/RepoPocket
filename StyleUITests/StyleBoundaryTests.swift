@@ -2,6 +2,53 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testLocalDEBUsesExistingEditorAndSavesToProject() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-local-git-style-preview"]
+        app.launch()
+        let folder = app.buttons["localgit.folder.debs"]
+        XCTAssertTrue(folder.waitForExistence(timeout: 40)); folder.tap()
+        let menu = app.buttons["更多操作：package-01.deb"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10)); menu.tap()
+        app.buttons["编辑包信息"].tap()
+        let version = app.textFields["Version"]
+        XCTAssertTrue(version.waitForExistence(timeout: 20))
+        XCTAssertEqual(version.value as? String, "1.0")
+        version.tap(); version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "2.0")
+        let generate = app.buttons["生成新的 deb（验证后保存）"]
+        reveal(generate, in: app); generate.tap()
+        let save = app.buttons["保存到本地项目"]
+        XCTAssertTrue(save.waitForExistence(timeout: 20)); reveal(save, in: app)
+        keepScreenshot(app, name: "local-deb-editor")
+        save.tap()
+        XCTAssertTrue(folder.waitForExistence(timeout: 20))
+        menu.tap(); app.buttons["编辑包信息"].tap()
+        XCTAssertTrue(version.waitForExistence(timeout: 20))
+        XCTAssertEqual(version.value as? String, "2.0", "The edited DEB must be saved to its original project path")
+        app.buttons["关闭"].tap()
+    }
+
+    func testLocalWholeFolderImportsAllChildrenAndSelectsThem() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-local-git-style-preview", "-folder-import-style-preview"]
+        app.launch()
+        let add = app.buttons["导入文件夹"]
+        XCTAssertTrue(add.waitForExistence(timeout: 40)); add.tap()
+        let source = app.collectionViews.cells.containing(.staticText, identifier: "debs").firstMatch
+        XCTAssertTrue(source.waitForExistence(timeout: 30)); source.tap()
+        let open = app.buttons["Open"].firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 10)); open.tap()
+        let importAll = app.buttons["导入全部，更新同名文件"]
+        XCTAssertTrue(importAll.waitForExistence(timeout: 15)); importAll.tap()
+        XCTAssertTrue(app.staticTexts["已选 3"].waitForExistence(timeout: 30), "One folder selection must select all three imported files, including the nested DEB")
+        let folder = app.buttons["localgit.folder.debs"]
+        reveal(folder, in: app); folder.tap()
+        XCTAssertTrue(app.staticTexts["插件甲.deb"].waitForExistence(timeout: 5))
+        keepScreenshot(app, name: "local-whole-folder-import")
+    }
+
     func testLocalFolderChangesAndSelectAll() {
         continueAfterFailure = false
         let app = XCUIApplication()

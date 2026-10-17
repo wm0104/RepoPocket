@@ -55,7 +55,7 @@ struct LocalGitImportPresentation: ViewModifier {
     let changed: ([String]) -> Void
     func body(content: Content) -> some View {
         content.sheet(item: $importer.picker, onDismiss: { importer.presentFolderConfirmation() }) { request in
-            WorkspaceDocumentPicker(request: request, allowsMultipleSelection: request.kind != .folder) { urls in
+            WorkspaceDocumentPicker(request: request, allowsMultipleSelection: request.kind != .folder, initialDirectoryURL: testDirectory) { urls in
                 if request.kind == .folder { importer.retainFolder(urls) }
                 else { importer.accept(urls, project: project, internalRoot: internalRoot, directory: directory, generation: generation, changed: changed) }
                 importer.picker = nil
@@ -68,6 +68,14 @@ struct LocalGitImportPresentation: ViewModifier {
         } message: {
             Text("包含全部文件和子文件夹，保留目录结构，不需要逐个勾选。更新同名文件只在当前本地项目生效，未选的其他文件保留；之后仍需确认提交、推送。")
         }
+    }
+    private var testDirectory: URL? {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-folder-import-style-preview") {
+            return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("导入测试")
+        }
+        #endif
+        return nil
     }
     private func start(replaceExisting: Bool) {
         guard let sources = importer.takeFolder() else { return }
