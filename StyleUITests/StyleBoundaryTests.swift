@@ -11,13 +11,13 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(folder.waitForExistence(timeout: 40), "Changes must show the containing folder")
         XCTAssertFalse(app.staticTexts["package-01.deb"].exists, "Collapsed folders must not flatten their files")
         app.buttons["全选"].tap()
-        XCTAssertTrue(app.buttons["创建本地提交（45 个文件）"].exists)
+        XCTAssertTrue(app.staticTexts["已选 45"].exists)
         app.buttons["取消全选"].tap()
-        XCTAssertTrue(app.buttons["创建本地提交（0 个文件）"].exists)
+        XCTAssertTrue(app.staticTexts["已选 0"].exists)
         folder.tap()
         XCTAssertTrue(app.staticTexts["package-01.deb"].waitForExistence(timeout: 5))
         app.buttons["debs 全选"].tap()
-        XCTAssertTrue(app.buttons["创建本地提交（44 个文件）"].exists)
+        XCTAssertTrue(app.staticTexts["已选 44"].exists)
         keepScreenshot(app, name: "local-folder-selection")
     }
 

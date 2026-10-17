@@ -21,6 +21,36 @@ struct LocalGitChange: Codable, Identifiable, Equatable {
     var id: String { path }
     var label: String { kind == "added" ? "新增" : (kind == "deleted" ? "删除" : "修改") }
 }
+struct LocalGitChangeRow: Identifiable {
+    let path: String
+    let name: String
+    let depth: Int
+    let folder: Bool
+    let files: [LocalGitChange]
+    var id: String { (folder ? "folder:" : "file:") + path }
+    var selectable: Set<String> { Set(files.filter { $0.blocked.isEmpty }.map(\.path)) }
+}
+enum LocalGitChangeTree {
+    static func rows(_ files: [LocalGitChange], expanded: Set<String>, prefix: String = "", depth: Int = 0) -> [LocalGitChangeRow] {
+        let groups = Dictionary(grouping: files) { file in
+            String(file.path.dropFirst(prefix.count).split(separator: "/", maxSplits: 1)[0])
+        }
+        let names = groups.keys.sorted {
+            let leftFolder = groups[$0]!.contains { $0.path.dropFirst(prefix.count).contains("/") }
+            let rightFolder = groups[$1]!.contains { $0.path.dropFirst(prefix.count).contains("/") }
+            return leftFolder != rightFolder ? leftFolder : $0.localizedStandardCompare($1) == .orderedAscending
+        }
+        return names.flatMap { name -> [LocalGitChangeRow] in
+            let children = groups[name]!, path = prefix + name
+            let folder = children.contains { $0.path != path }
+            let row = LocalGitChangeRow(path: path, name: name, depth: depth, folder: folder, files: children)
+            guard folder, expanded.contains(path) else { return [row] }
+            let oldFile = children.filter { $0.path == path }
+            let originals = oldFile.isEmpty ? [] : [LocalGitChangeRow(path: path, name: name + "（原文件）", depth: depth + 1, folder: false, files: oldFile)]
+            return [row] + originals + rows(children.filter { $0.path != path }, expanded: expanded, prefix: path + "/", depth: depth + 1)
+        }
+    }
+}
 struct LocalGitStatus: Codable {
     let head: String
     let branch: String

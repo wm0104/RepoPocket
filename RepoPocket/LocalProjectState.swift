@@ -48,4 +48,13 @@ struct LocalGitSnapshot { let status: LocalGitStatus; let history: LocalGitHisto
     func filesChanged() {
         revision += 1; fresh = false; attempted = false
     }
+    func selectAll() {
+        guard !busy, let snapshot else { return }
+        selected = Set(snapshot.status.files.filter { $0.blocked.isEmpty }.map(\.path))
+    }
+    func toggleSelection(_ paths: Set<String>) {
+        guard !busy, !paths.isEmpty else { return }
+        if paths.isSubset(of: selected) { selected.subtract(paths) }
+        else { selected.formUnion(paths) }
+    }
 }

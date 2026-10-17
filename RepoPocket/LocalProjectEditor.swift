@@ -82,6 +82,8 @@ struct LocalProjectFilesView: View {
     let internalRoot: URL
     var directory = ""
     let changed: () -> Void
+    @StateObject private var importer = LocalGitImportState()
+    @State private var generation = AccountStore.generation
     @State private var entries: [LocalFileEntry] = []
     @State private var opened: LocalProjectFile?
     @State private var loaded = false
@@ -89,6 +91,10 @@ struct LocalProjectFilesView: View {
     var body: some View {
         List {
           SoftGroupRows {
+            SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(importer.busy) }
+            SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(importer.busy) }
+            if importer.busy { SoftGroupRow("import-busy") { ProgressView("导入中…") } }
+            if !importer.message.isEmpty { SoftGroupRow("import-message") { Text(importer.message).font(.caption).foregroundStyle(.secondary) } }
             for entry in entries {
               SoftGroupRow("entry:" + entry.id) {
                 if entry.directory {
@@ -104,8 +110,13 @@ struct LocalProjectFilesView: View {
           }
         }.listStyle(.insetGrouped).navigationTitle(directory.isEmpty ? "项目文件" : (directory as NSString).lastPathComponent).adaptiveWorkspaceLayout()
         .task { guard !loaded else { return }; await load() }
-        .toolbar { Button("刷新列表") { Task { await load() } } }
-        .refreshable { await load() }
+        .toolbar { Button("刷新列表") { Task { await load() } }.disabled(importer.busy) }
+        .refreshable { guard !importer.busy else { return }; await load() }
+        .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: internalRoot,
+                                              directory: directory, generation: generation) {
+            changed(); Task { await load() }
+        })
+        .onDisappear { importer.cancel() }
         .sheet(item: $opened, onDismiss: { Task { await load() } }) { file in
             LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
         }

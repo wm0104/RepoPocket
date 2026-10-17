@@ -63,6 +63,27 @@ actor LocalGitEngine {
                 identity: try LocalGitFileAccess.identity(target), metadataID: UUID(), usesPrivateGit: false)
         }
     }
+    func importFiles(_ sources: LocalGitImportSources, project: LocalGitProject, internalRoot: URL,
+                     directory: String = "", generation: UUID) async throws -> LocalGitImportResult {
+        try Task.checkCancellation()
+        let job = LocalGitJob()
+        let result: LocalGitImportResult = try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                queue.async {
+                    continuation.resume(with: Result {
+                        try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot) { root in
+                            try LocalGitImport.copy(sources: sources.urls, into: root, directory: directory) {
+                                try job.check()
+                                guard generation == AccountStore.generation else { throw CancellationError() }
+                            }
+                        }
+                    })
+                }
+            }
+        }, onCancel: { job.cancel() })
+        try Task.checkCancellation()
+        return result
+    }
     nonisolated private static func invoke<T: Decodable>(_ operation: String, request: [String: Any]) throws -> T {
         let bytes = try JSONSerialization.data(withJSONObject: request)
         guard let input = String(data: bytes, encoding: .utf8) else { throw LocalGitError(text: "Git 请求编码失败。") }

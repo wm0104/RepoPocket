@@ -9,6 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LocalGitUITests(unittest.TestCase):
+    def test_current_project_exposes_file_import_and_bulk_selection(self):
+        page = (ROOT / 'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
+        for label in ['导入文件', '导入文件夹', '全选', '取消全选']:
+            self.assertTrue(label in page, 'Missing local Git action: ' + label)
+
     def test_import_uses_repository_default_branch_when_unspecified(self):
         page = (ROOT/'RepoPocket/LocalProjectImportView.swift').read_text(encoding='utf-8')
         self.assertIn('@State private var branch = ""', page)
@@ -92,6 +97,23 @@ import Foundation
   changed.selected=["blocked.py"]
   await changed.check(force:true,valid:{true}) {LocalGitSnapshot(status:blockedStatus,history:history)}
   precondition(changed.selected.isEmpty, "Newly unsupported files cannot remain selected for commit")
+  let files = (1...44).map { LocalGitChange(path:"debs/package-\($0).deb",kind:"added",fingerprint:"x",blocked:"") }
+  let nested = LocalGitChange(path:"debs/nested/代码.py",kind:"added",fingerprint:"y",blocked:"")
+  let rootFile = LocalGitChange(path:"README.md",kind:"modified",fingerprint:"z",blocked:"")
+  let collapsed = LocalGitChangeTree.rows(files+[nested,rootFile,blocked],expanded:[])
+  precondition(collapsed.count==3 && collapsed[0].folder && collapsed[0].name=="debs")
+  precondition(collapsed[0].files.count==45 && collapsed[0].selectable.count==45)
+  let expanded = LocalGitChangeTree.rows(files+[nested,rootFile],expanded:["debs"])
+  precondition(expanded.filter{$0.depth==1}.count==45)
+  precondition(expanded.contains{$0.path=="debs/nested" && $0.folder})
+  let migrated = LocalGitChange(path:"debs",kind:"deleted",fingerprint:"missing",blocked:"")
+  let transition = LocalGitChangeTree.rows([migrated,nested],expanded:["debs","debs/nested"])
+  precondition(transition.count==4 && Set(transition.map(\.id)).count==4)
+  let bulk=LocalProjectState()
+  await bulk.check(valid:{true}) {LocalGitSnapshot(status:LocalGitStatus(head:status.head,branch:"main",reference:status.reference,files:files+[blocked],staged:[],repoState:0),history:history)}
+  bulk.selectAll();precondition(bulk.selected.count==44 && !bulk.selected.contains(blocked.path))
+  bulk.toggleSelection(Set(files.map(\.path)));precondition(bulk.selected.isEmpty)
+  bulk.toggleSelection(Set(files.map(\.path)));precondition(bulk.selected.count==44)
   print("PASS twenty appearances, empty result, coalesced requests, cancelled selection and account invalidation")
  }
 }
