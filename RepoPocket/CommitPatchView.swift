@@ -72,7 +72,7 @@ struct CommitPatchView: View {
                     .task(id: renderKey + ":" + String(raw) + ":" + String(describing: codeWidth)) {
                         // iOS 16 can retain a centered offset when a pushed
                         // view receives its final long-line width. Set the
-                        // origin after layout; scrolling never repeats this.
+                        // origin once layout settles; scrolling never repeats this.
                         await Task.yield()
                         guard !Task.isCancelled else { return }
                         var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
