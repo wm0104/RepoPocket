@@ -323,7 +323,17 @@ final class StyleBoundaryTests: XCTestCase {
     private func reveal(_ element: XCUIElement, in app: XCUIApplication, scroll: XCUIElement? = nil) {
         for _ in 0..<8 {
             if element.exists && element.isHittable { return }
-            if let scroll { scroll.swipeUp() } else { app.swipeUp() }
+            if let scroll {
+                // A form extends beneath the software keyboard. Its default swipe
+                // starts on the keyboard, so drag within the visible form gutter.
+                let viewport = scroll.frame.intersection(app.frame)
+                let keyboard = app.keyboards.firstMatch
+                let bottom = keyboard.exists ? min(viewport.maxY, keyboard.frame.minY) : viewport.maxY
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                let start = origin.withOffset(CGVector(dx: viewport.minX + 12, dy: bottom - 24))
+                let end = origin.withOffset(CGVector(dx: viewport.minX + 12, dy: viewport.minY + 40))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            } else { app.swipeUp() }
         }
         XCTAssertTrue(element.waitForExistence(timeout: 10))
         XCTAssertTrue(element.isHittable)
