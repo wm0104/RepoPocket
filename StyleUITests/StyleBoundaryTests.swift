@@ -49,7 +49,7 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["仅显示本次提交的变化"].waitForExistence(timeout: 10))
         var report = sourceReport(app)
         XCTAssertEqual(Int(report["offset"] ?? "-999"), 0, "A long patch must open at the start of each line")
-        app.switches["显示空白（· 空格 / ⇥ Tab）"].tap()
+        setSwitch(app, label: "显示空白（· 空格 / ⇥ Tab）", enabled: false)
         report = sourceReport(app)
         XCTAssertEqual(Int(report["offset"] ?? "-999"), 0, "Reformatting whitespace must retain the leading origin")
         keepScreenshot(app, name: "long-patch-leading")
@@ -117,7 +117,7 @@ final class StyleBoundaryTests: XCTestCase {
             XCTAssertGreaterThan(Int(report["offset"] ?? "0") ?? 0, 0)
             XCTAssertLessThanOrEqual((Int(report["width"] ?? "0") ?? 0) - (Int(report["viewport"] ?? "0") ?? 0) - (Int(report["offset"] ?? "0") ?? 0), 10)
             keepScreenshot(app, name: "patch-" + mode + "-right")
-            if mode == "highlight" { app.switches["原始 patch"].tap() }
+            if mode == "highlight" { setSwitch(app, label: "原始 patch", enabled: true) }
         }
     }
 
@@ -166,6 +166,17 @@ final class StyleBoundaryTests: XCTestCase {
             XCTAssertEqual(report["gutterX"], gutterX)
             if mode == "preview" { app.buttons["切换到编辑"].tap() }
         }
+    }
+
+    private func setSwitch(_ app: XCUIApplication, label: String, enabled: Bool) {
+        let control = app.switches[label]
+        let expected = enabled ? "1" : "0"
+        if control.value as? String != expected {
+            // SwiftUI exposes the label row as a switch too. Tap the native
+            // thumb instead of the row center, which can be noninteractive.
+            control.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: control)], timeout: 5) == .completed, "The actual switch must change state")
     }
 
     private func sourceReport(_ app: XCUIApplication) -> [String: String] {
