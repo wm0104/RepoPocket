@@ -91,6 +91,15 @@ import Foundation
     def test_binary_folder_import_preserves_paths_bytes_and_existing_files(self):
         fixture_source = r'''
 import Foundation
+final class ImportPresenter: NSObject, NSFilePresenter {
+ let presentedItemURL: URL?
+ let presentedItemOperationQueue = OperationQueue()
+ let moved = DispatchSemaphore(value: 0)
+ init(_ root: URL) { presentedItemURL=root;super.init();presentedItemOperationQueue.maxConcurrentOperationCount=1 }
+ func presentedSubitem(at oldURL: URL, didMoveTo newURL: URL) {
+  if newURL.deletingLastPathComponent()==presentedItemURL { moved.signal() }
+ }
+}
 @main struct Fixture {
  static func main() throws {
   let fm = FileManager.default
@@ -113,7 +122,14 @@ import Foundation
   try fm.setAttributes([.posixPermissions:0o755], ofItemAtPath:shell.path)
   let keep = root.appendingPathComponent("保留.bin")
   try binary.write(to: keep)
+  let presenter = ImportPresenter(root)
+  NSFileCoordinator.addFilePresenter(presenter)
+  defer { NSFileCoordinator.removeFilePresenter(presenter) }
   let result = try LocalGitImport.copy(sources:[debs,zip,shell],into:root)
+  for _ in 0..<3 {
+   precondition(presenter.moved.wait(timeout:.now()+3) == .success,
+                "Import must notify the destination File Provider about each published top-level item")
+  }
   precondition(Set(result.paths)==["debs/插件.deb","debs/嵌套/代码.py","文件.zip","run.sh"])
   precondition((try? Data(contentsOf:root.appendingPathComponent("debs/插件.deb")))==binary)
   precondition((try? Data(contentsOf:debs.appendingPathComponent("插件.deb")))==binary)
