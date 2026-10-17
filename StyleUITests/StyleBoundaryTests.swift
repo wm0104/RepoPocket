@@ -30,6 +30,11 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(app.buttons["导入文件夹"].exists)
         app.buttons["导入文件"].tap()
         XCTAssertTrue(app.buttons["取消导入"].waitForExistence(timeout: 10))
+        // The app-owned Cancel appears before the remote Files service finishes
+        // loading. Require the system browser itself, not just the sheet shell.
+        let filesSearch = app.searchFields.firstMatch
+        XCTAssertTrue(filesSearch.waitForExistence(timeout: 30), "The system Files browser must finish loading")
+        XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: filesSearch)], timeout: 15) == .completed)
         keepScreenshot(app, name: "local-import-picker")
         app.buttons["取消导入"].tap()
         XCTAssertTrue(app.buttons["导入文件夹"].exists)
