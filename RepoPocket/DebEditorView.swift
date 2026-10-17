@@ -154,6 +154,7 @@ struct DebEditorView: View {
 
     private var editorNavigation: some View {
         editorForm
+            .accessibilityIdentifier("deb-editor-form")
             .navigationTitle("编辑 deb 包信息")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy || showUpload) } }

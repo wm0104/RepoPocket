@@ -16,10 +16,12 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(version.waitForExistence(timeout: 20))
         XCTAssertEqual(version.value as? String, "1.0")
         version.tap(); version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "2.0")
+        let form = app.collectionViews["deb-editor-form"]
+        XCTAssertTrue(form.waitForExistence(timeout: 5))
         let generate = app.buttons["生成新的 deb（验证后保存）"]
-        reveal(generate, in: app, scroll: app.collectionViews.firstMatch); generate.tap()
+        reveal(generate, in: app, scroll: form); generate.tap()
         let save = app.buttons["保存到本地项目"]
-        reveal(save, in: app, scroll: app.collectionViews.firstMatch)
+        reveal(save, in: app, scroll: form)
         keepScreenshot(app, name: "local-deb-editor")
         save.tap()
         XCTAssertTrue(folder.waitForExistence(timeout: 20))
