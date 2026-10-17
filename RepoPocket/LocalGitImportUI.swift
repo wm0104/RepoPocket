@@ -1,16 +1,20 @@
 import SwiftUI
 
 @MainActor final class LocalGitImportState: ObservableObject {
-    @Published var picker: WorkspaceImportRequest?
+    @Published var picker: WorkspaceImportRequest? {
+        didSet { if picker != nil { pickerDismissed = false } }
+    }
     @Published private(set) var busy = false
     @Published private(set) var message = ""
     @Published var confirmFolder = false
     private var pending: LocalGitImportSources?
+    private var pickerDismissed = true
     func retainFolder(_ urls: [URL]?) {
         guard !busy, let urls, !urls.isEmpty else { return }
         pending = LocalGitImportSources(urls)
+        if pickerDismissed { confirmFolder = true }
     }
-    func presentFolderConfirmation() { confirmFolder = pending != nil }
+    func presentFolderConfirmation() { pickerDismissed = true; confirmFolder = pending != nil }
     func takeFolder() -> LocalGitImportSources? { defer { pending = nil }; return pending }
     func discardFolder() { pending = nil }
     private var task: Task<Void, Never>?
@@ -61,7 +65,7 @@ struct LocalGitImportPresentation: ViewModifier {
                 importer.picker = nil
             }.id(request.id)
         }
-        .confirmationDialog("导入整个文件夹", isPresented: $importer.confirmFolder, titleVisibility: .visible) {
+        .alert("导入整个文件夹", isPresented: $importer.confirmFolder) {
             Button("导入全部，更新同名文件") { start(replaceExisting: true) }
             Button("仅补入新文件，保留同名文件") { start(replaceExisting: false) }
             Button("取消", role: .cancel) { importer.discardFolder() }

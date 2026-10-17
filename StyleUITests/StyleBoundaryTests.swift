@@ -17,9 +17,9 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertEqual(version.value as? String, "1.0")
         version.tap(); version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "2.0")
         let generate = app.buttons["生成新的 deb（验证后保存）"]
-        reveal(generate, in: app); generate.tap()
+        reveal(generate, in: app, scroll: app.collectionViews.firstMatch); generate.tap()
         let save = app.buttons["保存到本地项目"]
-        XCTAssertTrue(save.waitForExistence(timeout: 20)); reveal(save, in: app)
+        reveal(save, in: app, scroll: app.collectionViews.firstMatch)
         keepScreenshot(app, name: "local-deb-editor")
         save.tap()
         XCTAssertTrue(folder.waitForExistence(timeout: 20))
@@ -36,8 +36,15 @@ final class StyleBoundaryTests: XCTestCase {
         app.launch()
         let add = app.buttons["导入文件夹"]
         XCTAssertTrue(add.waitForExistence(timeout: 40)); add.tap()
-        let source = app.collectionViews.cells.containing(.staticText, identifier: "debs").firstMatch
-        XCTAssertTrue(source.waitForExistence(timeout: 30)); source.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 30))
+        XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: search)], timeout: 15) == .completed)
+        let candidates = app.collectionViews.cells.containing(.staticText, identifier: "debs")
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in candidates.allElementsBoundByIndex.contains { $0.isHittable } }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+        guard let source = candidates.allElementsBoundByIndex.first(where: { $0.isHittable }) else { XCTFail("Missing actual Files folder cell"); return }
+        source.tap()
+        XCTAssertTrue(app.staticTexts["插件甲.deb"].waitForExistence(timeout: 15), "Enter the selected folder before choosing Open")
         let open = app.buttons["Open"].firstMatch
         XCTAssertTrue(open.waitForExistence(timeout: 10)); open.tap()
         let importAll = app.buttons["导入全部，更新同名文件"]
@@ -309,10 +316,10 @@ final class StyleBoundaryTests: XCTestCase {
         keepScreenshot(app, name: "local-history-after-folding")
     }
 
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, scroll: XCUIElement? = nil) {
         for _ in 0..<8 {
             if element.exists && element.isHittable { return }
-            app.swipeUp()
+            if let scroll { scroll.swipeUp() } else { app.swipeUp() }
         }
         XCTAssertTrue(element.waitForExistence(timeout: 10))
         XCTAssertTrue(element.isHittable)
