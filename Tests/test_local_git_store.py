@@ -14,6 +14,10 @@ class LocalGitStoreTests(unittest.TestCase):
         for name in FILES:
             self.assertTrue((ROOT / 'RepoPocket' / name).exists(), 'Missing local Git service: ' + name)
 
+    def test_project_file_import_service_is_available(self):
+        self.assertTrue((ROOT / 'RepoPocket/LocalGitImport.swift').is_file(),
+                        'Local Git has no file/folder import service')
+
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift fixture runs on macOS')
     def test_original_folder_retention_conflict_and_single_file_delete(self):
         with tempfile.TemporaryDirectory() as temporary:

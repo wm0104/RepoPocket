@@ -2,6 +2,53 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testLocalFolderChangesAndSelectAll() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-local-git-style-preview"]
+        app.launch()
+        let folder = app.buttons["localgit.folder.debs"]
+        XCTAssertTrue(folder.waitForExistence(timeout: 40), "Changes must show the containing folder")
+        XCTAssertFalse(app.staticTexts["package-01.deb"].exists, "Collapsed folders must not flatten their files")
+        app.buttons["全选"].tap()
+        XCTAssertTrue(app.buttons["创建本地提交（45 个文件）"].exists)
+        app.buttons["取消全选"].tap()
+        XCTAssertTrue(app.buttons["创建本地提交（0 个文件）"].exists)
+        folder.tap()
+        XCTAssertTrue(app.staticTexts["package-01.deb"].waitForExistence(timeout: 5))
+        app.buttons["debs 全选"].tap()
+        XCTAssertTrue(app.buttons["创建本地提交（44 个文件）"].exists)
+        keepScreenshot(app, name: "local-folder-selection")
+    }
+
+    func testLocalGitHasFileAndFolderImport() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-local-git-style-preview"]
+        app.launch()
+        XCTAssertTrue(app.buttons["导入文件"].waitForExistence(timeout: 40))
+        XCTAssertTrue(app.buttons["导入文件夹"].exists)
+        app.buttons["导入文件"].tap()
+        XCTAssertTrue(app.buttons["取消导入"].waitForExistence(timeout: 10))
+        app.buttons["取消导入"].tap()
+        XCTAssertTrue(app.buttons["导入文件夹"].exists)
+    }
+
+    func testLongCommitPatchStartsAtLeadingEdge() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-patch-style-preview", "-long-patch-style-preview"]
+        app.launch()
+        app.buttons["打开提交差异"].tap()
+        XCTAssertTrue(app.staticTexts["仅显示本次提交的变化"].waitForExistence(timeout: 10))
+        var report = sourceReport(app)
+        XCTAssertEqual(Int(report["offset"] ?? "-999"), 0, "A long patch must open at the start of each line")
+        app.switches["显示空白（· 空格 / ⇥ Tab）"].tap()
+        report = sourceReport(app)
+        XCTAssertEqual(Int(report["offset"] ?? "-999"), 0, "Reformatting whitespace must retain the leading origin")
+        keepScreenshot(app, name: "long-patch-leading")
+    }
+
     func testWorkflowStepOpensActualOutputInline() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -24,11 +71,13 @@ final class StyleBoundaryTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-patch-style-preview"]
         app.launch()
+        app.buttons["打开提交差异"].tap()
         for mode in ["highlight", "raw"] {
             let line = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "AFTER_TAIL")).firstMatch
             XCTAssertTrue(line.waitForExistence(timeout: 10))
             var report = sourceReport(app)
             XCTAssertGreaterThan(Int(report["width"] ?? "0") ?? 0, Int(report["viewport"] ?? "0") ?? 0)
+            XCTAssertEqual(Int(report["offset"] ?? "-999"), 0)
             keepScreenshot(app, name: "patch-" + mode + "-left")
             for _ in 0..<8 {
                 let offset = Int(report["offset"] ?? "0") ?? 0

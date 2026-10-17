@@ -32,6 +32,10 @@ printf '%s\n' '# Python 示例' 'print("after")' > "$PREVIEW_ROOT/示例.py"
 git -C "$PREVIEW_ROOT" add --all
 git -C "$PREVIEW_ROOT" commit -m '新增 Python 输出'
 printf '%s\n' '# Python 示例' 'print("after")' 'print("working")' > "$PREVIEW_ROOT/示例.py"
+mkdir -p "$PREVIEW_ROOT/debs"
+for number in $(seq -w 1 44); do
+  printf '!<arch>\nDEB fixture %s\n' "$number" > "$PREVIEW_ROOT/debs/package-$number.deb"
+done
 xcrun simctl launch "$DEVICE" com.wm0104.RepoPocket -style-preview -account-preview
 sleep 5
 xcrun simctl io "$DEVICE" screenshot screenshots/account.png

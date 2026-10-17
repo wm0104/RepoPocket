@@ -108,12 +108,13 @@ struct PatchStylePreview: View {
     @State private var revision = 0
     @State private var report = "待检查"
     private var file: DesktopCommit.File {
-        let prefix = String(repeating: "abcdefgh", count: 12)
+        let prefix = String(repeating: "abcdefgh", count: ProcessInfo.processInfo.arguments.contains("-long-patch-style-preview") ? 600 : 12)
         let patch = "@@ -1,2 +1,2 @@\n-message = \"" + prefix + "BEFORE_TAIL\"\n+message = \"" + prefix + "AFTER_TAIL\"\n print(\"第二行\")\n"
         return DesktopCommit.File(filename: "长行差异.py", previous_filename: nil, status: "modified", additions: 1, deletions: 1, patch: patch)
     }
     var body: some View {
         NavigationStack {
+            NavigationLink("打开提交差异") {
             VStack(spacing: 0) {
                 CommitPatchView(file: file)
                 Divider()
@@ -121,6 +122,7 @@ struct PatchStylePreview: View {
                 Text(report).font(.system(size: 8, design: .monospaced)).lineLimit(3)
                     .accessibilityIdentifier("source-layout-report")
                 PatchPreviewProbe(revision: revision, report: $report).frame(height: 0)
+            }
             }
         }
     }
