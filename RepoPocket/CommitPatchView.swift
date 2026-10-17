@@ -78,7 +78,7 @@ struct CommitPatchView: View {
                         var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
                         withTransaction(transaction) { proxy.scrollTo(origin, anchor: .topLeading) }
                     }
-                   }
+                   }.id(file.id + ":" + String(raw))
                   }
                 } else if failure.isEmpty { ProgressView("解析差异…").padding(8) }
                 if !failure.isEmpty { Text(failure).padding(8) }
