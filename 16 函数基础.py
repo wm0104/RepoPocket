@@ -107,3 +107,4 @@ def count_pass(score):
 
 
 print("及格人数:", count_pass(score))
+print() # 测试
