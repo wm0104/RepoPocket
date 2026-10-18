@@ -10,7 +10,7 @@ struct CacheSettingsSection: View {
     @State private var noticeTask: Task<Void, Never>?
     private var blocked: Bool { clearing || checker.checking || checker.downloading || downloads.operations > 0 }
     var body: some View {
-        Section {
+        Section("存储") {
             Button("清除缓存") { confirm = true }.disabled(blocked).softGroupedRow(top: true, bottom: message.isEmpty)
             if !message.isEmpty { Text(message).font(.caption).softGroupedRow(bottom: true) }
         }

@@ -711,31 +711,26 @@ struct SettingsView: View {
                         }.accessibilityLabel("账号管理：切换、添加或移除本机账号")
                     }.padding(.vertical, 8).softGroupedRow(top: true, bottom: true)
                 }
-                Section {
-                    NavigationLink {
-                        RepositoryCollectionView(api: api, section: .owned)
-                    } label: { Label("我的仓库", systemImage: "folder") }
-                        .softGroupedRow(top: true)
-                    NavigationLink {
-                        RepositoryCollectionView(api: api, section: .starred)
-                    } label: { Label("已加星标", systemImage: "star") }
-                        .softGroupedRow(bottom: true)
+                Section("账号与安全") {
+                    DisclosureGroup {
+                        Text("每个账号的 Token 独立保存于本机钥匙串。切换账号会关闭旧页面，防止将旧仓库操作提交给新账号。账号资料不含 Token。")
+                            .font(.caption).foregroundColor(.secondary)
+                    } label: {
+                        Text("Token 仅保存在本机钥匙串，切换账号自动隔离")
+                    }.softGroupedRow(top: true, bottom: true)
                 }
-                DownloadLocationSection()
-                Section("外观") {
+                Section("通用") {
                     Picker("主题", selection: $appearance) {
                         Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark")
-                    }.softGroupedRow(top: true)
-                    NavigationLink("开源组件许可") { OpenSourceNoticesView() }.softGroupedRow(bottom: true)
+                    }.softGroupedRow(top: true, bottom: true)
                 }
+                DownloadLocationSection()
                 CacheSettingsSection(api: api, checker: updateChecker)
-                Section("安全") {
-                    Text("每个账号的 Token 独立保存于本机钥匙串。切换账号会关闭旧页面，防止将旧仓库操作提交给新账号。账号资料不含 Token。").softGroupedRow(top: true, bottom: true)
-                }
-                Section {
+                Section("关于") {
                     AppUpdateSection(api: api, checker: updateChecker)
                     // The version is the stable final row of the update group in every state.
-                    Text("RepoPocket " + AppUpdateSessionRules.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—", build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—")).foregroundColor(.secondary).softGroupedRow(bottom: true)
+                    Text("RepoPocket " + AppUpdateSessionRules.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—", build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—")).foregroundColor(.secondary).softGroupedRow()
+                    NavigationLink("开源组件许可") { OpenSourceNoticesView() }.softGroupedRow(bottom: true)
                 }
             }.formStyle(.grouped).navigationTitle("设置").adaptiveWorkspaceLayout()
             .task { if !CredentialStore.read().isEmpty { try? await api.identify() } }
