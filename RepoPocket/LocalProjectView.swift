@@ -6,8 +6,6 @@ struct LocalProjectView: View {
     let project: LocalGitProject
     @StateObject private var state = LocalProjectState()
     @StateObject private var importer = LocalGitImportState()
-    @State private var importTarget: String?
-    @State private var choosingImportTarget = false
     @State private var expandedFolders = Set<String>()
     @State private var fileSizes: [String: Int64] = [:]
     @State private var generation = AccountStore.generation
@@ -76,20 +74,10 @@ struct LocalProjectView: View {
         .task { await check() }
         .refreshable { await check(force: true) }
         .toolbar { Menu {
-            Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(busy)
-            Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(busy)
             Button("检查变化") { Task { await check(force: true) } }.disabled(busy)
         } label: { Image(systemName: "ellipsis.circle") } }
         .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: store.internalRoot,
-                                              directory: importTarget ?? "", generation: generation, changed: imported))
-        .sheet(isPresented: $choosingImportTarget) {
-            NavigationStack {
-                LocalGitDirectoryPicker(project: project, internalRoot: store.internalRoot, directory: "") { picked in
-                    importTarget = picked
-                }
-                .toolbar { Button("关闭") { choosingImportTarget = false } }
-            }.appSheetCornerRadius()
-        }
+                                              generation: generation, changed: imported))
         .onDisappear { state.cancel(); importer.cancel() }
     }
     private var projectSheets: some View {
@@ -206,9 +194,6 @@ struct LocalProjectView: View {
     private func actionsSection(_ snapshot: LocalGitSnapshot) -> some View {
         Section {
             SoftGroupRows {
-                SoftGroupRow("import-target") { Button("导入位置：" + ((importTarget ?? "").isEmpty ? "根目录" : (importTarget ?? ""))) { choosingImportTarget = true }.disabled(busy) }
-                SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(busy) }
-                SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(busy) }
                 if snapshot.status.repoState == 100 { SoftGroupRow("recover") { Button("检查并恢复中断操作") { syncing = "recover" }.disabled(busy) } }
                 SoftGroupRow("commit") {
                     Button("创建本地提交（\(selected.count) 个文件）") { if authorName.isEmpty { authorName = api.login }; sheet = .commit }
