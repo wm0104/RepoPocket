@@ -154,7 +154,7 @@ struct ReleaseListView: View {
         .task { if state.rows.isEmpty { state.list(reset: true) } }
         .onDisappear { state.cancel() }
         .sheet(isPresented: $creating, onDismiss: { state.list(reset: true) }) {
-            ReleaseEditorView(api: state.api, repo: state.repo, original: nil)
+            ReleaseEditorView(api: state.api, repo: state.repo, original: nil).appSheetCornerRadius()
         }
     }
 }
@@ -266,7 +266,7 @@ struct ReleaseDetailView: View {
         .task { if state.release == nil { state.detail(id) } }
         .onDisappear { state.cancel() }
         .sheet(isPresented: $editing, onDismiss: { state.detail(id) }) {
-            if let r = state.release { ReleaseEditorView(api: state.api, repo: state.repo, original: r) }
+            if let r = state.release { ReleaseEditorView(api: state.api, repo: state.repo, original: r).appSheetCornerRadius() }
         }
         .sheet(isPresented: $pickingInbox, onDismiss: {
             uploading = inboxSelection.first; inboxSelection = []

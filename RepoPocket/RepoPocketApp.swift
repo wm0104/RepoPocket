@@ -25,7 +25,7 @@ struct RepoPocketApp: App {
                 .background(WindowStyleApplier(style: appearance == "dark" ? .dark : (appearance == "light" ? .light : .unspecified)))
                 .environmentObject(selectionStore)
                 .environmentObject(accountPresentation)
-                .sheet(isPresented: $accountPresentation.showing) { AccountManagementView().environmentObject(accountPresentation) }
+                .sheet(isPresented: $accountPresentation.showing) { AccountManagementView().environmentObject(accountPresentation).appSheetCornerRadius() }
                 .sheet(item: $downloads.picker, onDismiss: { downloads.selected(nil) }) { request in
                     WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false, cancelTitle: "取消") { downloads.selected($0) }
                 }
@@ -68,7 +68,7 @@ struct AccountRootView: View {
                     StartupUpdateCard(api: api, checker: updateChecker, release: release) {
                         updateChecker.dismissStartupUpdate()
                         selectedTab = 4
-                    }
+                    }.appSheetCornerRadius()
                 }
             }
             .alert("提示", isPresented: Binding(get: { !api.message.isEmpty }, set: { if !$0 { api.message = "" } })) {
@@ -185,9 +185,9 @@ struct RepositoriesView: View {
                 NavigationStack {
                     RepositoryCollectionView(api: api, section: section, initialRepositories: loaded ? (section == .owned ? repos : starred) : nil)
                         .toolbar { Button("关闭") { collectionSearch = nil } }
-                }
+                }.appSheetCornerRadius()
             }
-            .sheet(isPresented: $showSearch) { RepositorySearchView(api: api) }
+            .sheet(isPresented: $showSearch) { RepositorySearchView(api: api).appSheetCornerRadius() }
             .sheet(isPresented: $showOpen) {
                 NavigationStack {
                     Form {
@@ -198,7 +198,7 @@ struct RepositoriesView: View {
                             .disabled(busy || isOwnRepository || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).softGroupedRow(bottom: !isOwnRepository)
                         if isOwnRepository { Text("自己的仓库无需 Fork，直接浏览或上传。").font(.caption).foregroundColor(.secondary).softGroupedRow(bottom: true) }
                     }.navigationTitle("打开仓库").toolbar { Button("关闭") { showOpen = false } }
-                }
+                }.appSheetCornerRadius()
             }
             .confirmationDialog("复刻到我的仓库？", isPresented: Binding(get: { pendingFork != nil }, set: { if !$0 { pendingFork = nil } }), titleVisibility: .visible) {
                 if let repository = pendingFork {
@@ -214,7 +214,7 @@ struct RepositoriesView: View {
                         Text("在你的 GitHub 账号下创建，包含初始 README。不会覆盖现有仓库。").font(.caption).softGroupedRow()
                         Button("创建仓库") { Task { await create() } }.disabled(busy || newName.isEmpty).softGroupedRow(bottom: true)
                     }.navigationTitle("新建仓库").adaptiveWorkspaceLayout().toolbar { Button("关闭") { showCreate = false } }
-                }
+                }.appSheetCornerRadius()
             }
         }
     }
@@ -421,7 +421,7 @@ struct BrowserView: View {
         .repositoryCopyNotice(copyFeedback)
         .repositoryForkConfirmation(forkMenu, api: api)
         .task { if !loaded { await load() } }
-        .sheet(isPresented: $creatingRelease) { if canWrite { ReleaseEditorView(api: api, repo: repo, original: nil) } }
+        .sheet(isPresented: $creatingRelease) { if canWrite { ReleaseEditorView(api: api, repo: repo, original: nil).appSheetCornerRadius() } }
         .sheet(item: $repositoryDescriptionTarget) { target in
             RepositoryDescriptionView(api: api, target: target) { updated in
                 guard api.isCurrentSession, updated.id == target.repository.id,
