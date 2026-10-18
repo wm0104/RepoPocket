@@ -21,7 +21,7 @@ struct RepositoryHomeHighlights: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 Label("最新正式发行版", systemImage: "shippingbox").font(.caption).foregroundStyle(.secondary)
                                 Text(release.title).font(.headline)
-                                Text(release.tag_name + " · " + String(release.date.prefix(10))).font(.caption).foregroundStyle(.secondary)
+                                Text(release.tag_name + " · " + ChinaDate.day(release.date)).font(.caption).foregroundStyle(.secondary)
                                 Text("查看说明与下载附件").font(.caption).foregroundStyle(.tint)
                             }.padding(.vertical, 4)
                         }

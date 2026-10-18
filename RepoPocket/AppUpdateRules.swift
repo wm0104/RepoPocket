@@ -86,8 +86,7 @@ enum AppUpdateRules {
             if header("x-ratelimit-remaining") == "0" || reason.contains("api rate limit exceeded") {
                 var retry = "请稍后重试。"
                 if let raw = header("x-ratelimit-reset"), let seconds = TimeInterval(raw), seconds.isFinite, seconds > 0, seconds < 253402300799 {
-                    let formatter = DateFormatter(); formatter.dateStyle = .short; formatter.timeStyle = .medium
-                    retry = "预计 \(formatter.string(from: Date(timeIntervalSince1970: seconds))) 重置后可重试。"
+                    retry = "预计 \(ChinaDate.dateTime(Date(timeIntervalSince1970: seconds))) 重置后可重试。"
                 }
                 let advice = authenticated ? "" : " 未登录检查使用匿名额度；稍后可重试，或登录账号继续检查。"
                 return "GitHub \(identity)主速率额度已用尽。\(retry)\(advice)" + fallback

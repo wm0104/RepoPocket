@@ -119,7 +119,7 @@ struct ReleaseListView: View {
                     NavigationLink { ReleaseManagementDestination(api: state.api, repo: state.repo, id: row.id) } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(row.title).lineLimit(2)
-                            Text(row.tag_name + " · " + String(row.date.prefix(10))).font(.caption)
+                            Text(row.tag_name + " · " + ChinaDate.day(row.date)).font(.caption)
                             if row.draft { Text("草稿").font(.caption) }
                             if row.prerelease { Text("预发行").font(.caption) }
                             if state.latestID == row.id && !row.draft && !row.prerelease { Text("最新发行版").font(.caption) }
@@ -185,7 +185,7 @@ struct ReleaseDetailView: View {
         List {
             if let r = state.release {
                 Section {
-                    Text(r.title).softGroupedRow(top: true); Text(r.tag_name + " · " + String(r.date.prefix(10))).font(.caption).softGroupedRow()
+                    Text(r.title).softGroupedRow(top: true); Text(r.tag_name + " · " + ChinaDate.day(r.date)).font(.caption).softGroupedRow()
                     Text(r.draft ? "草稿" : (r.prerelease ? "预发行" : "已发布")).softGroupedRow()
                     VStack(alignment: .leading, spacing: 0) {
                         DisclosureGroup("发布说明", isExpanded: $expanded) {

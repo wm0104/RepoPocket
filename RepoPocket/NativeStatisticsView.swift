@@ -101,7 +101,7 @@ struct NativeActivityChartView: View {
     let login: String
     @StateObject private var store = CommunityPageStore<CommunityEvent>()
     private var points: [NativeHistogramPoint] {
-        Dictionary(grouping: store.items, by: { String(($0.created_at ?? "未知").prefix(7)) }).map { NativeHistogramPoint(id: $0.key, count: $0.value.count) }.sorted { $0.id < $1.id }
+        Dictionary(grouping: store.items, by: { ChinaDate.month($0.created_at) }).map { NativeHistogramPoint(id: $0.key, count: $0.value.count) }.sorted { $0.id < $1.id }
     }
     var body: some View {
         List {
