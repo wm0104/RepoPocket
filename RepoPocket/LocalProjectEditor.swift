@@ -90,9 +90,17 @@ struct LocalProjectFilesView: View {
     @State private var opened: LocalProjectFile?
     @State private var loaded = false
     @State private var error = ""
+    @State private var importTarget: String?
+    @State private var choosingTarget = false
+    @State private var pendingFolderDelete: LocalFileEntry?
+    private var effectiveTarget: String { importTarget ?? directory }
     var body: some View {
         List {
           SoftGroupRows {
+            SoftGroupRow("import-target") {
+                Button("导入位置：" + (effectiveTarget.isEmpty ? "根目录" : effectiveTarget)) { choosingTarget = true }
+                    .disabled(importer.busy)
+            }
             SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(importer.busy) }
             SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(importer.busy) }
             if importer.busy { SoftGroupRow("import-busy") { ProgressView("导入中…") } }
@@ -101,6 +109,7 @@ struct LocalProjectFilesView: View {
               SoftGroupRow("entry:" + entry.id) {
                 if entry.directory {
                     NavigationLink { AnyView(LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, imported: imported, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
+                        .contextMenu { Button("删除此文件夹", role: .destructive) { pendingFolderDelete = entry } }
                 } else {
                     HStack {
                         Button { opened = LocalProjectFile(path: entry.path) } label: { LocalGitFileLabel(name: entry.name, size: entry.size) }
@@ -123,10 +132,24 @@ struct LocalProjectFilesView: View {
         .toolbar { Button("刷新列表") { Task { await load() } }.disabled(importer.busy) }
         .refreshable { guard !importer.busy else { return }; await load() }
         .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: internalRoot,
-                                              directory: directory, generation: generation) { paths in
+                                              directory: effectiveTarget, generation: generation) { paths in
             if let imported { imported(paths) } else { changed() }
             Task { await load() }
         })
+        .sheet(isPresented: $choosingTarget) {
+            NavigationStack {
+                LocalGitDirectoryPicker(project: project, internalRoot: internalRoot, directory: "") { picked in
+                    importTarget = picked
+                }
+                .toolbar { Button("关闭") { choosingTarget = false } }
+            }.appSheetCornerRadius()
+        }
+        .confirmationDialog("删除文件夹「\(pendingFolderDelete?.name ?? "")」？", isPresented: Binding(get: { pendingFolderDelete != nil }, set: { if !$0 { pendingFolderDelete = nil } }), titleVisibility: .visible) {
+            Button("删除文件夹及内容", role: .destructive) { deleteFolder() }
+            Button("取消", role: .cancel) { pendingFolderDelete = nil }
+        } message: {
+            Text("文件夹内的所有文件都会被删除，此操作不可恢复。")
+        }
         .onDisappear { importer.cancel() }
         .sheet(item: $opened, onDismiss: { Task { await load() } }) { file in
             if !file.deleting && file.path.lowercased().hasSuffix(".deb") {
@@ -134,6 +157,21 @@ struct LocalProjectFilesView: View {
             } else {
                 LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
             }
+        }
+    }
+    private func deleteFolder() {
+        guard let entry = pendingFolderDelete else { return }
+        pendingFolderDelete = nil
+        error = ""
+        let target = entry.path
+        Task { @MainActor in
+            do {
+                try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
+                    try LocalGitFileAccess.deleteDirectory(root: root, path: target)
+                }
+                changed()
+                await load()
+            } catch { self.error = error.localizedDescription }
         }
     }
     private func load() async {
