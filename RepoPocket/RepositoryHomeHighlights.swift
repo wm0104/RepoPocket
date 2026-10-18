@@ -41,7 +41,7 @@ struct RepositoryHomeHighlights: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 WorkflowStatusBadge(status: run.status, conclusion: run.conclusion)
                                 Text(run.display_title ?? run.name ?? "Workflow").font(.headline).lineLimit(2)
-                                Text("#\(run.run_number) · \(run.head_branch ?? "—") · \(String(run.created_at.prefix(10)))").font(.caption).foregroundStyle(.secondary)
+                                Text("#\(run.run_number) · \(run.head_branch ?? "—") · \(ChinaDate.day(run.created_at))").font(.caption).foregroundStyle(.secondary)
                             }.padding(.vertical, 4)
                         }
                     }
