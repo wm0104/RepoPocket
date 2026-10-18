@@ -46,7 +46,7 @@ enum DesktopRules {
 
 
 enum CommitDatePresentation {
-    static func local(_ value: String, timeZone: TimeZone = .autoupdatingCurrent) -> String {
+    static func local(_ value: String, timeZone: TimeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current) -> String {
         let parser = ISO8601DateFormatter()
         var date = parser.date(from: value)
         if date == nil {
@@ -54,12 +54,15 @@ enum CommitDatePresentation {
             date = parser.date(from: value)
         }
         guard let date else { return "时间未知" }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = timeZone
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter.string(from: date)
+        // Fixed China time in 12-hour form, matching the phone's clock style.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        guard let year = parts.year, let month = parts.month, let day = parts.day,
+              let hour = parts.hour, let minute = parts.minute else { return "时间未知" }
+        let suffix = hour < 12 ? "上午" : "下午"
+        let hour12 = hour % 12 == 0 ? 12 : hour % 12
+        return String(format: "%04d-%02d-%02d %@ %d:%02d", year, month, day, suffix, hour12, minute)
     }
 }
 
