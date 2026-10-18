@@ -126,7 +126,7 @@ struct LocalDiffPreview: View {
             VStack(spacing: 1) {
                 Text(row.oldNumber.map(String.init) ?? "–")
                 Text(row.newNumber.map(String.init) ?? "–")
-            }.font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary).frame(width: 32)
+            }.font(.caption2.monospaced()).foregroundStyle(.secondary).frame(width: 32)
                 .accessibilityLabel("旧行 \(row.oldNumber.map(String.init) ?? "无")，新行 \(row.newNumber.map(String.init) ?? "无")")
             Text(marker).foregroundColor(color).frame(width: 10)
             VStack(alignment: .leading, spacing: 2) {
@@ -138,10 +138,10 @@ struct LocalDiffPreview: View {
                     return text + Text(value)
                 }.fixedSize(horizontal: true, vertical: false)
                 if !row.raw.hasSuffix("\n") {
-                    Text("无末尾换行").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("无末尾换行").font(.caption2).foregroundStyle(.secondary)
                 }
             }
-        }.font(.system(size: 12, design: .monospaced))
+        }.font(.caption.monospaced())
             .padding(.horizontal, 8).padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(row.kind == .context ? Color.clear : color.opacity(0.12))

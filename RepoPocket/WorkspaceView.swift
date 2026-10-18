@@ -596,10 +596,10 @@ Section("本地工作目录") {
                         if let binding = binding {
                             Text(binding.repo + " · " + binding.branch).softGroupedRow()
                             Text("基线 " + String(binding.head.prefix(12))).font(.caption).softGroupedRow()
-                            if let d = binding.remoteAuthorDate { Text("最新提交 author：" + d.formatted()).font(.caption).softGroupedRow() }
-                            if let d = binding.remoteCommitterDate { Text("最新提交 committer：" + d.formatted()).font(.caption).softGroupedRow() }
-                            if let d = binding.lastChecked { Text("上次检查：" + d.formatted()).font(.caption).softGroupedRow() }
-                            if let d = binding.lastPulled { Text("上次拉取：" + d.formatted()).font(.caption).softGroupedRow() }
+                            if let d = binding.remoteAuthorDate { Text("最新提交 author：" + ChinaDate.dateTime(d)).font(.caption).softGroupedRow() }
+                            if let d = binding.remoteCommitterDate { Text("最新提交 committer：" + ChinaDate.dateTime(d)).font(.caption).softGroupedRow() }
+                            if let d = binding.lastChecked { Text("上次检查：" + ChinaDate.dateTime(d)).font(.caption).softGroupedRow() }
+                            if let d = binding.lastPulled { Text("上次拉取：" + ChinaDate.dateTime(d)).font(.caption).softGroupedRow() }
                             if !linked { Button("检查更新") { focusedField = nil; confirmPull = true }
                                 .buttonStyle(.borderless)
                                 .disabled(busy).softGroupedRow() }

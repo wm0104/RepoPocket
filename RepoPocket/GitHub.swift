@@ -201,6 +201,8 @@ final class GitHub: ObservableObject {
         parentCache.removeAll(); collectionCache.removeAll()
     }
     var canCheckAppUpdate: Bool { isCurrentSession && !CredentialStore.read(account: accountID).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// The public releases endpoint works signed out; a token only raises the rate limit.
+    var canCheckOfficialUpdate: Bool { isCurrentSession }
     func cachedCollection(_ section: RepositoryHomeSection) -> [Repository]? { collectionCache[section] }
     func cacheCollection(_ repositories: [Repository], section: RepositoryHomeSection) {
         collectionCache[section] = repositories
@@ -306,12 +308,16 @@ final class GitHub: ObservableObject {
     func officialAppUpdateData() async throws -> Data {
         try ensureActiveAccount()
         let endpoint = URL(string: "https://api.github.com/repos/wm0104/RepoPocket/releases/latest")!
-        guard canCheckAppUpdate else { throw AppError(text: "请登录账号") }
-        let authenticated = true
-        var r = try request(endpoint)
+        guard canCheckOfficialUpdate else { throw AppError(text: "请重新打开 App") }
+        // Signed out, the public releases endpoint is still readable; a token is
+        // attached only when present so the check never fails for lack of login.
+        let token = CredentialStore.read(account: accountID).trimmingCharacters(in: .whitespacesAndNewlines)
+        let authenticated = !token.isEmpty
+        var r = URLRequest(url: endpoint)
         r.timeoutInterval = 30
         r.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         r.setValue("RepoPocket", forHTTPHeaderField: "User-Agent")
+        if authenticated { r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let (bytes, response) = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
         try ensureActiveAccount()
         guard let http = response as? HTTPURLResponse else { throw AppError(text: "更新接口未返回有效 HTTP 响应。") }

@@ -6,6 +6,8 @@ struct LocalProjectView: View {
     let project: LocalGitProject
     @StateObject private var state = LocalProjectState()
     @StateObject private var importer = LocalGitImportState()
+    @State private var importTarget: String?
+    @State private var choosingImportTarget = false
     @State private var expandedFolders = Set<String>()
     @State private var fileSizes: [String: Int64] = [:]
     @State private var generation = AccountStore.generation
@@ -15,6 +17,7 @@ struct LocalProjectView: View {
     @State private var pendingCommit = false
     @State private var syncing: String?
     @State private var note = ""
+    @State private var pendingChangeDelete: String?
     @AppStorage("localGit.authorName") private var authorName = ""
     @AppStorage("localGit.authorEmail") private var authorEmail = ""
     @State private var commitMessage = ""
@@ -71,6 +74,10 @@ struct LocalProjectView: View {
                 }
             }
         }.listStyle(.insetGrouped).navigationTitle(project.name).adaptiveWorkspaceLayout()
+        .confirmationDialog("删除文件「\((pendingChangeDelete ?? "") as NSString).lastPathComponent」？", isPresented: Binding(get: { pendingChangeDelete != nil }, set: { if !$0 { pendingChangeDelete = nil } }), titleVisibility: .visible) {
+            Button("删除文件", role: .destructive) { deletePendingChange() }
+            Button("取消", role: .cancel) { pendingChangeDelete = nil }
+        } message: { Text("只删除本地工作区里的这个文件，不会影响远端；此操作不可恢复。") }
         .task { await check() }
         .refreshable { await check(force: true) }
         .toolbar { Menu {
@@ -79,7 +86,15 @@ struct LocalProjectView: View {
             Button("检查变化") { Task { await check(force: true) } }.disabled(busy)
         } label: { Image(systemName: "ellipsis.circle") } }
         .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: store.internalRoot,
-                                              generation: generation, changed: imported))
+                                              directory: importTarget ?? "", generation: generation, changed: imported))
+        .sheet(isPresented: $choosingImportTarget) {
+            NavigationStack {
+                LocalGitDirectoryPicker(project: project, internalRoot: store.internalRoot, directory: "") { picked in
+                    importTarget = picked
+                }
+                .toolbar { Button("关闭") { choosingImportTarget = false } }
+            }.appSheetCornerRadius()
+        }
         .onDisappear { state.cancel(); importer.cancel() }
     }
     private var projectSheets: some View {
@@ -166,8 +181,7 @@ struct LocalProjectView: View {
                 .accessibilityValue(all ? "已选" : (some ? "部分已选" : "未选"))
             if row.folder {
                 Button {
-                    var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
-                    withTransaction(transaction) {
+                    UIRules.withoutAnimation {
                         if !expandedFolders.insert(row.path).inserted { expandedFolders.remove(row.path) }
                     }
                 } label: {
@@ -191,12 +205,32 @@ struct LocalProjectView: View {
                         .accessibilityLabel("更多操作：" + row.name)
                 }
             }
-        }.padding(.leading, CGFloat(min(row.depth, 5)) * 16)
+        }
+        .padding(.leading, CGFloat(min(row.depth, 5)) * 16)
+        .contextMenu {
+            if !row.folder, let file = row.files.first, file.kind != "deleted" {
+                Button("删除文件", role: .destructive) { pendingChangeDelete = file.path }
+            }
+        }
     }
 
+    private func deletePendingChange() {
+        guard let path = pendingChangeDelete else { return }
+        pendingChangeDelete = nil
+        Task { @MainActor in
+            do {
+                try await LocalGitEngine.shared.file(project: project, internalRoot: store.internalRoot, generation: generation) { root in
+                    let url = try LocalGitFileAccess.path(root: root, relative: path)
+                    try FileManager.default.removeItem(at: url)
+                }
+                await check(force: true)
+            } catch { note = error.localizedDescription }
+        }
+    }
     private func actionsSection(_ snapshot: LocalGitSnapshot) -> some View {
         Section {
             SoftGroupRows {
+                SoftGroupRow("import-target") { Button("导入位置：" + ((importTarget ?? "").isEmpty ? "根目录" : (importTarget ?? ""))) { choosingImportTarget = true }.disabled(busy) }
                 SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(busy) }
                 SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(busy) }
                 if snapshot.status.repoState == 100 { SoftGroupRow("recover") { Button("检查并恢复中断操作") { syncing = "recover" }.disabled(busy) } }
@@ -216,9 +250,7 @@ struct LocalProjectView: View {
             SoftGroupRows(animateBackground: false) {
                 SoftGroupRow("disclosure") {
                     Button {
-                        var transaction = Transaction(animation: nil)
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) { historyExpanded.toggle() }
+                        UIRules.withoutAnimation { historyExpanded.toggle() }
                     } label: {
                         HStack { Label("本地提交历史", systemImage: "clock.arrow.circlepath"); Spacer(); Text("\(snapshot.history.commits.count)").foregroundStyle(.secondary); Image(systemName: historyExpanded ? "chevron.up" : "chevron.down").font(.caption) }
                     }.buttonStyle(.plain).accessibilityValue(historyExpanded ? "已展开" : "已折叠")
@@ -239,9 +271,7 @@ struct LocalProjectView: View {
                     }
                     SoftGroupRow("collapse") {
                         Button("收起提交记录") {
-                            var transaction = Transaction(animation: nil)
-                            transaction.disablesAnimations = true
-                            withTransaction(transaction) { historyExpanded = false }
+                            UIRules.withoutAnimation { historyExpanded = false }
                         }
                     }
                 }

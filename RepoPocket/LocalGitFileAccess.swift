@@ -81,6 +81,17 @@ enum LocalGitFileAccess {
             try FileManager.default.removeItem(at: coordinated)
         }
     }
+    /// Removes a whole folder inside the project; the root itself is never removable.
+    static func deleteDirectory(root: URL, path: String) throws {
+        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw LocalGitError(text: "不能删除项目根目录。") }
+        let url = try self.path(root: root, relative: path)
+        let info = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard info[.type] as? FileAttributeType == .typeDirectory else { throw LocalGitError(text: "目标不是文件夹。") }
+        try coordinate(url, writing: true) { coordinated in
+            guard coordinated.standardizedFileURL == url.standardizedFileURL else { throw LocalGitError(text: "文件夹在确认后变化，已停止删除。") }
+            try FileManager.default.removeItem(at: coordinated)
+        }
+    }
     static func coordinate<T>(_ url: URL, writing: Bool, operation: (URL) throws -> T) throws -> T {
         var failure: NSError?, result: Result<T, Error>?
         let work: (URL) -> Void = { coordinated in result = Result { try operation(coordinated) } }

@@ -22,9 +22,10 @@ struct RepoPocketApp: App {
 #endif
             }
                 .preferredColorScheme(appearance == "dark" ? .dark : (appearance == "light" ? .light : nil))
+                .background(WindowStyleApplier(style: appearance == "dark" ? .dark : (appearance == "light" ? .light : .unspecified)))
                 .environmentObject(selectionStore)
                 .environmentObject(accountPresentation)
-                .sheet(isPresented: $accountPresentation.showing) { AccountManagementView().environmentObject(accountPresentation) }
+                .sheet(isPresented: $accountPresentation.showing) { AccountManagementView().environmentObject(accountPresentation).appSheetCornerRadius() }
                 .sheet(item: $downloads.picker, onDismiss: { downloads.selected(nil) }) { request in
                     WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false, cancelTitle: "取消") { downloads.selected($0) }
                 }
@@ -67,7 +68,7 @@ struct AccountRootView: View {
                     StartupUpdateCard(api: api, checker: updateChecker, release: release) {
                         updateChecker.dismissStartupUpdate()
                         selectedTab = 4
-                    }
+                    }.appSheetCornerRadius()
                 }
             }
             .alert("提示", isPresented: Binding(get: { !api.message.isEmpty }, set: { if !$0 { api.message = "" } })) {
@@ -128,14 +129,38 @@ struct RepositoriesView: View {
     var body: some View {
         NavigationStack {
             List {
-                if CredentialStore.read().isEmpty { Button("添加账号") { accountPresentation.showing = true } }
+                if CredentialStore.read().isEmpty {
+                    Section {
+                        VStack(spacing: 12) {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                                .font(.largeTitle)
+                                .foregroundStyle(Color.accentColor)
+                                .accessibilityHidden(true)
+                            Text("连接 GitHub 账号").font(.headline)
+                            Text("添加账号后即可浏览仓库、管理发布与同步本地 Git 项目。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                            Button("添加账号") { accountPresentation.showing = true }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .listRowBackground(Color.clear)
+                    }
+                } else {
+                    RepositoryInlineSection(api: api, section: .owned, expanded: $ownedExpanded,
+                        repositories: repos, loaded: loaded, busy: busy, fork: { pendingFork = $0 }, search: { collectionSearch = .owned })
+                    RepositoryInlineSection(api: api, section: .starred, expanded: $starredExpanded,
+                        repositories: starred, loaded: loaded, busy: busy, fork: { pendingFork = $0 }, search: { collectionSearch = .starred })
+                }
                 Section {
                     NavigationLink { CommunityDiscoveryView(api: api) } label: { Label("发现与关注动态", systemImage: "safari") }.softGroupedRow(top: true, bottom: true)
                 }
-                RepositoryInlineSection(api: api, section: .owned, expanded: $ownedExpanded,
-                    repositories: repos, loaded: loaded, busy: busy, fork: { pendingFork = $0 }, search: { collectionSearch = .owned })
-                RepositoryInlineSection(api: api, section: .starred, expanded: $starredExpanded,
-                    repositories: starred, loaded: loaded, busy: busy, fork: { pendingFork = $0 }, search: { collectionSearch = .starred })
+                Section {
+                    Text("提示：删除仓库、创建发行版等操作需在 GitHub Token 中勾选对应权限，缺失时请前往 GitHub 补选。")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .softGroupedRow(top: true, bottom: true)
+                }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("RepoPocket")
@@ -160,9 +185,9 @@ struct RepositoriesView: View {
                 NavigationStack {
                     RepositoryCollectionView(api: api, section: section, initialRepositories: loaded ? (section == .owned ? repos : starred) : nil)
                         .toolbar { Button("关闭") { collectionSearch = nil } }
-                }
+                }.appSheetCornerRadius()
             }
-            .sheet(isPresented: $showSearch) { RepositorySearchView(api: api) }
+            .sheet(isPresented: $showSearch) { RepositorySearchView(api: api).appSheetCornerRadius() }
             .sheet(isPresented: $showOpen) {
                 NavigationStack {
                     Form {
@@ -173,7 +198,7 @@ struct RepositoriesView: View {
                             .disabled(busy || isOwnRepository || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).softGroupedRow(bottom: !isOwnRepository)
                         if isOwnRepository { Text("自己的仓库无需 Fork，直接浏览或上传。").font(.caption).foregroundColor(.secondary).softGroupedRow(bottom: true) }
                     }.navigationTitle("打开仓库").toolbar { Button("关闭") { showOpen = false } }
-                }
+                }.appSheetCornerRadius()
             }
             .confirmationDialog("复刻到我的仓库？", isPresented: Binding(get: { pendingFork != nil }, set: { if !$0 { pendingFork = nil } }), titleVisibility: .visible) {
                 if let repository = pendingFork {
@@ -189,7 +214,7 @@ struct RepositoriesView: View {
                         Text("在你的 GitHub 账号下创建，包含初始 README。不会覆盖现有仓库。").font(.caption).softGroupedRow()
                         Button("创建仓库") { Task { await create() } }.disabled(busy || newName.isEmpty).softGroupedRow(bottom: true)
                     }.navigationTitle("新建仓库").adaptiveWorkspaceLayout().toolbar { Button("关闭") { showCreate = false } }
-                }
+                }.appSheetCornerRadius()
             }
         }
     }
@@ -396,7 +421,7 @@ struct BrowserView: View {
         .repositoryCopyNotice(copyFeedback)
         .repositoryForkConfirmation(forkMenu, api: api)
         .task { if !loaded { await load() } }
-        .sheet(isPresented: $creatingRelease) { if canWrite { ReleaseEditorView(api: api, repo: repo, original: nil) } }
+        .sheet(isPresented: $creatingRelease) { if canWrite { ReleaseEditorView(api: api, repo: repo, original: nil).appSheetCornerRadius() } }
         .sheet(item: $repositoryDescriptionTarget) { target in
             RepositoryDescriptionView(api: api, target: target) { updated in
                 guard api.isCurrentSession, updated.id == target.repository.id,
@@ -686,28 +711,19 @@ struct SettingsView: View {
                         }.accessibilityLabel("账号管理：切换、添加或移除本机账号")
                     }.padding(.vertical, 8).softGroupedRow(top: true, bottom: true)
                 }
-                Section {
-                    NavigationLink {
-                        RepositoryCollectionView(api: api, section: .owned)
-                    } label: { Label("我的仓库", systemImage: "folder") }
-                        .softGroupedRow(top: true)
-                    NavigationLink {
-                        RepositoryCollectionView(api: api, section: .starred)
-                    } label: { Label("已加星标", systemImage: "star") }
-                        .softGroupedRow(bottom: true)
+                Section("账号与安全") {
+                    Text("Token 仅保存在本机钥匙串，切换账号自动隔离，账号资料不含 Token。")
+                        .font(.caption).foregroundColor(.secondary)
+                        .softGroupedRow(top: true, bottom: true)
                 }
-                DownloadLocationSection()
-                Section("外观") {
+                Section("通用") {
                     Picker("主题", selection: $appearance) {
                         Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark")
-                    }.softGroupedRow(top: true)
-                    NavigationLink("开源组件许可") { OpenSourceNoticesView() }.softGroupedRow(bottom: true)
+                    }.softGroupedRow(top: true, bottom: true)
                 }
+                DownloadLocationSection()
                 CacheSettingsSection(api: api, checker: updateChecker)
-                Section("安全") {
-                    Text("每个账号的 Token 独立保存于本机钥匙串。切换账号会关闭旧页面，防止将旧仓库操作提交给新账号。账号资料不含 Token。").softGroupedRow(top: true, bottom: true)
-                }
-                Section {
+                Section("关于") {
                     AppUpdateSection(api: api, checker: updateChecker)
                     // The version is the stable final row of the update group in every state.
                     Text("RepoPocket " + AppUpdateSessionRules.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—", build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—")).foregroundColor(.secondary).softGroupedRow(bottom: true)

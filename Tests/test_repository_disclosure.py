@@ -13,11 +13,14 @@ assert '@State private var ownedExpanded = false' in home
 assert '@State private var starredExpanded = false' in home
 assert home.count('ownedExpanded =') == 1 and home.count('starredExpanded =') == 1
 assert '查看仓库' not in home and '查看已加星标仓库' not in home
-assert 'RepositoryCollectionView(api: api, section: .owned)' in settings
-assert 'RepositoryCollectionView(api: api, section: .starred)' in settings
-assert 'Transaction(animation: nil)' in sections
-assert 'transaction.disablesAnimations = true' in sections
-assert 'withTransaction(transaction) { expanded.toggle() }' in sections
+assert 'RepositoryCollectionView(api: api, section: .owned)' not in settings
+assert 'RepositoryCollectionView(api: api, section: .starred)' not in settings
+# Settings keeps five groups: account card, security, general, storage, about.
+for title in ['账号与安全', '通用', '关于']:
+    assert title in settings, title
+assert 'Token 仅保存在本机钥匙串，切换账号自动隔离' in settings
+assert 'RepoPocket ' in settings
+assert 'UIRules.withoutAnimation { expanded.toggle() }' in sections
 assert '.softGroupedRow(top: true, bottom: !expanded, animateBackground: false)' in sections
 assert '.softGroupedRow(bottom: true, animateBackground: false)' in sections
 assert 'Color.clear.frame(height: 8)' not in sections

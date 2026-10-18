@@ -25,7 +25,12 @@ for text in [ui, workspace, upload, detail]:
     assert '.softGroupedRow(bottom: true)' in text
 section = ui.split('RepositoryInlineSection(api: api, section: .owned', 1)[1].split('.listStyle(.insetGrouped)', 1)[0]
 assert 'DisclosureGroup' not in section and 'repositoriesExpanded' not in ui
-assert 'softGroupedRow' not in section
+repoSection = section.split('发现与关注动态', 1)[0]
+assert 'softGroupedRow' not in repoSection
+# Task-first home: owned/starred repositories come first; community discovery
+# stays below them as one standalone rounded row.
+assert section.index('发现与关注动态') > section.index('section: .starred')
+assert '.softGroupedRow(top: true, bottom: true)' in section
 assert 'refresh()' not in section and 'repos = []' not in section
 assert 'NavigationLink("添加 / 更新 GitHub 账号")' in Path(REPO_ROOT, 'RepoPocket/AccountManagement.swift').read_text()
 assert 'Section("已保存账号")' not in ui
@@ -333,6 +338,16 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
             old_start = old_github.index(signature)
             old_end = old_github.index(next_signature, old_start)
             current = current[:current_start] + old_github[old_start:old_end] + current[current_end:]
+        # Signed-out update checks use the public releases endpoint; the
+        # anonymous path is covered by test_app_update.py.
+        current = current.replace(
+            '    /// The public releases endpoint works signed out; a token only raises the rate limit.\n'
+            '    var canCheckOfficialUpdate: Bool { isCurrentSession }\n', '')
+        release_start = current.index('    func officialAppUpdateData(')
+        release_end = current.index('    func ', release_start + 20)
+        old_release_start = old_github.index('    func officialAppUpdateData(')
+        old_release_end = old_github.index('    func ', old_release_start + 20)
+        current = current[:release_start] + old_github[old_release_start:old_release_end] + current[release_end:]
         current = current.replace('session.data(for: r, delegate: GitHubAPIRedirectPolicy())',
                                   'session.data(for: r, delegate: OfficialUpdateRedirectPolicy())')
     if file == 'WorkspaceSelectionUI.swift':
@@ -466,6 +481,15 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'try await DownloadStore.shared.persist(' in body
             assert 'self.notice =' in body
             assert 'SharedFile' not in body and 'self.saved' not in body
+            continue
+        if file == 'ReleaseManagementUI.swift' and signature == 'private func performDelete()':
+            # Deletion confirms once; the destructive guard keeps the fixed
+            # repo/session identity checks and drops the typed confirmation.
+            body = current.get(signature, '')
+            assert 'target.repo == state.repo' in body
+            assert 'target.generation == AccountStore.generation' in body
+            assert 'confirmation' not in body and 'secondDelete' not in body
+            assert 'deleteManagedRelease' in body
             continue
         if file == 'UploadView.swift' and signature == 'private func select(_ result: Result<[URL], Error>) async':
             # TrollFools plugins are capped before and after preparation, while

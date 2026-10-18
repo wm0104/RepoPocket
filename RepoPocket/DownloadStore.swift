@@ -98,7 +98,9 @@ struct DownloadLocationSection: View {
         Section("下载位置") {
             Button("选择文件夹") { store.choose() }.disabled(store.operations > 0).softGroupedRow(top: true)
             Text(store.label).font(.caption).textSelection(.enabled).softGroupedRow()
-            Text("已下载文件保留，清缓存不会删除。卸载 App 可能删除内部工作区；外部文件仍受提供器管理。下载需保持前台，中断后请重试。首次下载请授权文件夹。建议选择“文件 → 我的 iPhone → 下载”，文件保存到所选目录的 RepoPocket 子文件夹；若已选择 RepoPocket 文件夹则直接保存其中。上方显示实际保存路径，不自动写入系统下载。").font(.caption).foregroundColor(.secondary).softGroupedRow(bottom: true)
+            Text("文件会存到所选目录的 RepoPocket 子文件夹，清缓存不删除。下载请保持前台，中断后重试。")
+                .font(.caption).foregroundColor(.secondary)
+                .softGroupedRow(bottom: true)
         }
     }
 }

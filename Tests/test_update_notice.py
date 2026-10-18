@@ -115,7 +115,7 @@ struct AppError: Error, LocalizedError { let text: String; var errorDescription:
     init(_ failure: String, delay: UInt64 = 0) { self.failure = failure; self.delay = delay }
     var isCurrentSession = true
     var accountID = "fixture"
-    var canCheckAppUpdate = true
+    var canCheckOfficialUpdate = true
     var calls = 0
     func officialAppUpdateData() async throws -> Data {
         calls += 1
@@ -127,7 +127,7 @@ struct AppError: Error, LocalizedError { let text: String; var errorDescription:
         throw AppError(text: failure)
     }
 }
-''' + 'enum AccountStore { static var generation = UUID() }\n' + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules + Path(REPO_ROOT, 'RepoPocket/RepositorySafetyRules.swift').read_text() + checker + '''
+''' + 'enum AccountStore { static var generation = UUID() }\n' + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules + Path(REPO_ROOT, 'RepoPocket/ChinaDate.swift').read_text() + Path(REPO_ROOT, 'RepoPocket/RepositorySafetyRules.swift').read_text() + checker + '''
 @MainActor final class MockNoticeClock {
     var delays: [UInt64] = []
     var waits: [CheckedContinuation<Void, Error>] = []
@@ -140,10 +140,10 @@ struct AppError: Error, LocalizedError { let text: String; var errorDescription:
 @main struct Tests {
  @MainActor static func main() async throws {
     let anonymous = GitHub("latest")
-    anonymous.canCheckAppUpdate = false
+    anonymous.canCheckOfficialUpdate = false
     let gated = UpdateChecker()
     await gated.check(api: anonymous)
-    precondition(anonymous.calls == 0 && gated.message == "请登录账号")
+    precondition(anonymous.calls == 0 && gated.message == "请重新打开 App")
     let manual = UpdateChecker()
     let counted = GitHub("latest", delay: 100_000_000)
     for _ in 0..<3 { manual.enterPage(); manual.leavePage() }

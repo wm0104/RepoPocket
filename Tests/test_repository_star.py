@@ -29,7 +29,7 @@ class StarTests(unittest.TestCase):
         self.assertNotIn('confirmationDialog',ui)
         self.assertNotIn('isOwned',ui)
         for source in [app,sections]: self.assertIn('.onChange(of: api.starRevision)',source)
-        self.assertIn('CURRENT_PROJECT_VERSION: "13"',(ROOT/'project.yml').read_text())
+        self.assertIn('CURRENT_PROJECT_VERSION: "1.0.8"',(ROOT/'project.yml').read_text())
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Production Swift mocks run on macOS CI')
     def test_production_store_network_free(self):

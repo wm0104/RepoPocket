@@ -209,6 +209,7 @@ struct UploadView: View {
             .onChange(of: repo) { _ in canWrite = false; accessGeneration = UUID(); invalidateTarget() }
             .onChange(of: branch) { _ in invalidateTarget() }
             .onChange(of: busy) { UIApplication.shared.isIdleTimerDisabled = $0 }
+            .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         }
     }
     private func loadWriteAccess() async {
