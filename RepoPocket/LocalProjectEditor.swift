@@ -103,18 +103,26 @@ struct LocalProjectFilesView: View {
             for entry in entries {
               SoftGroupRow("entry:" + entry.id) {
                 if entry.directory {
-                    NavigationLink { AnyView(LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, imported: imported, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
-                        .contextMenu { Button("删除此文件夹", role: .destructive) { pendingFolderDelete = entry } }
-                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in pendingFolderDelete = entry })
+                    HStack {
+                        NavigationLink { AnyView(LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, imported: imported, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
+                        Spacer(minLength: 0)
+                        Menu {
+                            Button("删除此文件夹", role: .destructive) { pendingFolderDelete = entry }
+                        } label: { Image(systemName: "ellipsis").padding(8) }
+                        .accessibilityLabel("更多操作：" + entry.name)
+                    }
+                    .contextMenu { Button("删除此文件夹", role: .destructive) { pendingFolderDelete = entry } }
                 } else {
                     HStack {
                         Button { opened = LocalProjectFile(path: entry.path) } label: { LocalGitFileLabel(name: entry.name, size: entry.size) }
                             .buttonStyle(.borderless)
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-                        if entry.name.lowercased().hasSuffix(".deb") {
-                            Menu { Button("编辑包信息") { opened = LocalProjectFile(path: entry.path) } }
-                                label: { Image(systemName: "ellipsis").padding(8) }.accessibilityLabel("更多操作：" + entry.name)
-                        }
+                        Menu {
+                            if entry.name.lowercased().hasSuffix(".deb") {
+                                Button("编辑包信息") { opened = LocalProjectFile(path: entry.path) }
+                            }
+                            Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) }
+                        } label: { Image(systemName: "ellipsis").padding(8) }.accessibilityLabel("更多操作：" + entry.name)
                     }
                         .contextMenu { Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) } }
                 }
