@@ -105,6 +105,7 @@ struct LocalProjectFilesView: View {
                 if entry.directory {
                     NavigationLink { AnyView(LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, imported: imported, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
                         .contextMenu { Button("删除此文件夹", role: .destructive) { pendingFolderDelete = entry } }
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in pendingFolderDelete = entry })
                 } else {
                     HStack {
                         Button { opened = LocalProjectFile(path: entry.path) } label: { LocalGitFileLabel(name: entry.name, size: entry.size) }
