@@ -32,7 +32,7 @@ class DescriptionTests(unittest.TestCase):
         for forbidden in ['requireWriteAccess', 'starRevision', 'object:', 'FileManager']:
             self.assertNotIn(forbidden, body)
         project = (ROOT/'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.0.6"', project)
+        self.assertIn('MARKETING_VERSION: "1.0.7"', project)
         workflow = (ROOT/'.github/workflows/build.yml').read_text()
         self.assertIn('zip -qry RepoPocket.ipa Payload', workflow)
         self.assertNotIn('RepoPocket-1.1.1', workflow)
