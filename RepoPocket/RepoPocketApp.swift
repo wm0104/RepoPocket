@@ -712,12 +712,9 @@ struct SettingsView: View {
                     }.padding(.vertical, 8).softGroupedRow(top: true, bottom: true)
                 }
                 Section("账号与安全") {
-                    DisclosureGroup {
-                        Text("每个账号的 Token 独立保存于本机钥匙串。切换账号会关闭旧页面，防止将旧仓库操作提交给新账号。账号资料不含 Token。")
-                            .font(.caption).foregroundColor(.secondary)
-                    } label: {
-                        Text("Token 仅保存在本机钥匙串，切换账号自动隔离")
-                    }.softGroupedRow(top: true, bottom: true)
+                    Text("Token 仅保存在本机钥匙串，切换账号自动隔离，账号资料不含 Token。")
+                        .font(.caption).foregroundColor(.secondary)
+                        .softGroupedRow(top: true, bottom: true)
                 }
                 Section("通用") {
                     Picker("主题", selection: $appearance) {

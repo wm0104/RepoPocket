@@ -98,12 +98,9 @@ struct DownloadLocationSection: View {
         Section("下载位置") {
             Button("选择文件夹") { store.choose() }.disabled(store.operations > 0).softGroupedRow(top: true)
             Text(store.label).font(.caption).textSelection(.enabled).softGroupedRow()
-            DisclosureGroup {
-                Text("文件会存到所选目录的 RepoPocket 子文件夹，清缓存不删除。下载请保持前台，中断后重试。")
-                    .font(.caption).foregroundColor(.secondary)
-            } label: {
-                Text("下载位置说明").font(.caption)
-            }.softGroupedRow(bottom: true)
+            Text("文件会存到所选目录的 RepoPocket 子文件夹，清缓存不删除。下载请保持前台，中断后重试。")
+                .font(.caption).foregroundColor(.secondary)
+                .softGroupedRow(bottom: true)
         }
     }
 }
