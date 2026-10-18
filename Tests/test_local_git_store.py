@@ -89,7 +89,7 @@ import Foundation
  }
 }
 ''', encoding='utf-8')
-            command = ['swiftc', '-parse-as-library', *[str(ROOT/'RepoPocket'/f) for f in FILES[:3]], str(fixture), '-o', str(root/'check')]
+            command = ['swiftc', '-parse-as-library', str(ROOT/'RepoPocket/ChinaDate.swift'), *[str(ROOT/'RepoPocket'/f) for f in FILES[:3]], str(fixture), '-o', str(root/'check')]
             subprocess.run(command, check=True)
             subprocess.run([str(root/'check')], check=True)
 
