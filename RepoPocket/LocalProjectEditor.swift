@@ -91,6 +91,7 @@ struct LocalProjectFilesView: View {
     @State private var loaded = false
     @State private var error = ""
     @State private var pendingFolderDelete: LocalFileEntry?
+    @State private var openDirectory: String?
     var body: some View {
         List {
           SoftGroupRows {
@@ -103,14 +104,14 @@ struct LocalProjectFilesView: View {
             for entry in entries {
               SoftGroupRow("entry:" + entry.id) {
                 if entry.directory {
-                    HStack {
-                        NavigationLink { AnyView(LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, imported: imported, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
-                        Spacer(minLength: 0)
-                        Menu {
-                            Button("删除此文件夹", role: .destructive) { pendingFolderDelete = entry }
-                        } label: { Image(systemName: "ellipsis").padding(8) }
-                        .accessibilityLabel("更多操作：" + entry.name)
+                    Button { openDirectory = entry.path } label: {
+                        HStack {
+                            Label(entry.name, systemImage: "folder")
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }.contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .contextMenu { Button("删除此文件夹", role: .destructive) { pendingFolderDelete = entry } }
                 } else {
                     HStack {
@@ -140,6 +141,11 @@ struct LocalProjectFilesView: View {
             if let imported { imported(paths) } else { changed() }
             Task { await load() }
         })
+        .navigationDestination(isPresented: Binding(get: { openDirectory != nil }, set: { if !$0 { openDirectory = nil } })) {
+            if let path = openDirectory {
+                LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: path, imported: imported, changed: changed)
+            }
+        }
         .confirmationDialog("删除文件夹「\(pendingFolderDelete?.name ?? "")」？", isPresented: Binding(get: { pendingFolderDelete != nil }, set: { if !$0 { pendingFolderDelete = nil } }), titleVisibility: .visible) {
             Button("删除文件夹及内容", role: .destructive) { deleteFolder() }
             Button("取消", role: .cancel) { pendingFolderDelete = nil }
