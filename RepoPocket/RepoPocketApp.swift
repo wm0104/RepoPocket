@@ -22,6 +22,7 @@ struct RepoPocketApp: App {
 #endif
             }
                 .preferredColorScheme(appearance == "dark" ? .dark : (appearance == "light" ? .light : nil))
+                .background(WindowStyleApplier(style: appearance == "dark" ? .dark : (appearance == "light" ? .light : .unspecified)))
                 .environmentObject(selectionStore)
                 .environmentObject(accountPresentation)
                 .sheet(isPresented: $accountPresentation.showing) { AccountManagementView().environmentObject(accountPresentation) }
