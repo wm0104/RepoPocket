@@ -90,19 +90,14 @@ struct LocalProjectFilesView: View {
     @State private var opened: LocalProjectFile?
     @State private var loaded = false
     @State private var error = ""
-    @State private var importTarget: String?
-    @State private var choosingTarget = false
     @State private var pendingFolderDelete: LocalFileEntry?
-    private var effectiveTarget: String { importTarget ?? directory }
     var body: some View {
         List {
           SoftGroupRows {
-            SoftGroupRow("import-target") {
-                Button("导入位置：" + (effectiveTarget.isEmpty ? "根目录" : effectiveTarget)) { choosingTarget = true }
-                    .disabled(importer.busy)
+            if !directory.isEmpty {
+                SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(importer.busy) }
+                SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(importer.busy) }
             }
-            SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(importer.busy) }
-            SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(importer.busy) }
             if importer.busy { SoftGroupRow("import-busy") { ProgressView("导入中…") } }
             if !importer.message.isEmpty { SoftGroupRow("import-message") { Text(importer.message).font(.caption).foregroundStyle(.secondary) } }
             for entry in entries {
@@ -132,18 +127,10 @@ struct LocalProjectFilesView: View {
         .toolbar { Button("刷新列表") { Task { await load() } }.disabled(importer.busy) }
         .refreshable { guard !importer.busy else { return }; await load() }
         .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: internalRoot,
-                                              directory: effectiveTarget, generation: generation) { paths in
+                                              directory: directory, generation: generation) { paths in
             if let imported { imported(paths) } else { changed() }
             Task { await load() }
         })
-        .sheet(isPresented: $choosingTarget) {
-            NavigationStack {
-                LocalGitDirectoryPicker(project: project, internalRoot: internalRoot, directory: "") { picked in
-                    importTarget = picked
-                }
-                .toolbar { Button("关闭") { choosingTarget = false } }
-            }.appSheetCornerRadius()
-        }
         .confirmationDialog("删除文件夹「\(pendingFolderDelete?.name ?? "")」？", isPresented: Binding(get: { pendingFolderDelete != nil }, set: { if !$0 { pendingFolderDelete = nil } }), titleVisibility: .visible) {
             Button("删除文件夹及内容", role: .destructive) { deleteFolder() }
             Button("取消", role: .cancel) { pendingFolderDelete = nil }
