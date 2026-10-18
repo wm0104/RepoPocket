@@ -19,7 +19,7 @@ assert 'RepositoryCollectionView(api: api, section: .starred)' not in settings
 for title in ['账号与安全', '通用', '关于']:
     assert title in settings, title
 assert 'Token 仅保存在本机钥匙串，切换账号自动隔离' in settings
-assert '开源组件许可' in settings
+assert 'RepoPocket ' in settings
 assert 'UIRules.withoutAnimation { expanded.toggle() }' in sections
 assert '.softGroupedRow(top: true, bottom: !expanded, animateBackground: false)' in sections
 assert '.softGroupedRow(bottom: true, animateBackground: false)' in sections
