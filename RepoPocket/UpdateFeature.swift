@@ -34,7 +34,7 @@ import ZIPFoundation
     private let accountGeneration = AccountStore.generation
     var hasUpdate: Bool { release != nil }
     func automaticCheck(api: GitHub) async {
-        guard api.canCheckAppUpdate, api.isCurrentSession, !checking, !downloading else { return }
+        guard api.canCheckOfficialUpdate, api.isCurrentSession, !checking, !downloading else { return }
         let key = "RepoPocket.update.lastCheck." + api.accountID
         let now = Date()
         let probe = AppUpdateSessionRules.isUpdateProbe(installedVersion().0)
@@ -83,7 +83,7 @@ import ZIPFoundation
     }
     func check(api: GitHub, automatic: Bool = false) async {
         guard !checking, !downloading else { return }
-        guard api.canCheckAppUpdate else { showTransient("请登录账号", duration: UpdateNoticeRules.latestNanoseconds); return }
+        guard api.canCheckOfficialUpdate else { showTransient("当前会话不可用，请重新打开 App", duration: UpdateNoticeRules.latestNanoseconds); return }
         generation = UUID(); let token = generation
         clearNotice(); checking = true; downloaded = nil
         defer { if generation == token { checking = false } }

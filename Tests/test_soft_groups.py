@@ -338,6 +338,16 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
             old_start = old_github.index(signature)
             old_end = old_github.index(next_signature, old_start)
             current = current[:current_start] + old_github[old_start:old_end] + current[current_end:]
+        # Signed-out update checks use the public releases endpoint; the
+        # anonymous path is covered by test_app_update.py.
+        current = current.replace(
+            '    /// The public releases endpoint works signed out; a token only raises the rate limit.\n'
+            '    var canCheckOfficialUpdate: Bool { isCurrentSession }\n', '')
+        release_start = current.index('    func officialAppUpdateData(')
+        release_end = current.index('    func ', release_start + 20)
+        old_release_start = old_github.index('    func officialAppUpdateData(')
+        old_release_end = old_github.index('    func ', old_release_start + 20)
+        current = current[:release_start] + old_github[old_release_start:old_release_end] + current[release_end:]
         current = current.replace('session.data(for: r, delegate: GitHubAPIRedirectPolicy())',
                                   'session.data(for: r, delegate: OfficialUpdateRedirectPolicy())')
     if file == 'WorkspaceSelectionUI.swift':
