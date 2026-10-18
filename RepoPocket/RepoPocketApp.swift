@@ -156,7 +156,7 @@ struct RepositoriesView: View {
                     NavigationLink { CommunityDiscoveryView(api: api) } label: { Label("发现与关注动态", systemImage: "safari") }.softGroupedRow(top: true, bottom: true)
                 }
                 Section {
-                    Text("删除仓库、创建发行版等操作需在 GitHub Token 中勾选对应权限，缺失时请前往 GitHub 补选。")
+                    Text("提示：删除仓库、创建发行版等操作需在 GitHub Token 中勾选对应权限，缺失时请前往 GitHub 补选。")
                         .font(.caption).foregroundStyle(.secondary)
                         .softGroupedRow(top: true, bottom: true)
                 }
