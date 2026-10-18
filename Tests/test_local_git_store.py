@@ -202,7 +202,7 @@ final class ImportPresenter: NSObject, NSFilePresenter {
             folder = Path(temporary)
             fixture = folder/'Fixture.swift'; fixture.write_text(fixture_source,encoding='utf-8')
             binary = folder/'check'
-            production = ['LocalGitModels.swift','LocalGitFileAccess.swift','LocalGitImport.swift']
+            production = ['ChinaDate.swift','LocalGitModels.swift','LocalGitFileAccess.swift','LocalGitImport.swift']
             subprocess.run(['swiftc','-parse-as-library',*[str(ROOT/'RepoPocket'/name) for name in production],str(fixture),'-o',str(binary)],check=True)
             subprocess.run([str(binary)],check=True)
 
