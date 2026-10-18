@@ -28,7 +28,7 @@ struct LocalGitDirectoryPicker: View {
                         Label(directory.isEmpty ? "选择根目录" : "选择此文件夹", systemImage: "checkmark.circle")
                     }
                 }
-                ForEach(folders) { folder in
+                for folder in folders {
                     SoftGroupRow(folder.path) {
                         NavigationLink(folder.name) {
                             LocalGitDirectoryPicker(project: project, internalRoot: internalRoot, directory: folder.path, onPick: onPick)
