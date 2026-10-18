@@ -308,7 +308,7 @@ final class GitHub: ObservableObject {
     func officialAppUpdateData() async throws -> Data {
         try ensureActiveAccount()
         let endpoint = URL(string: "https://api.github.com/repos/wm0104/RepoPocket/releases/latest")!
-        guard canCheckOfficialUpdate else { throw AppError(text: "当前会话不可用，请重新打开 App") }
+        guard canCheckOfficialUpdate else { throw AppError(text: "请重新打开 App") }
         // Signed out, the public releases endpoint is still readable; a token is
         // attached only when present so the check never fails for lack of login.
         let token = CredentialStore.read(account: accountID).trimmingCharacters(in: .whitespacesAndNewlines)

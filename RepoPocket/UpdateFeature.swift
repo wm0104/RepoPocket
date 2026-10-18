@@ -83,7 +83,7 @@ import ZIPFoundation
     }
     func check(api: GitHub, automatic: Bool = false) async {
         guard !checking, !downloading else { return }
-        guard api.canCheckOfficialUpdate else { showTransient("当前会话不可用，请重新打开 App", duration: UpdateNoticeRules.latestNanoseconds); return }
+        guard api.canCheckOfficialUpdate else { showTransient("请重新打开 App", duration: UpdateNoticeRules.latestNanoseconds); return }
         generation = UUID(); let token = generation
         clearNotice(); checking = true; downloaded = nil
         defer { if generation == token { checking = false } }
@@ -221,7 +221,7 @@ struct AppUpdateSection: View {
                     }
                     Button("下载更新") { authorizeDownload() }.disabled(checker.checking || authorizing || checker.downloading || openingTrollStore).softGroupedRow()
                 } else {
-                    Text("未找到唯一可信 IPA，请前往官方发行版下载。").font(.caption).softGroupedRow()
+                    Text("暂无可安装的 IPA，请到发行版页下载。").font(.caption).softGroupedRow()
                     Link("前往下载", destination: release.html_url).softGroupedRow()
                 }
             } else {

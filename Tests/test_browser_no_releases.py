@@ -107,6 +107,16 @@ class BrowserRollbackTests(unittest.TestCase):
             old_start = api_original.index(signature)
             old_end = api_original.index(next_signature, old_start)
             normalized = normalized[:current_start] + api_original[old_start:old_end] + normalized[current_end:]
+        # Signed-out update checks use the public releases endpoint; the
+        # anonymous path is covered by test_app_update.py.
+        normalized = normalized.replace(
+            '    /// The public releases endpoint works signed out; a token only raises the rate limit.\n'
+            '    var canCheckOfficialUpdate: Bool { isCurrentSession }\n', '')
+        release_start = normalized.index('    func officialAppUpdateData(')
+        release_end = normalized.index('    func ', release_start + 20)
+        old_release_start = api_original.index('    func officialAppUpdateData(')
+        old_release_end = api_original.index('    func ', old_release_start + 20)
+        normalized = normalized[:release_start] + api_original[old_release_start:old_release_end] + normalized[release_end:]
         normalized = normalized.replace('session.data(for: r, delegate: GitHubAPIRedirectPolicy())',
                                         'session.data(for: r, delegate: OfficialUpdateRedirectPolicy())')
         self.assertEqual(normalized.rstrip() + '\n}\n', api_original)

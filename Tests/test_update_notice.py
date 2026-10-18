@@ -143,7 +143,7 @@ struct AppError: Error, LocalizedError { let text: String; var errorDescription:
     anonymous.canCheckOfficialUpdate = false
     let gated = UpdateChecker()
     await gated.check(api: anonymous)
-    precondition(anonymous.calls == 0 && gated.message == "当前会话不可用，请重新打开 App")
+    precondition(anonymous.calls == 0 && gated.message == "请重新打开 App")
     let manual = UpdateChecker()
     let counted = GitHub("latest", delay: 100_000_000)
     for _ in 0..<3 { manual.enterPage(); manual.leavePage() }
