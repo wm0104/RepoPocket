@@ -482,6 +482,15 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'self.notice =' in body
             assert 'SharedFile' not in body and 'self.saved' not in body
             continue
+        if file == 'ReleaseManagementUI.swift' and signature == 'private func performDelete()':
+            # Deletion confirms once; the destructive guard keeps the fixed
+            # repo/session identity checks and drops the typed confirmation.
+            body = current.get(signature, '')
+            assert 'target.repo == state.repo' in body
+            assert 'target.generation == AccountStore.generation' in body
+            assert 'confirmation' not in body and 'secondDelete' not in body
+            assert 'deleteManagedRelease' in body
+            continue
         if file == 'UploadView.swift' and signature == 'private func select(_ result: Result<[URL], Error>) async':
             # TrollFools plugins are capped before and after preparation, while
             # regular Release assets retain their separate larger limit.
