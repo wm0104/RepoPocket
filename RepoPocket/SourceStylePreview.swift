@@ -15,8 +15,7 @@ struct WorkflowLogStylePreview: View {
                     SoftGroupRows(animateBackground: false) {
                         SoftGroupRow("log") {
                             WorkflowStepRow(step: step, expanded: expanded, toggle: {
-                                var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
-                                withTransaction(transaction) { expanded.toggle() }
+                                UIRules.withoutAnimation { expanded.toggle() }
                             }, output: AnyView(WorkflowInlineLog(output: output, loading: output == nil && failure.isEmpty,
                                 error: failure, skipped: false, retry: {})))
                         }
@@ -52,7 +51,7 @@ struct SourceStylePreview: View {
                 SourceCodeEditor(text: $source, filename: "长行示例.py", readOnly: !editing).id(editing)
                 Divider()
                 Button("检查代码布局") { revision += 1 }.padding(.vertical, 8)
-                Text(report).font(.system(size: 8, design: .monospaced)).lineLimit(3)
+                Text(report).font(.caption2.monospaced()).lineLimit(3)
                     .accessibilityIdentifier("source-layout-report")
                 SourcePreviewProbe(revision: revision, report: $report).frame(height: 0)
             }
@@ -124,7 +123,7 @@ struct PatchStylePreview: View {
                 CommitPatchView(file: file)
                 Divider()
                 Button("检查代码布局") { revision += 1 }.padding(.vertical, 8)
-                Text(report).font(.system(size: 8, design: .monospaced)).lineLimit(3)
+                Text(report).font(.caption2.monospaced()).lineLimit(3)
                     .accessibilityIdentifier("source-layout-report")
                 PatchPreviewProbe(revision: revision, report: $report).frame(height: 0)
             }

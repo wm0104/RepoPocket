@@ -29,7 +29,7 @@ struct StartupUpdateCard: View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 Image(systemName: "shippingbox")
-                    .font(.system(size: 25, weight: .medium))
+                    .font(.title2.weight(.medium))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -42,7 +42,7 @@ struct StartupUpdateCard: View {
                 Spacer(minLength: 0)
                 Button(action: close) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 26)).foregroundColor(.secondary)
+                        .font(.title2.weight(.medium)).foregroundColor(.secondary)
                         .frame(width: 44, height: 44).contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel("关闭更新提示")
             }

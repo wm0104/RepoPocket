@@ -166,8 +166,7 @@ struct LocalProjectView: View {
                 .accessibilityValue(all ? "已选" : (some ? "部分已选" : "未选"))
             if row.folder {
                 Button {
-                    var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
-                    withTransaction(transaction) {
+                    UIRules.withoutAnimation {
                         if !expandedFolders.insert(row.path).inserted { expandedFolders.remove(row.path) }
                     }
                 } label: {
@@ -216,9 +215,7 @@ struct LocalProjectView: View {
             SoftGroupRows(animateBackground: false) {
                 SoftGroupRow("disclosure") {
                     Button {
-                        var transaction = Transaction(animation: nil)
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) { historyExpanded.toggle() }
+                        UIRules.withoutAnimation { historyExpanded.toggle() }
                     } label: {
                         HStack { Label("本地提交历史", systemImage: "clock.arrow.circlepath"); Spacer(); Text("\(snapshot.history.commits.count)").foregroundStyle(.secondary); Image(systemName: historyExpanded ? "chevron.up" : "chevron.down").font(.caption) }
                     }.buttonStyle(.plain).accessibilityValue(historyExpanded ? "已展开" : "已折叠")
@@ -239,9 +236,7 @@ struct LocalProjectView: View {
                     }
                     SoftGroupRow("collapse") {
                         Button("收起提交记录") {
-                            var transaction = Transaction(animation: nil)
-                            transaction.disablesAnimations = true
-                            withTransaction(transaction) { historyExpanded = false }
+                            UIRules.withoutAnimation { historyExpanded = false }
                         }
                     }
                 }

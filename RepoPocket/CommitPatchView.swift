@@ -75,8 +75,7 @@ struct CommitPatchView: View {
                         // origin once layout settles; scrolling never repeats this.
                         await Task.yield()
                         guard !Task.isCancelled else { return }
-                        var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
-                        withTransaction(transaction) { proxy.scrollTo(origin, anchor: .topLeading) }
+                        UIRules.withoutAnimation { proxy.scrollTo(origin, anchor: .topLeading) }
                     }
                    }.id(file.id + ":" + String(raw))
                   }
@@ -87,7 +86,6 @@ struct CommitPatchView: View {
         .task(id: renderKey) {
             guard let patch = file.patch else { return }
             let name = file.filename, dark = colorScheme == .dark, spaces = whitespace
-            let font = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .regular)
             let worker = Task.detached(priority: .utility) {
                 let parsed = try CommitPatchParser.parse(patch)
                 var colors: [Int: NSAttributedString] = [:]
@@ -98,7 +96,7 @@ struct CommitPatchView: View {
                     colors[row.id] = [.context,.addition,.deletion].contains(row.kind)
                         ? SourceHighlighter.highlight(value, filename: name, dark: dark)
                         : NSAttributedString(string: value)
-                    width = max(width, ceil((value as NSString).size(withAttributes: [.font: font]).width) + 120)
+                    width = max(width, CodeMetrics.monospacedWidth(value) + 120)
                 }
                 return (parsed, colors, width)
             }

@@ -229,8 +229,7 @@ struct WorkflowJobView: View {
                     for step in displayedJob.steps ?? [] {
                         SoftGroupRow("step-\(step.number)") {
                             WorkflowStepRow(step: step, expanded: expandedSteps.contains(step.number), toggle: {
-                                var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
-                                withTransaction(transaction) {
+                                UIRules.withoutAnimation {
                                     if !expandedSteps.insert(step.number).inserted { expandedSteps.remove(step.number) }
                                 }
                                 if expandedSteps.contains(step.number), step.conclusion != "skipped" { Task { await loadLogs() } }
