@@ -49,6 +49,7 @@ class UpdateGroupTests(unittest.TestCase):
         # Read the actual source branches and row modifiers, rather than
         # maintaining a separate list of expected boundary flags.
         version = next(line for line in settings.splitlines() if 'Text("RepoPocket ' in line)
+        license = next(line for line in settings.splitlines() if '开源组件许可' in line)
         state_count = 0
         for checking, message, release, ipa, downloading, downloaded, trollstore in itertools.product((False, True), repeat=7):
             # Actual row flags are read from the source; enumerate all state
@@ -62,6 +63,7 @@ class UpdateGroupTests(unittest.TestCase):
             else: flags += [(False,False)]
             rows = flags
             rows.append(('top: true' in version, 'bottom: true' in version))
+            rows.append(('top: true' in license, 'bottom: true' in license))
             self.assertEqual(rows[0], (True, False))
             self.assertEqual(rows[-1], (False, True))
             self.assertTrue(all(row == (False, False) for row in rows[1:-1]))
