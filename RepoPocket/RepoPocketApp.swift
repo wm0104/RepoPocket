@@ -176,8 +176,8 @@ struct RepositoriesView: View {
             .task { if !loaded && !CredentialStore.read().isEmpty { await refresh() } }
             .onChange(of: api.starRevision) { _ in
                 guard api.isCurrentSession else { return }
-                if let cached = api.cachedCollection(.owned) { repos = cached }
-                if let cached = api.cachedCollection(.starred) { starred = cached }
+                if let cached = api.cachedCollection(.owned), cached != repos { repos = cached }
+                if let cached = api.cachedCollection(.starred), cached != starred { starred = cached }
                 else if loaded && !busy { Task { await refreshStars() } }
             }
             .sheet(item: $collectionSearch) { section in
