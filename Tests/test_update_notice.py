@@ -127,7 +127,7 @@ struct AppError: Error, LocalizedError { let text: String; var errorDescription:
         throw AppError(text: failure)
     }
 }
-''' + 'enum AccountStore { static var generation = UUID() }\n' + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules + Path(REPO_ROOT, 'RepoPocket/RepositorySafetyRules.swift').read_text() + checker + '''
+''' + 'enum AccountStore { static var generation = UUID() }\n' + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules + Path(REPO_ROOT, 'RepoPocket/ChinaDate.swift').read_text() + Path(REPO_ROOT, 'RepoPocket/RepositorySafetyRules.swift').read_text() + checker + '''
 @MainActor final class MockNoticeClock {
     var delays: [UInt64] = []
     var waits: [CheckedContinuation<Void, Error>] = []

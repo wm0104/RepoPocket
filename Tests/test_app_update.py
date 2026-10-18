@@ -43,7 +43,7 @@ class UpdateTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift compiler is available in macOS Actions')
     def test_production_version_and_asset_rules(self):
         api = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
-        source = 'import Foundation\n' + api[api.index('struct AppError:'):api.index('struct GitHubAPIError:')] + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules.replace('import Foundation', '') + r'''
+        source = 'import Foundation\n' + api[api.index('struct AppError:'):api.index('struct GitHubAPIError:')] + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules.replace('import Foundation', '') + Path(REPO_ROOT, 'RepoPocket/ChinaDate.swift').read_text().replace('import Foundation', '') + r'''
 precondition(AppVersion("1.0.5")! < AppVersion("1.0.5.1")!)
 precondition(AppVersion("1.0.5.2")! < AppVersion("1.0.5.10")!)
 precondition(AppVersion("1.0.5.99")! < AppVersion("1.0.6")!)
