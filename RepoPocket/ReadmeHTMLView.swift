@@ -97,7 +97,7 @@ struct ReadmeDocumentBody: View {
             } else if let source = document.source {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("排版暂不可用，已显示原文。").font(.caption).foregroundStyle(.secondary)
-                    Text(expanded ? source : ReadmePreviewRules.preview(source)).font(.system(size: 16)).textSelection(.enabled)
+                    Text(expanded ? source : ReadmePreviewRules.preview(source)).font(.body).textSelection(.enabled)
                 }
             } else if !renderError.isEmpty {
                 Text(renderError).font(.caption).foregroundStyle(.secondary)

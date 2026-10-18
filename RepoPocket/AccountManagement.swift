@@ -24,12 +24,12 @@ struct AccountManagementView: View {
                 Section("账号") {
                     if accounts.isEmpty { Text("尚无已验证账号").softGroupedRow(top: true, bottom: true) }
                     ForEach(accounts) { account in
-                        HStack {
+                        HStack(spacing: 12) {
                             GitHubAvatar(url: account.avatarURL, size: 32)
                             Text(account.login); Spacer()
                             if account.id == AccountStore.activeID { Image(systemName: "checkmark") }
-                            else { Button("切换") { close(); AccountStore.activate(account.id) }.disabled(busy) }
-                            Button(role: .destructive) { pendingRemoval = account } label: { Image(systemName: "trash").frame(width: 44, height: 44) }.disabled(busy)
+                            else { Button("切换") { AccountStore.activate(account.id) }.buttonStyle(.borderless).disabled(busy) }
+                            Button(role: .destructive) { pendingRemoval = account } label: { Image(systemName: "trash").frame(width: 44, height: 44) }.buttonStyle(.borderless).disabled(busy)
                         }.softGroupedRow(top: account.id == accounts.first?.id, bottom: account.id == accounts.last?.id)
                     }
                 }
@@ -76,5 +76,8 @@ struct AccountManagementView: View {
                 Button("取消", role: .cancel) { pendingRemoval = nil }
             } message: { Text("仅移除本机账号，不会删除 GitHub 账号、远端仓库或本地工作区。") }
         }.onDisappear { verification?.cancel(); token = "" }
+        .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in
+            accounts = AccountStore.accounts
+        }
     }
 }
