@@ -19,28 +19,31 @@ struct LocalGitDirectoryPicker: View {
 
     var body: some View {
         List {
-            Section {
-                Button {
-                    onPick(directory)
-                    dismiss()
-                } label: {
-                    Label(directory.isEmpty ? "选择根目录" : "选择此文件夹", systemImage: "checkmark.circle")
+            SoftGroupRows {
+                SoftGroupRow("pick-current") {
+                    Button {
+                        onPick(directory)
+                        dismiss()
+                    } label: {
+                        Label(directory.isEmpty ? "选择根目录" : "选择此文件夹", systemImage: "checkmark.circle")
+                    }
                 }
-            }
-            Section("文件夹") {
                 ForEach(folders) { folder in
-                    NavigationLink(folder.name) {
-                        LocalGitDirectoryPicker(project: project, internalRoot: internalRoot, directory: folder.path, onPick: onPick)
+                    SoftGroupRow(folder.path) {
+                        NavigationLink(folder.name) {
+                            LocalGitDirectoryPicker(project: project, internalRoot: internalRoot, directory: folder.path, onPick: onPick)
+                        }
                     }
                 }
                 if loaded && folders.isEmpty {
-                    Text("没有子文件夹").foregroundStyle(.secondary)
+                    SoftGroupRow("empty") { Text("没有子文件夹").foregroundStyle(.secondary) }
                 }
                 if !error.isEmpty {
-                    Text(error).font(.caption).foregroundStyle(.red)
+                    SoftGroupRow("error") { Text(error).font(.caption).foregroundStyle(.red) }
                 }
             }
         }
+        .listStyle(.insetGrouped)
         .navigationTitle(directory.isEmpty ? "选择导入位置" : (directory as NSString).lastPathComponent)
         .task { guard !loaded else { return }; await load() }
     }
