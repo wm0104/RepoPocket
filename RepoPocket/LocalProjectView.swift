@@ -17,6 +17,8 @@ struct LocalProjectView: View {
     @State private var pendingCommit = false
     @State private var syncing: String?
     @State private var note = ""
+    @State private var pullSummary: LocalGitPullSummary?
+    @State private var pullFilesExpanded = false
     @AppStorage("localGit.authorName") private var authorName = ""
     @AppStorage("localGit.authorEmail") private var authorEmail = ""
     @State private var commitMessage = ""
@@ -58,6 +60,7 @@ struct LocalProjectView: View {
             }
             if let snapshot = state.snapshot {
                 summarySection(snapshot)
+                if let pullSummary { pullResultSection(pullSummary) }
                 changesSection(snapshot)
                 actionsSection(snapshot)
                 historySection(snapshot)
@@ -144,6 +147,52 @@ struct LocalProjectView: View {
                 }
             }
         }
+    }
+
+    private func pullResultSection(_ summary: LocalGitPullSummary) -> some View {
+        Section("本次拉取结果") {
+            SoftGroupRows(animateBackground: false) {
+                SoftGroupRow("summary") {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(summary.commits == 0 ? "远端没有新提交" : "新增 \(summary.commits) 个提交")
+                        if summary.commits > 0 {
+                            Text("新增 \(summary.added) · 修改 \(summary.modified) · 删除 \(summary.deleted) 个文件")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if summary.totalFiles > 0 {
+                    SoftGroupRow("disclosure") {
+                        Button {
+                            UIRules.withoutAnimation { pullFilesExpanded.toggle() }
+                        } label: {
+                            HStack {
+                                Text(pullFilesExpanded ? "收起文件列表" : "查看文件列表")
+                                Spacer()
+                                Text("\(summary.totalFiles)").foregroundStyle(.secondary)
+                                Image(systemName: pullFilesExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                            }
+                        }.buttonStyle(.plain).accessibilityValue(pullFilesExpanded ? "已展开" : "已折叠")
+                    }
+                    if pullFilesExpanded {
+                        for file in summary.files.prefix(1000) {
+                            SoftGroupRow("file:" + file.path) {
+                                HStack(alignment: .top, spacing: 12) {
+                                    Text(file.label).foregroundStyle(.secondary)
+                                    Text(file.path).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                                }.font(.caption)
+                            }
+                        }
+                        if summary.truncated {
+                            SoftGroupRow("truncated") {
+                                Text("文件列表仅显示前 \(summary.files.count) 项，共 \(summary.totalFiles) 项。")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }.transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
 
     private func changesSection(_ snapshot: LocalGitSnapshot) -> some View {
@@ -305,11 +354,14 @@ struct LocalProjectView: View {
         } }
     }
     private func sync(_ action:String) {
-        guard valid,let current=state.snapshot else{return}
+        guard valid,!busy,let current=state.snapshot else{return}
         let token=CredentialStore.read(account:accountID)
         Task { await state.check(force:true,valid:{valid}) {
-            let _:LocalGitReply = try await LocalGitEngine.shared.run(action,project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
+            if action == "pull" { pullSummary = nil; pullFilesExpanded = false }
+            let reply:LocalGitReply = try await LocalGitEngine.shared.run(action,project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
                 arguments:["expectedHead":current.status.head,"expectedRef":current.status.reference,"expectedRemote":current.history.remote,"token":token],generation:generation)
+            try Task.checkCancellation(); guard valid else { throw CancellationError() }
+            if action == "pull" { pullSummary = reply.pullSummary }
             note=action == "recover" ? "恢复完成，文件和历史已重新检查。" : (action == "push" ? "推送完成。" : "拉取完成。");return try await snapshot()
         } }
     }

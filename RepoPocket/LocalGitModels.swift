@@ -76,7 +76,26 @@ struct LocalGitHistory: Codable {
     let remote: String
 }
 struct LocalGitDocument { let text: String; let fingerprint: String }
-struct LocalGitReply: Codable { let commit: String?; let head: String? }
+struct LocalGitPullSummary: Codable {
+    let commits: Int
+    let files: [File]
+    let totalFiles: Int
+    let added: Int
+    let modified: Int
+    let deleted: Int
+    let truncated: Bool
+    struct File: Codable, Identifiable {
+        let path: String
+        let kind: String
+        var id: String { path }
+        var label: String { kind == "added" ? "新增" : (kind == "deleted" ? "删除" : "修改") }
+    }
+}
+struct LocalGitReply: Codable {
+    let commit: String?
+    let head: String?
+    var pullSummary: LocalGitPullSummary? = nil
+}
 enum LocalGitDate {
     static func string(_ time: Double) -> String {
         ChinaDate.dateTime(Date(timeIntervalSince1970: time))

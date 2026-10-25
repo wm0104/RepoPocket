@@ -2,10 +2,13 @@ import SwiftUI
 
 extension Notification.Name { static let releaseManagementChanged = Notification.Name("releaseManagementChanged") }
 @MainActor enum ReleaseManagementChanges {
-    static func changed(api: GitHub, repo: String) {
+    static func changed(api: GitHub, repo: String, release: ManagedRelease? = nil, deletedReleaseID: Int? = nil) {
         api.invalidateManagedPresence(repo)
+        var info: [String: Any] = ["repo": repo, "generation": AccountStore.generation]
+        info["release"] = release
+        info["deletedReleaseID"] = deletedReleaseID
         NotificationCenter.default.post(name: .releaseManagementChanged, object: nil,
-            userInfo: ["repo": repo, "generation": AccountStore.generation])
+            userInfo: info)
     }
 }
 @MainActor final class ReleasePresenceState: ObservableObject {

@@ -69,6 +69,8 @@ jobs:
         run: python3 Tests/test_share_social.py
       - name: Test native collaboration transport, scoped statistics and README folding
         run: python3 Tests/test_native_repository.py
+      - name: Test workflow multi-selection and account-bound batch deletion
+        run: python3 Tests/test_workflow_selection.py
       - name: Test README rendering, badge document and raw format fallback
         run: python3 Tests/test_readme_rendering.py
       - name: Test original baseline historic commit and disk download regressions
@@ -169,15 +171,16 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.2"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.1.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.1.2"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.1.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.1.2"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.1.2"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
           codesign --display --entitlements :- "$EXT"

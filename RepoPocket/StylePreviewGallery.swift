@@ -18,6 +18,8 @@ struct StylePreviewGallery: View {
             DownloadCompletionStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-release-download-style-preview") {
             ReleaseDownloadStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-workflow-selection-style-preview") {
+            WorkflowSelectionStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-account-session-style-preview") {
             AccountSessionStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-user-connections-style-preview") {

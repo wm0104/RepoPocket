@@ -11,8 +11,9 @@ final class WorkflowLogRedirectPolicy: NSObject, URLSessionTaskDelegate {
     }
 }
 extension GitHub {
-    func workflowRuns(_ repo: String, branch: String, page: Int) async throws -> [WorkflowRun] {
+    func workflowRuns(_ repo: String, branch: String, page: Int, failedOnly: Bool = false) async throws -> [WorkflowRun] {
         let query = try CommunityRules.page(page) + (branch.isEmpty ? [] : [.init(name: "branch", value: branch)])
+            + (failedOnly ? [.init(name: "status", value: "failure")] : [])
         let bytes = try await communityRead(Self.repoPath(repo) + "/actions/runs", query: query)
         return try JSONDecoder().decode(WorkflowRuns.self, from: bytes).workflow_runs
     }

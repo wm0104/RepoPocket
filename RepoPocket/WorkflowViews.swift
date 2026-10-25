@@ -17,40 +17,113 @@ struct WorkflowRunsView: View {
     let repo: String
     let branch: String
     @StateObject private var store = CommunityPageStore<WorkflowRun>()
+    @StateObject private var selection = WorkflowRunSelection()
     @State private var currentBranchOnly = false
+    @State private var failedOnly = false
+    @State private var canWrite = false
+    @State private var deletionTarget: WorkflowRunDeletionTarget?
     var body: some View {
         List {
-            Section { Toggle("仅当前分支", isOn: $currentBranchOnly).disabled(branch.isEmpty).softGroupedRow(top: true, bottom: true) }
+            Section {
+                SoftGroupRows {
+                    SoftGroupRow("branch") { Toggle("仅当前分支", isOn: $currentBranchOnly).disabled(branch.isEmpty) }
+                    SoftGroupRow("failed") { Toggle("仅看失败记录", isOn: $failedOnly) }
+                }
+            }.disabled(selection.busy)
             Section {
                 SoftGroupRows {
                     for run in store.items {
                         SoftGroupRow(String(run.id)) {
-                            NavigationLink { WorkflowRunView(api: api, repo: repo, run: run) } label: {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(run.display_title ?? run.name ?? "Workflow").font(.headline)
-                                    WorkflowStatusBadge(status: run.status, conclusion: run.conclusion).font(.subheadline)
-                                    Text((run.name ?? "Workflow") + " #\(run.run_number) · " + WorkflowTime.trigger(run.event)).font(.caption).foregroundStyle(.secondary)
-                                    Label(run.head_branch ?? "分支未知", systemImage: "arrow.triangle.branch").font(.caption)
-                                    WorkflowCreatedText(timestamp: run.created_at).font(.caption).foregroundStyle(.secondary)
-                                    Label { WorkflowElapsedText(start: run.run_started_at, end: run.updated_at, status: run.status, approximate: true) } icon: { Image(systemName: "stopwatch") }
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
+                            if selection.active {
+                                Button { selection.toggle(run) } label: {
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Image(systemName: selection.selected.contains(run.id) ? "checkmark.square.fill" : "square")
+                                            .font(.title2).foregroundStyle(Color.accentColor).frame(width: 44, height: 44)
+                                        WorkflowRunSummary(run: run)
+                                    }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                                }.buttonStyle(.plain).disabled(selection.busy || run.status != "completed")
+                                    .accessibilityValue(selection.selected.contains(run.id) ? "已选中" : "未选中")
+                                    .accessibilityIdentifier("workflow-run-\(run.id)")
+                            } else {
+                                NavigationLink { WorkflowRunView(api: api, repo: repo, run: run) } label: {
+                                    WorkflowRunSummary(run: run)
+                                }.accessibilityIdentifier("workflow-run-\(run.id)")
                             }
                         }
                     }
                     if store.loaded && store.items.isEmpty { SoftGroupRow("empty") { Text("暂无运行记录") } }
                 }
             }
-            CommunityPageFooter(store: store, next: { load() })
+            if selection.busy || !selection.result.isEmpty || !selection.failures.isEmpty {
+                Section {
+                    SoftGroupRows {
+                        if selection.busy { SoftGroupRow("deleting") { ProgressView("正在逐条删除…") } }
+                        if !selection.result.isEmpty { SoftGroupRow("result") { Text(selection.result).font(.caption).accessibilityIdentifier("workflow-selection-result") } }
+                        if !selection.failures.isEmpty {
+                            SoftGroupRow("failures") { Text(selection.failures.joined(separator: "\n")).font(.caption).textSelection(.enabled) }
+                        }
+                    }
+                }
+            }
+            CommunityPageFooter(store: store, next: { load() }).disabled(selection.busy)
         }.navigationTitle("Actions").adaptiveWorkspaceLayout()
-        .toolbar { Button("刷新") { load(reset: true) }.disabled(store.busy) }
-        .task { if !store.loaded { load() } }.onChange(of: currentBranchOnly) { _ in load(reset: true) }.onDisappear { store.cancel() }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if canWrite {
+                    Button(selection.active ? "完成" : "多选") {
+                        if selection.active { selection.reset() } else { selection.active = true }
+                    }.disabled(selection.busy || store.busy)
+                }
+                Button("刷新") { load(reset: true) }.disabled(store.busy || selection.busy)
+            }
+            if selection.active && canWrite {
+                ToolbarItemGroup(placement: .bottomBar) {
+                    Button(allSelected ? "取消全选" : "全选已加载") { selection.toggleAll(store.items) }
+                        .disabled(selection.busy || store.busy || selectableIDs.isEmpty)
+                    Spacer()
+                    Button("删除（\(selection.selected.count)）", role: .destructive) {
+                        deletionTarget = selection.target(store.items, repo: repo, api: api)
+                    }.disabled(selection.busy || store.busy || selection.selected.isEmpty)
+                }
+            }
+        }
+        .task {
+            if !store.loaded { load() }
+            let access = try? await api.repository(repo)
+            guard !Task.isCancelled, api.isCurrentSession else { return }
+            canWrite = access?.permissions?.push == true
+        }
+        .onChange(of: currentBranchOnly) { _ in load(reset: true) }
+        .onChange(of: failedOnly) { _ in load(reset: true) }
+        .onChange(of: store.items.map(\.id)) { _ in selection.reconcile(store.items) }
+        .onDisappear { store.cancel(); selection.cancel() }
         .onReceive(NotificationCenter.default.publisher(for: .workflowRunDeleted)) { notice in
-            if notice.userInfo?["repo"] as? String == repo,
-               notice.userInfo?["generation"] as? UUID == AccountStore.generation { load(reset: true) }
+            if api.isCurrentSession, notice.userInfo?["repo"] as? String == repo,
+               notice.userInfo?["generation"] as? UUID == AccountStore.generation,
+               let runID = notice.userInfo?["run"] as? Int { store.remove(id: runID) }
+        }
+        .confirmationDialog("永久删除选中的运行？", isPresented: Binding(
+            get: { deletionTarget != nil }, set: { if !$0 { deletionTarget = nil } }),
+            titleVisibility: .visible, presenting: deletionTarget) { target in
+            Button("永久删除 \(target.runs.count) 条运行", role: .destructive) {
+                store.cancel()
+                selection.remove(target, api: api) { runID in
+                    NotificationCenter.default.post(name: .workflowRunDeleted, object: nil,
+                        userInfo: ["repo": target.repo, "run": runID, "generation": target.generation])
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: { target in
+            Text("\(target.repo)\n将删除选中的 \(target.runs.count) 条已结束运行，包括日志和构建产物，无法撤销。未选择的记录会保留。")
         }
     }
-    private func load(reset: Bool = false) { store.load(reset: reset, api: api) { try await api.workflowRuns(repo, branch: currentBranchOnly ? branch : "", page: $0) } }
+    private var selectableIDs: Set<Int> { Set(store.items.filter { $0.id > 0 && $0.status == "completed" }.map(\.id)) }
+    private var allSelected: Bool { !selectableIDs.isEmpty && selectableIDs.isSubset(of: selection.selected) }
+    private func load(reset: Bool = false) {
+        if reset { selection.reset(); deletionTarget = nil }
+        let requestedBranch = currentBranchOnly ? branch : "", requestedFailedOnly = failedOnly
+        store.load(reset: reset, api: api) { try await api.workflowRuns(repo, branch: requestedBranch, page: $0, failedOnly: requestedFailedOnly) }
+    }
 }
 
 struct WorkflowRunView: View {

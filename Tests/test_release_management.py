@@ -4,6 +4,15 @@ import shutil, subprocess, tempfile, unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 class ReleaseManagementTests(unittest.TestCase):
+    def test_list_mutations_use_confirmed_results_without_reset(self):
+        ui=(ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text(encoding='utf-8')
+        changes=(ROOT/'RepoPocket/ReleasePresence.swift').read_text(encoding='utf-8')
+        self.assertIn('.task { if !state.listLoaded { state.list(reset: true) } }',ui)
+        self.assertIn('release: saved',ui)
+        self.assertIn('deletedReleaseID: target.asset == nil ? target.release.id : nil',ui)
+        for token in ['info["release"] = release','info["deletedReleaseID"] = deletedReleaseID','"generation": AccountStore.generation']:
+            self.assertIn(token,changes)
+
     def test_root_lazy_navigation_and_bounded_apis(self):
         api = (ROOT/'RepoPocket/GitHub.swift').read_text()
         added = api.split('// These bounded endpoints',1)[1]

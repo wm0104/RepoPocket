@@ -2,6 +2,64 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testWorkflowFiltersAndSelectionKeepGroupedRows() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-workflow-selection-style-preview"]; app.launch()
+        XCTAssertTrue(app.buttons["workflow-run-1"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.switches["仅当前分支"].exists)
+        XCTAssertTrue(app.switches["仅看失败记录"].exists)
+        keepScreenshot(app, name: "workflow-runs-normal")
+        app.switches["仅当前分支"].tap()
+        XCTAssertTrue(app.buttons["workflow-run-1"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["workflow-run-4"].exists)
+        app.switches["仅看失败记录"].tap()
+        XCTAssertTrue(app.buttons["workflow-run-2"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["workflow-run-3"].exists)
+        let multiple = app.buttons["多选"]
+        XCTAssertTrue(multiple.waitForExistence(timeout: 10)); multiple.tap()
+        app.buttons["workflow-run-1"].tap()
+        XCTAssertEqual(app.buttons["workflow-run-1"].value as? String, "已选中")
+        XCTAssertTrue(app.buttons["删除（1）"].isEnabled)
+        keepScreenshot(app, name: "workflow-runs-selection")
+        app.buttons["全选已加载"].tap()
+        XCTAssertTrue(app.buttons["删除（2）"].isEnabled)
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.buttons["多选"].exists)
+    }
+    func testWorkflowBatchDeleteKeepsOtherRowsAndRetriesFailures() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-workflow-selection-style-preview"]; app.launch()
+        let multiple = app.buttons["多选"]
+        XCTAssertTrue(multiple.waitForExistence(timeout: 20)); multiple.tap()
+        let first = app.buttons["workflow-run-1"], second = app.buttons["workflow-run-2"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10)); first.tap(); second.tap()
+        let running = app.buttons["workflow-run-3"]
+        reveal(running, in: app)
+        XCTAssertFalse(running.isEnabled, "An unfinished run cannot be selected for deletion")
+        app.buttons["删除（2）"].tap()
+        let confirm = app.buttons["永久删除 2 条运行"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'fixture-owner/sample' AND label CONTAINS '2'")).firstMatch.exists)
+        app.buttons["取消"].tap()
+        XCTAssertTrue(first.exists, "Cancelling must keep every selected run")
+        app.buttons["删除（2）"].tap(); confirm.tap()
+        let result = app.staticTexts["workflow-selection-result"]
+        reveal(result, in: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == '已删除 1 条，失败 1 条。'"), object: result)], timeout: 15), .completed)
+        XCTAssertFalse(first.exists); XCTAssertTrue(second.exists)
+        XCTAssertTrue(app.buttons["workflow-run-3"].exists)
+        XCTAssertTrue(app.buttons["workflow-run-4"].exists)
+        XCTAssertTrue(app.buttons["删除（1）"].isEnabled)
+        keepScreenshot(app, name: "workflow-runs-partial-failure")
+        app.buttons["删除（1）"].tap()
+        let retry = app.buttons["永久删除 1 条运行"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 5)); retry.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: second)], timeout: 10), .completed)
+        XCTAssertTrue(app.buttons["workflow-run-3"].exists)
+        XCTAssertTrue(app.buttons["workflow-run-4"].exists)
+    }
     func testRepositoryZIPCompletionIsNativeDismissibleAndReusable() {
         continueAfterFailure = false
         let app = XCUIApplication()

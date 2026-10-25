@@ -36,9 +36,25 @@ struct WorkflowCreatedText: View {
     }
     private static let formatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
         formatter.unitsStyle = .abbreviated
         return formatter
     }()
+}
+
+struct WorkflowRunSummary: View {
+    let run: WorkflowRun
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(run.display_title ?? run.name ?? "Workflow").font(.headline)
+            WorkflowStatusBadge(status: run.status, conclusion: run.conclusion).font(.subheadline)
+            Text((run.name ?? "Workflow") + " #\(run.run_number) · " + WorkflowTime.trigger(run.event)).font(.caption).foregroundStyle(.secondary)
+            Label(run.head_branch ?? "分支未知", systemImage: "arrow.triangle.branch").font(.caption)
+            WorkflowCreatedText(timestamp: run.created_at).font(.caption).foregroundStyle(.secondary)
+            Label { WorkflowElapsedText(start: run.run_started_at, end: run.updated_at, status: run.status, approximate: true) } icon: { Image(systemName: "stopwatch") }
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
 }
 
 struct WorkflowRunHeading: View {

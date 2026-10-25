@@ -19,6 +19,13 @@ class NativeGitFiles(unittest.TestCase):
         self.assertTrue((ROOT / 'Vendor/NativeGit/NativeGitBridge.m').is_file(),
                         'Real local Git bridge has not been implemented')
 
+    def test_pull_summary_is_calculated_before_checkout(self):
+        bridge=(ROOT/'Vendor/NativeGit/NativeGitBridge.m').read_text(encoding='utf-8')
+        pull=bridge.split('static NSDictionary *RPPull(',1)[1].split('static NSDictionary *RPPush(',1)[0]
+        self.assertLess(pull.index('NSDictionary *summary=RPPullSummary('),pull.index('options.checkout_strategy &= ~GIT_CHECKOUT_DRY_RUN'))
+        self.assertIn('@"pullSummary":summary',pull)
+        self.assertIn('RPPullSummary(repo,before,before',pull)
+
 
 @unittest.skipUnless(platform.system() == 'Darwin', 'macOS executes the native production bridge')
 class NativeGitBehavior(unittest.TestCase):
@@ -358,6 +365,79 @@ do {
         self.assertFalse(self.call('push', expectedHead=local)['ok'])
         self.assertEqual(self.git('rev-parse', 'HEAD'), local)
         self.assertNotEqual(local, updated)
+
+    def test_pull_when_only_local_is_ahead_preserves_unpushed_commit(self):
+        self.make_remote()
+        empty=dict(commits=0,files=[],totalFiles=0,added=0,modified=0,deleted=0,truncated=False)
+        unchanged=self.result('pull', expectedHead=self.head)
+        self.assertEqual(unchanged['head'], self.head)
+        self.assertEqual(unchanged['pullSummary'], empty)
+        file = self.work / '代码.py'
+        file.write_text('print("local unpushed")\n', encoding='utf-8')
+        response = self.commit(self.result('status'), ['代码.py'])
+        self.assertTrue(response['ok'], response)
+        local = self.git('rev-parse', 'HEAD')
+        index = (self.work / '.git/index').read_bytes()
+        contents = file.read_bytes()
+
+        unchanged=self.result('pull', expectedHead=local)
+        self.assertEqual(unchanged['head'], local)
+        self.assertEqual(unchanged['pullSummary'], empty)
+        self.assertIs(unchanged['pullSummary']['truncated'], False)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), local)
+        self.assertEqual(self.git('rev-parse', 'main', cwd=self.remote), self.head)
+        self.assertEqual((self.work / '.git/index').read_bytes(), index)
+        self.assertEqual(file.read_bytes(), contents)
+        history = self.result('history')
+        self.assertEqual((history['ahead'], history['behind']), (1, 0))
+        self.assertEqual(self.result('status')['files'], [])
+
+    def test_pull_summary_counts_new_commits_and_net_added_modified_deleted_files(self):
+        self.make_remote()
+        other=Path(self.temp.name)/'computer'
+        self.git('clone',str(self.remote),str(other))
+        self.git('config','user.name','Computer',cwd=other)
+        self.git('config','user.email','computer@example.invalid',cwd=other)
+        (other/'new.txt').write_text('first version',encoding='utf-8')
+        (other/'temporary.txt').write_text('only in intermediate commit',encoding='utf-8')
+        (other/'代码.py').write_text('print("remote update")\n',encoding='utf-8')
+        (other/'other.txt').unlink()
+        self.git('add','.',cwd=other)
+        self.git('commit','-m','first update',cwd=other)
+        (other/'temporary.txt').unlink()
+        (other/'new.txt').write_text('final version',encoding='utf-8')
+        self.git('add','.',cwd=other)
+        self.git('commit','-m','second update',cwd=other)
+        self.git('push','origin','main',cwd=other)
+
+        result=self.result('pull',expectedHead=self.head)
+        summary=result['pullSummary']
+        self.assertEqual(result['head'],self.git('rev-parse','HEAD',cwd=other))
+        self.assertEqual({row['path']:row['kind'] for row in summary['files']},
+                         {'new.txt':'added','代码.py':'modified','other.txt':'deleted'})
+        self.assertEqual((summary['commits'],summary['totalFiles'],summary['added'],summary['modified'],summary['deleted']),
+                         (2,3,1,1,1))
+        self.assertIs(summary['truncated'],False)
+        self.assertEqual((self.work/'new.txt').read_text(encoding='utf-8'),'final version')
+        self.assertFalse((self.work/'temporary.txt').exists())
+        self.assertEqual(self.result('status')['files'],[])
+
+    def test_pull_summary_limits_rows_but_keeps_accurate_totals(self):
+        self.make_remote()
+        other=Path(self.temp.name)/'computer'
+        self.git('clone',str(self.remote),str(other))
+        self.git('config','user.name','Computer',cwd=other)
+        self.git('config','user.email','computer@example.invalid',cwd=other)
+        for number in range(1001):
+            (other/('new-%04d.txt'%number)).write_text('new',encoding='utf-8')
+        self.git('add','.',cwd=other)
+        self.git('commit','-m','many new files',cwd=other)
+        self.git('push','origin','main',cwd=other)
+        summary=self.result('pull',expectedHead=self.head)['pullSummary']
+        self.assertEqual(len(summary['files']),1000)
+        self.assertEqual((summary['commits'],summary['totalFiles'],summary['added'],summary['modified'],summary['deleted']),
+                         (1,1001,1001,0,0))
+        self.assertIs(summary['truncated'],True)
 
     def test_ignored_collision_blocks_pull_and_unsafe_pushurl_is_rejected(self):
         self.make_remote()
