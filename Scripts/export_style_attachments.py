@@ -31,6 +31,8 @@ file_feedback = {'repository-zip-completion', 'local-project-files-long-press', 
 download_lifecycle = file_feedback | {'local-file-sheet-dismissed', 'release-compact-attachments', 'release-inline-progress'}
 if scope == 'profiles':
     expected = profiles
+elif scope == 'workflow-selection':
+    expected = {'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'}
 elif scope == 'actions':
     expected = actions
 elif scope == 'file-feedback':

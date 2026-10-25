@@ -93,6 +93,7 @@ xcrun simctl io "$DEVICE" recordVideo --codec=h264 screenshots/local-git-interac
 RECORDING_PID=$!
 TEST_STATUS=0
 case "${RP_STYLE_TEST_SCOPE:-all}" in
+  workflow-selection) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowFiltersAndSelectionKeepGroupedRows -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowBatchDeleteKeepsOtherRowsAndRetriesFailures) ;;
   all) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests) ;;
   profiles) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testIssueAndCommentAuthorsOpenTheirProfiles) ;;
   actions) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSharedProfileFollowStateAndFailureHandling -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testDirectRepositorySearchAndTypedUserNavigation -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowFiltersAndSelectionKeepGroupedRows -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowBatchDeleteKeepsOtherRowsAndRetriesFailures) ;;
