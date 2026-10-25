@@ -150,7 +150,9 @@ class WorkflowSelectionTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('swiftc'),
                          'Production Swift/Combine regression requires macOS; Windows runs the transport/lifetime static check')
     def test_production_selection_and_deletion_lifecycle(self):
-        production = '\n'.join((ROOT/'RepoPocket'/name).read_text(encoding='utf-8') for name in [
+        github = (ROOT/'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
+        user = github[github.index('struct User: Decodable {'):github.index('struct RepoAccess: Decodable {')]
+        production = user + '\n' + '\n'.join((ROOT/'RepoPocket'/name).read_text(encoding='utf-8') for name in [
             'NativeRepositoryModels.swift', 'WorkspaceSelection.swift', 'WorkflowRunSelection.swift'])
         source = HARNESS.replace('// PRODUCTION_CODE', production)
         with tempfile.TemporaryDirectory() as folder:
