@@ -357,6 +357,7 @@ struct LocalProjectView: View {
         guard valid,!busy,let current=state.snapshot else{return}
         let token=CredentialStore.read(account:accountID)
         Task { await state.check(force:true,valid:{valid}) {
+            note = ""
             if action == "pull" { pullSummary = nil; pullFilesExpanded = false }
             let reply:LocalGitReply = try await LocalGitEngine.shared.run(action,project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
                 arguments:["expectedHead":current.status.head,"expectedRef":current.status.reference,"expectedRemote":current.history.remote,"token":token],generation:generation)
