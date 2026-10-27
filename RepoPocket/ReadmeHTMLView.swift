@@ -106,6 +106,6 @@ struct ReadmeDocumentBody: View {
             }
         }
         .onChange(of: document.html) { _ in renderError = "" }
-        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) }
+        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
     }
 }

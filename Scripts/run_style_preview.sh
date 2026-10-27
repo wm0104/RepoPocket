@@ -12,6 +12,7 @@ cleanup_preview() {
     wait "$RECORDING_PID" || true
   fi
   xcrun simctl spawn "$DEVICE" log show --last 15m --style compact --predicate 'process == "RepoPocket" OR eventMessage CONTAINS "com.wm0104.RepoPocket"' > app-preview.log 2>&1 || true
+  grep -F 'RepoPocket.WebSheet' app-preview.log || true
   xcrun simctl shutdown "$DEVICE" 2>/dev/null || true
   xcrun simctl delete "$DEVICE" 2>/dev/null || true
 }

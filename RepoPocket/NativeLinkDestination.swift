@@ -10,7 +10,7 @@ struct ReadingLink: Identifiable {
 struct ReadingLinkDestination: View {
     let url: URL
     let api: GitHub?
-    @Environment(\.dismiss) private var dismiss
+    let onClose: () -> Void
     private var nativeDestination: AnyView? {
         guard let api, url.host?.lowercased() == "github.com",
               url.user == nil, url.password == nil else { return nil }
@@ -35,12 +35,12 @@ struct ReadingLinkDestination: View {
         if let nativeDestination {
             NavigationStack {
                 nativeDestination.toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
+                    ToolbarItem(placement: .cancellationAction) { Button("完成", action: onClose) }
                 }
             }
         } else {
             // Safari supplies its own navigation bar and Done button.
-            ContainedWebPage(url: url)
+            ContainedWebPage(url: url, onClose: onClose)
                 .ignoresSafeArea()
         }
     }
@@ -48,8 +48,8 @@ struct ReadingLinkDestination: View {
 
 struct ContainedWebPage: UIViewControllerRepresentable {
     let url: URL
-    @Environment(\.dismiss) private var dismiss
-    func makeCoordinator() -> Coordinator { Coordinator(dismiss) }
+    let onClose: () -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(onClose) }
     func makeUIViewController(context: Context) -> SFSafariViewController {
         let configuration = SFSafariViewController.Configuration()
         configuration.barCollapsingEnabled = false
@@ -57,10 +57,17 @@ struct ContainedWebPage: UIViewControllerRepresentable {
         controller.delegate = context.coordinator
         return controller
     }
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {
+        context.coordinator.onClose = onClose
+    }
     final class Coordinator: NSObject, SFSafariViewControllerDelegate {
-        let dismiss: DismissAction
-        init(_ dismiss: DismissAction) { self.dismiss = dismiss }
-        func safariViewControllerDidFinish(_ controller: SFSafariViewController) { dismiss() }
+        var onClose: () -> Void
+        init(_ onClose: @escaping () -> Void) { self.onClose = onClose }
+        func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+            #if DEBUG
+            NSLog("RepoPocket.WebSheet safari-finish")
+            #endif
+            onClose()
+        }
     }
 }

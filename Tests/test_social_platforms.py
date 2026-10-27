@@ -36,7 +36,12 @@ class SocialPlatformTests(unittest.TestCase):
     def test_safari_done_also_dismisses_the_swiftui_sheet(self):
         source = (ROOT / 'RepoPocket/NativeLinkDestination.swift').read_text(encoding='utf-8')
         self.assertIn('controller.delegate = context.coordinator', source)
-        self.assertIn('func safariViewControllerDidFinish(_ controller: SFSafariViewController) { dismiss() }', source)
+        self.assertIn('func safariViewControllerDidFinish(_ controller: SFSafariViewController)', source)
+        self.assertIn('context.coordinator.onClose = onClose', source)
+        self.assertIn('onClose()', source)
+        for name in ['ReadingViews.swift', 'ReadmeHTMLView.swift', 'RepositorySearchView.swift']:
+            caller = (ROOT / 'RepoPocket' / name).read_text(encoding='utf-8')
+            self.assertEqual(caller.count('ReadingLinkDestination(url:'), caller.count('api: api) { readingLink = nil }'))
 
 
 if __name__ == '__main__':

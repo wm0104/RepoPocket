@@ -209,7 +209,7 @@ struct UserRepositoriesView: View {
                 if !busy && error.isEmpty && repositories.isEmpty && !more { Text("暂无仓库").softGroupedRow(top: true, bottom: true) }
             }
         }.navigationTitle(user.login).adaptiveWorkspaceLayout().task { guard !attempted else { return }; attempted = true; await load() }
-        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) }
+        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
     }
     private func load() async {
         guard !busy else { return }; busy = true; defer { busy = false }

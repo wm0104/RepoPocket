@@ -38,7 +38,7 @@ struct CommunityMarkdown: View {
                     })
             } else { ProgressView("排版中…") }
         }.frame(maxWidth: .infinity, alignment: .leading)
-        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) }
+        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
         .task(id: text) {
             let source = bounded
             let parsed = await Task.detached(priority: .utility) { MarkdownContent(source) }.value
@@ -82,7 +82,7 @@ struct RepositoryReadmeView: View {
             if !renderError.isEmpty { Button("重新加载排版") { revision += 1 } }
         }.padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle((entryPath as NSString).lastPathComponent).adaptiveWorkspaceLayout()
-        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) }
+        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
         .toolbar { Button("刷新") { revision += 1 } }
         .task(id: revision) {
             error = ""; document = nil; raw = false; renderError = ""
