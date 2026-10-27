@@ -44,10 +44,22 @@ final class StyleBoundaryTests: XCTestCase {
         reveal(edited, in: app); edited.tap()
         let remove = app.buttons["删除这个社交账号"]
         reveal(remove, in: app); remove.tap()
-        let confirm = app.sheets.buttons["删除"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); app.sheets.buttons["取消"].tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label == '删除'")).firstMatch
+        guard confirm.waitForExistence(timeout: 10) else {
+            XCTFail("Show the native social-account deletion confirmation: " + app.debugDescription); return
+        }
+        let cancelDeletion = app.buttons.matching(NSPredicate(format: "label == '取消' AND identifier != 'social-account-cancel'")).firstMatch
+        guard cancelDeletion.waitForExistence(timeout: 5) else {
+            XCTFail("The deletion confirmation needs its own cancel button: " + app.debugDescription); return
+        }
+        cancelDeletion.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: confirm)], timeout: 5), .completed)
         XCTAssertTrue(app.textFields["social-account-url"].exists)
-        remove.tap(); XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
+        remove.tap()
+        guard confirm.waitForExistence(timeout: 10) else {
+            XCTFail("Show the deletion confirmation again after cancelling: " + app.debugDescription); return
+        }
+        confirm.tap()
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.textFields["social-account-url"])], timeout: 15), .completed)
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: edited)], timeout: 15), .completed)
         XCTAssertTrue(original.exists)

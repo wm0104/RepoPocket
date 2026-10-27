@@ -101,7 +101,28 @@ case "${RP_STYLE_TEST_SCOPE:-all}" in
   download-lifecycle) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryZIPCompletionIsNativeDismissibleAndReusable -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProjectFilesUseLongPressDeletionAndKeepPreview -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBUsesExistingEditorAndSavesToProject -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalFileSheetStaysClosedAfterInteractiveDismissal -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates) ;;
   *) echo 'Unknown UI test scope'; exit 1 ;;
 esac
-xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${TEST_ARGUMENTS[@]}" test-without-building > style-tests.log 2>&1 || { tail -100 style-tests.log; TEST_STATUS=1; }
+xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${TEST_ARGUMENTS[@]}" test-without-building > style-tests.log 2>&1 || {
+  # The final test can otherwise hide earlier failures, including their AX hierarchy.
+  python3 - style-tests.log <<'PY_FAILED_TESTS'
+from pathlib import Path
+import sys
+
+block = []
+for line in Path(sys.argv[1]).read_text(encoding='utf-8', errors='replace').splitlines(keepends=True):
+    if line.startswith('Test Case ') and line.rstrip().endswith(' started.'):
+        block = [line]
+    elif block:
+        block.append(line)
+    if line.startswith('Test Case ') and (' passed (' in line or ' failed (' in line):
+        if ' failed (' in line:
+            sys.stdout.writelines(block)
+        block = []
+if block:
+    sys.stdout.writelines(block)  # Preserve the active case too if the runner crashed.
+PY_FAILED_TESTS
+  tail -100 style-tests.log
+  TEST_STATUS=1
+}
 kill -INT "$RECORDING_PID" 2>/dev/null || true
 wait "$RECORDING_PID" || true
 RECORDING_PID=""

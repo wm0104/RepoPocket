@@ -67,6 +67,8 @@ jobs:
         run: python3 Tests/test_community.py
       - name: Test local social platform icons and general link editor
         run: python3 Tests/test_social_platforms.py
+      - name: Test complete native UI failure diagnostics
+        run: python3 Tests/test_style_failure_diagnostics.py
       - name: Test share inbox and repository social navigation
         run: python3 Tests/test_share_social.py
       - name: Test native collaboration transport, scoped statistics and README folding
