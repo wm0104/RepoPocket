@@ -66,12 +66,14 @@ struct ContainedWebPage: UIViewControllerRepresentable {
     // Safari is presented modally, rather than embedded as SwiftUI's child controller.
     final class Presenter: UIViewController {
         let browser: SFSafariViewController
+        private var presented = false
         init(browser: SFSafariViewController) { self.browser = browser; super.init(nibName: nil, bundle: nil) }
         required init?(coder: NSCoder) { return nil }
         override func viewDidLoad() { super.viewDidLoad(); view.backgroundColor = .systemBackground }
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
-            guard browser.presentingViewController == nil else { return }
+            guard !presented else { return }
+            presented = true
             browser.modalPresentationStyle = .fullScreen
             present(browser, animated: false)
         }
