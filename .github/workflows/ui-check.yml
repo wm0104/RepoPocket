@@ -45,7 +45,9 @@ jobs:
       - name: Select Xcode 15.4
         run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
       - name: Test community API and profile contacts
-        run: python3 Tests/test_community.py
+        run: |
+          python3 Tests/test_community.py
+          python3 Tests/test_social_platforms.py
       - uses: actions/cache@v4
         with:
           path: NativeBuild

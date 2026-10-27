@@ -25,6 +25,11 @@ enum CredentialStore {
     private let accountGeneration = AccountStore.generation
     private let session: URLSession
     var isCurrentSession: Bool { accountID == AccountStore.activeID && accountGeneration == AccountStore.generation }
+    private(set) var profileWriteAuthorization: Bool?
+    func recordProfileWriteAuthorization(_ allowed: Bool) {
+        guard isCurrentSession else { return }
+        profileWriteAuthorization = allowed
+    }
     init() {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [SocialProtocol.self]

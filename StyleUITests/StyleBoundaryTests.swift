@@ -14,6 +14,7 @@ final class StyleBoundaryTests: XCTestCase {
         }
         func fill(_ text: String) {
             let field = app.textFields["social-account-url"]
+            XCTAssertTrue(field.waitForExistence(timeout: 10))
             reveal(field, in: app); field.tap()
             if let value = field.value as? String, value.hasPrefix("https://") {
                 field.press(forDuration: 1)
@@ -28,26 +29,35 @@ final class StyleBoundaryTests: XCTestCase {
         }
         openAccounts()
         let original = app.buttons["social-account-https://t.me/fixture_owner"]
+        XCTAssertFalse(app.textFields["social-account-url"].exists, "Keep the main list compact until adding or editing")
+        app.buttons["social-account-add"].tap()
+        XCTAssertTrue(app.textFields["social-account-url"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.textFields["social-account-url"].placeholderValue, "社交账号或网站链接")
         fill("https://example.invalid/new")
         let added = app.buttons["social-account-https://example.invalid/new"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.textFields["social-account-url"])], timeout: 15), .completed)
         XCTAssertTrue(added.waitForExistence(timeout: 15)); XCTAssertTrue(original.exists)
         reveal(added, in: app); added.tap(); fill("https://example.invalid/edited")
         let edited = app.buttons["social-account-https://example.invalid/edited"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.textFields["social-account-url"])], timeout: 15), .completed)
         XCTAssertTrue(edited.waitForExistence(timeout: 15)); XCTAssertFalse(added.exists)
         reveal(edited, in: app); edited.tap()
         let remove = app.buttons["删除这个社交账号"]
         reveal(remove, in: app); remove.tap()
-        let confirm = app.buttons["删除"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); app.buttons["取消"].tap()
-        XCTAssertTrue(edited.exists)
+        let confirm = app.sheets.buttons["删除"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); app.sheets.buttons["取消"].tap()
+        XCTAssertTrue(app.textFields["social-account-url"].exists)
         remove.tap(); XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.textFields["social-account-url"])], timeout: 15), .completed)
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: edited)], timeout: 15), .completed)
         XCTAssertTrue(original.exists)
         keepScreenshot(app, name: "social-accounts-managed")
         app.terminate(); openAccounts(["-social-accounts-denied"])
+        app.buttons["social-account-add"].tap()
         fill("https://example.invalid/denied")
         let error = app.staticTexts["social-account-error"]
-        XCTAssertTrue(error.waitForExistence(timeout: 15)); XCTAssertTrue(original.exists)
+        XCTAssertTrue(error.waitForExistence(timeout: 15))
+        XCTAssertEqual(app.textFields["social-account-url"].value as? String, "https://example.invalid/denied")
         XCTAssertFalse(app.buttons["social-account-https://example.invalid/denied"].exists)
         let authorize = app.buttons["授权社交账号管理"]
         reveal(authorize, in: app); authorize.tap()
@@ -68,13 +78,26 @@ final class StyleBoundaryTests: XCTestCase {
             XCTAssertTrue(author.waitForExistence(timeout: 15)); author.tap()
             XCTAssertTrue(app.navigationBars["fixture-follower"].waitForExistence(timeout: 10))
         }
+        func tapContact(_ element: XCUIElement) {
+            guard element.waitForExistence(timeout: 15) else {
+                XCTFail("The profile contact must remain available: " + app.debugDescription); return
+            }
+            for _ in 0..<12 {
+                if element.isHittable { element.tap(); return }
+                // Small, reversible drags cannot skip a row and keep scrolling away from it.
+                let direction: CGFloat = !element.frame.isEmpty && element.frame.midY < app.frame.midY ? 1 : -1
+                let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+                origin.press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: 0, dy: direction * 130)))
+            }
+            XCTFail("The profile contact must be tappable: " + app.debugDescription)
+        }
         openAuthor()
         let contact = app.buttons["profile-social-https://mastodon.example.invalid/@author"]
         XCTAssertTrue(contact.waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["profile-website"].exists)
         XCTAssertEqual(contact.value as? String, "https://mastodon.example.invalid/@author")
         keepScreenshot(app, name: "profile-public-contacts")
-        reveal(contact, in: app); contact.tap()
+        tapContact(contact)
         let done = app.buttons.matching(NSPredicate(format: "label IN {'Done', '完成'}")).firstMatch
         guard done.waitForExistence(timeout: 10) else {
             XCTFail("Without an associated app, keep the author page inside Safari: " + app.debugDescription); return
@@ -82,7 +105,7 @@ final class StyleBoundaryTests: XCTestCase {
         done.tap()
         XCTAssertTrue(contact.waitForExistence(timeout: 10))
         let unsupported = app.buttons["profile-social-fixtureapp://author"]
-        reveal(unsupported, in: app); unsupported.tap()
+        tapContact(unsupported)
         let alert = app.alerts["无法打开此链接"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         XCTAssertTrue(alert.buttons["复制链接"].exists)

@@ -109,6 +109,24 @@ class BrowserRollbackTests(unittest.TestCase):
         helper_start = normalized.index('    private func uploadGitBlobFile(')
         helper_end = normalized.index('    func history(', helper_start)
         normalized = normalized[:helper_start] + normalized[helper_end:]
+        # Only the independently tested authorization chain can change here;
+        # all other Keychain, transport and repository code stays byte-exact.
+        normalized = normalized.replace('        AccountStore.updateAuthorization(account, scopes: nil)\n', '')
+        normalized = normalized.replace('    @Published private(set) var profileWriteAuthorization: Bool? = nil\n', '')
+        normalized = normalized.replace('    private var authorizationObserver: AnyCancellable?\n', '')
+        auth_init = normalized.index('        profileWriteAuthorization = AccountStore.accounts.first')
+        auth_init_end = normalized.index('        accountObserver = ', auth_init)
+        self.assertIn('self.isCurrentSession', normalized[auth_init:auth_init_end])
+        normalized = normalized[:auth_init] + normalized[auth_init_end:]
+        auth_start, auth_end = normalized.index('    func identify()'), normalized.index('    func repositories()')
+        auth = normalized[auth_start:auth_end]
+        self.assertIn('X-OAuth-Scopes', auth)
+        self.assertLess(auth.index('expectedAccountID == String(id)'), auth.index('try CredentialStore.save(token,'))
+        self.assertIn('try Task.checkCancellation()', auth)
+        self.assertIn('AccountStore.activate(account.id)', auth)
+        self.assertIn('name: .githubAuthorizationCompleted', auth)
+        old_auth_start, old_auth_end = api_original.index('    func identify()'), api_original.index('    func repositories()')
+        normalized = normalized[:auth_start] + api_original[old_auth_start:old_auth_end] + normalized[auth_end:]
         for signature, next_signature in (
             ('    func commitQueue(', '    func identify('),
             ('    func trollPublish(', '    func metadataSnapshot('),

@@ -353,6 +353,23 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         helper_end = current.index('    func history(', helper_start)
         current = current[:helper_start] + current[helper_end:]
         old_github = baseline(file)
+        # Server-confirmed authorization metadata and login completion are covered
+        # by the native OAuth fixture; freeze every other credential/API byte.
+        current = current.replace('        AccountStore.updateAuthorization(account, scopes: nil)\n', '')
+        current = current.replace('    @Published private(set) var profileWriteAuthorization: Bool? = nil\n', '')
+        current = current.replace('    private var authorizationObserver: AnyCancellable?\n', '')
+        auth_init = current.index('        profileWriteAuthorization = AccountStore.accounts.first')
+        auth_init_end = current.index('        accountObserver = ', auth_init)
+        assert 'self.isCurrentSession' in current[auth_init:auth_init_end]
+        current = current[:auth_init] + current[auth_init_end:]
+        auth_start, auth_end = current.index('    func identify()'), current.index('    func repositories()')
+        auth = current[auth_start:auth_end]
+        assert 'X-OAuth-Scopes' in auth and 'expectedAccountID == String(id)' in auth
+        assert auth.index('expectedAccountID == String(id)') < auth.index('try CredentialStore.save(token,')
+        assert 'try Task.checkCancellation()' in auth and 'AccountStore.activate(account.id)' in auth
+        assert 'name: .githubAuthorizationCompleted' in auth
+        old_auth_start, old_auth_end = old_github.index('    func identify()'), old_github.index('    func repositories()')
+        current = current[:auth_start] + old_github[old_auth_start:old_auth_end] + current[auth_end:]
         for signature, next_signature in (
             ('    func commitQueue(', '    func identify('),
             ('    func trollPublish(', '    func metadataSnapshot('),

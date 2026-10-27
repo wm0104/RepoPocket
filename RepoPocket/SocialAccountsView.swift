@@ -51,6 +51,11 @@ final class SocialAccountsState: ObservableObject {
         editingURL = account.url; draft = account.url; error = ""; message = ""
     }
 
+    func beginAdding() {
+        guard !busy, !loading, loaded else { return }
+        editingURL = nil; draft = ""; error = ""; message = ""
+    }
+
     func cancelEditing() {
         guard !busy else { return }
         editingURL = nil; draft = ""
@@ -60,7 +65,7 @@ final class SocialAccountsState: ObservableObject {
         guard !busy, !loading, loaded, !Task.isCancelled, api.isCurrentSession else { return }
         error = ""; message = ""
         guard draft.utf8.count <= 2048, let next = CommunityRules.profileWebsiteURL(draft)?.absoluteString else {
-            error = "请填写有效的社交账号网页链接，例如 https://t.me/用户名。"; return
+            error = "请填写有效的社交账号或网站链接。"; return
         }
         let previous = editingURL
         guard previous != next else { message = "链接没有变化。"; return }
@@ -132,22 +137,20 @@ final class SocialAccountsState: ObservableObject {
 
 struct SocialAccountsView: View {
     @ObservedObject var api: GitHub
-    @EnvironmentObject private var accountPresentation: AccountPresentation
     @StateObject private var state = SocialAccountsState()
     @State private var pendingDeletion: String?
-    @FocusState private var editingLink: Bool
+    @State private var showingEditor = false
 
     var body: some View {
         Form {
-            Section("社交账号") {
+            Section(api.login.isEmpty ? "公开链接" : "@" + api.login + " · 公开链接") {
                 SoftGroupRows {
-                    SoftGroupRow("account") { Label(api.login, systemImage: "person.crop.circle") }
                     if state.loading { SoftGroupRow("loading") { ProgressView("正在加载…") } }
                     for account in state.accounts {
                         SoftGroupRow("social-" + account.id) {
-                            Button { state.beginEditing(account) } label: {
+                            Button { state.beginEditing(account); showingEditor = true } label: {
                                 HStack(spacing: 12) {
-                                    Image(systemName: "link")
+                                    SocialAccountIcon(url: account.url, provider: account.provider)
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(account.title).foregroundStyle(.primary)
                                         Text(account.url).font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -165,61 +168,27 @@ struct SocialAccountsView: View {
                         }
                     }
                     if state.loaded && state.accounts.isEmpty {
-                        SoftGroupRow("empty") { Text("尚未添加社交账号").foregroundStyle(.secondary) }
+                        SoftGroupRow("empty") { Text("尚无公开链接，轻点右上角添加。").foregroundStyle(.secondary) }
                     }
                 }
             }
-            Section(state.editingURL == nil ? "添加社交账号" : "编辑社交账号") {
-                SoftGroupRows {
-                    SoftGroupRow("url") {
-                        TextField("https://t.me/用户名", text: $state.draft)
-                            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .focused($editingLink).submitLabel(.done).onSubmit { editingLink = false }
-                            .accessibilityIdentifier("social-account-url")
-                    }
-                    SoftGroupRow("save") {
-                        Button("保存") { editingLink = false; Task { await state.save(api: api) } }
-                            .accessibilityIdentifier("social-account-save")
-                            .disabled(state.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                    if let current = state.editingURL {
-                        SoftGroupRow("delete") { Button("删除这个社交账号", role: .destructive) { pendingDeletion = current } }
-                        SoftGroupRow("cancel") { Button("取消编辑") { state.cancelEditing() } }
-                    }
-                    SoftGroupRow("help") {
-                        Text("保存后同步到 GitHub 公开资料。修改时会先添加新链接；数量已满时，需先手动删除不再使用的链接。")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }.disabled(state.loading || !state.loaded || !api.isCurrentSession)
-            if state.busy || !state.error.isEmpty || !state.message.isEmpty || !api.isCurrentSession {
-                Section {
-                    SoftGroupRows {
-                        if state.busy { SoftGroupRow("saving") { ProgressView("正在保存…") } }
-                        if !state.error.isEmpty { SoftGroupRow("error") { Text(state.error).font(.callout).foregroundStyle(.red).accessibilityIdentifier("social-account-error") } }
-                        if !state.message.isEmpty { SoftGroupRow("message") { Text(state.message).font(.callout).foregroundStyle(.secondary) } }
-                        if !api.isCurrentSession { SoftGroupRow("session") { Text("账号已切换，请返回后重新打开。").font(.callout) } }
-                    }
-                }
-            }
-            Section("授权与账号") {
-                SoftGroupRows {
-                    SoftGroupRow("authorize") {
-                        NavigationLink("授权社交账号管理") { DeviceOAuthView(api: api, writeProfile: true) }
-                            .disabled(!api.isCurrentSession)
-                    }
-                    SoftGroupRow("accounts") { Button("账号管理") { accountPresentation.showing = true } }
-                }
-            }
+            SocialAccountFeedback(api: api, state: state)
+            SocialAccountsAuthorizationSection(api: api)
         }
         .disabled(state.busy)
         .navigationTitle("社交账号").adaptiveWorkspaceLayout()
         .navigationBarBackButtonHidden(state.busy).interactiveDismissDisabled(state.busy)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button { state.load(api: api) } label: { Image(systemName: "arrow.clockwise") }
                     .accessibilityLabel("刷新社交账号").disabled(state.busy || state.loading || !api.isCurrentSession)
+                Button { state.beginAdding(); showingEditor = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("添加社交账号").accessibilityIdentifier("social-account-add")
+                    .disabled(state.busy || state.loading || !state.loaded || !api.isCurrentSession)
             }
+        }
+        .sheet(isPresented: $showingEditor, onDismiss: { state.cancelEditing() }) {
+            SocialAccountEditor(api: api, state: state).appSheetCornerRadius()
         }
         .confirmationDialog("删除社交账号？", isPresented: Binding(
             get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
@@ -234,7 +203,118 @@ struct SocialAccountsView: View {
         // Writes finish their add-then-delete sequence even if this view leaves the screen.
         .onDisappear { state.cancelReading(); pendingDeletion = nil }
         .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in
-            pendingDeletion = nil; state.accountChanged()
+            pendingDeletion = nil; showingEditor = false; state.accountChanged()
+        }
+    }
+}
+
+private struct SocialAccountEditor: View {
+    @ObservedObject var api: GitHub
+    @ObservedObject var state: SocialAccountsState
+    @Environment(\.dismiss) private var dismiss
+    @State private var pendingDeletion: String?
+    @FocusState private var editingLink: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SoftGroupRows {
+                        SoftGroupRow("url") {
+                            TextField("社交账号或网站链接", text: $state.draft)
+                                .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                                .focused($editingLink).submitLabel(.done).onSubmit { editingLink = false }
+                                .accessibilityIdentifier("social-account-url")
+                        }
+                        SoftGroupRow("save") {
+                            Button("保存") {
+                                editingLink = false
+                                Task {
+                                    await state.save(api: api)
+                                    if api.isCurrentSession, state.error.isEmpty, state.draft.isEmpty { dismiss() }
+                                }
+                            }
+                            .accessibilityIdentifier("social-account-save")
+                            .disabled(state.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        if let current = state.editingURL {
+                            SoftGroupRow("delete") {
+                                Button("删除这个社交账号", role: .destructive) { editingLink = false; pendingDeletion = current }
+                            }
+                        }
+                    }
+                } footer: {
+                    Text(state.editingURL == nil ? "支持社交平台及个人网站，保存后显示在 GitHub 公开资料。" : "先添加新链接，再移除旧链接；数量已满时需先手动删除。")
+                        .font(.footnote)
+                }
+                .disabled(state.loading || !state.loaded || !api.isCurrentSession)
+                SocialAccountFeedback(api: api, state: state)
+                if !state.error.isEmpty { SocialAccountsAuthorizationSection(api: api, managesAccounts: false) }
+            }
+            .disabled(state.busy)
+            .navigationTitle(state.editingURL == nil ? "添加社交账号" : "编辑社交账号")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }.disabled(state.busy).accessibilityIdentifier("social-account-cancel")
+                }
+            }
+            .confirmationDialog("删除社交账号？", isPresented: Binding(
+                get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
+                titleVisibility: .visible, presenting: pendingDeletion) { target in
+                    Button("删除", role: .destructive) {
+                        pendingDeletion = nil
+                        Task {
+                            await state.delete(target, api: api)
+                            if api.isCurrentSession, state.error.isEmpty { dismiss() }
+                        }
+                    }
+                    Button("取消", role: .cancel) { pendingDeletion = nil }
+                } message: { target in Text("将从当前 GitHub 账号删除：\n" + target) }
+        }
+        .interactiveDismissDisabled(state.busy)
+    }
+}
+
+private struct SocialAccountFeedback: View {
+    @ObservedObject var api: GitHub
+    @ObservedObject var state: SocialAccountsState
+    var body: some View {
+        if state.busy || !state.error.isEmpty || !state.message.isEmpty || !api.isCurrentSession {
+            Section {
+                SoftGroupRows {
+                    if state.busy { SoftGroupRow("saving") { ProgressView("正在保存…") } }
+                    if !state.error.isEmpty { SoftGroupRow("error") { Text(state.error).font(.callout).foregroundStyle(.red).accessibilityIdentifier("social-account-error") } }
+                    if !state.message.isEmpty { SoftGroupRow("message") { Text(state.message).font(.callout).foregroundStyle(.secondary) } }
+                    if !api.isCurrentSession { SoftGroupRow("session") { Text("账号已切换，请返回后重新打开。").font(.callout) } }
+                }
+            }
+        }
+    }
+}
+
+private struct SocialAccountsAuthorizationSection: View {
+    @ObservedObject var api: GitHub
+    @EnvironmentObject private var accountPresentation: AccountPresentation
+    var managesAccounts = true
+    var body: some View {
+        Section(managesAccounts ? "授权与账号" : "授权") {
+            SoftGroupRows {
+                if api.profileWriteAuthorization == true {
+                    SoftGroupRow("authorized") { Label("已授权社交账号管理", systemImage: "checkmark.circle").foregroundStyle(.secondary) }
+                } else {
+                    if api.profileWriteAuthorization == false {
+                        SoftGroupRow("permission") { Text("当前授权缺少资料写入权限。").font(.caption).foregroundStyle(.secondary) }
+                    }
+                    SoftGroupRow("authorize") {
+                        NavigationLink("授权社交账号管理") { DeviceOAuthView(api: api, writeProfile: true) }
+                            .disabled(!api.isCurrentSession)
+                    }
+                }
+                if managesAccounts {
+                    SoftGroupRow("accounts") { Button("账号管理") { accountPresentation.showing = true } }
+                }
+            }
         }
     }
 }

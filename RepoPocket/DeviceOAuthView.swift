@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct DeviceOAuthView: View {
+@MainActor struct DeviceOAuthView: View {
     @ObservedObject var api: GitHub
     @EnvironmentObject private var presentation: AccountPresentation
     @Environment(\.openURL) private var openURL
@@ -12,6 +12,8 @@ struct DeviceOAuthView: View {
     init(api: GitHub, writeProfile: Bool = false) {
         self.api = api
         _writeProfile = State(initialValue: writeProfile)
+        _privateRepositories = State(initialValue: writeProfile && (api.oauthScopes?.contains("repo") == true))
+        _followUsers = State(initialValue: writeProfile && (api.oauthScopes?.contains("user:follow") == true))
     }
     var body: some View {
         Form {
@@ -23,6 +25,9 @@ struct DeviceOAuthView: View {
                 if followUsers { SoftGroupRow("follow-help") { Text("额外请求 user:follow 权限，用于管理当前账号的关注关系。").font(.caption).foregroundStyle(.secondary) } }
                 SoftGroupRow("profile") { Toggle("授权社交账号管理", isOn: $writeProfile).disabled(controller.busy).accessibilityIdentifier("oauth-write-profile") }
                 if writeProfile { SoftGroupRow("profile-help") { Text("请求 user 账号权限，用于写入公开资料和社交链接，也包含邮箱读取及关注关系管理，并非只限社交链接。").font(.caption).foregroundStyle(.secondary) } }
+                if writeProfile, api.oauthScopes?.isEmpty == false {
+                    SoftGroupRow("retained-scopes") { Text("同时保留当前凭据已确认的权限：" + (api.oauthScopes ?? []).joined(separator: "、")).font(.caption).foregroundStyle(.secondary) }
+                }
                 SoftGroupRow("help") { Text("请求 \(writeProfile ? "user" : "read:user")、\(privateRepositories ? "repo" : "public_repo") 权限。私有仓库及某些管理操作可继续使用原来的 Token 登录。")
                     .font(.caption).foregroundStyle(.secondary) }
                 if controller.busy {

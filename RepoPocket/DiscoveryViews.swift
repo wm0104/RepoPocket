@@ -36,7 +36,9 @@ struct CommunityProfileSection: View {
                     if let location = profile.location, !location.isEmpty { SoftGroupRow("location") { Label(location, systemImage: "mappin") } }
                     if let site = profile.blog, !site.isEmpty {
                         SoftGroupRow("site") {
-                            Button { openContact(site) } label: { Label(site, systemImage: "link").font(.subheadline) }
+                            Button { openContact(site) } label: {
+                                Label { Text(site).font(.subheadline) } icon: { SocialAccountIcon(url: site) }
+                            }
                                 .accessibilityIdentifier("profile-website").accessibilityValue(site)
                                 .disabled(linkRequest != nil)
                         }
@@ -50,7 +52,7 @@ struct CommunityProfileSection: View {
                                     Text(contact.title).font(.caption).foregroundStyle(.secondary)
                                     Text(contact.url).font(.subheadline).multilineTextAlignment(.leading)
                                 }
-                            } icon: { Image(systemName: "link") }
+                            } icon: { SocialAccountIcon(url: contact.url, provider: contact.provider) }
                         }.accessibilityIdentifier("profile-social-" + contact.id).accessibilityValue(contact.url)
                             .disabled(linkRequest != nil)
                     }

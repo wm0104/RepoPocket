@@ -25,7 +25,10 @@ struct RepoPocketApp: App {
                 .background(WindowStyleApplier(style: appearance == "dark" ? .dark : (appearance == "light" ? .light : .unspecified)))
                 .environmentObject(selectionStore)
                 .environmentObject(accountPresentation)
-                .sheet(isPresented: $accountPresentation.showing) { accountManager.id(accountID).environmentObject(accountPresentation).appSheetCornerRadius() }
+                .sheet(isPresented: $accountPresentation.showing, onDismiss: { accountPresentation.accountSheetDismissed() }) { accountManager.id(accountID).environmentObject(accountPresentation).appSheetCornerRadius() }
+                .alert("GitHub 授权成功", isPresented: Binding(get: { accountPresentation.authorizationNotice != nil }, set: { if !$0 { accountPresentation.authorizationNotice = nil } })) {
+                    Button("好", role: .cancel) { accountPresentation.authorizationNotice = nil }
+                } message: { Text(accountPresentation.authorizationNotice ?? "") }
                 .sheet(item: $downloads.picker, onDismiss: { downloads.selected(nil) }) { request in
                     WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false, cancelTitle: "取消") { downloads.selected($0) }
                 }

@@ -11,12 +11,16 @@ struct DeviceAuthorization: Decodable {
 struct DeviceTokenResponse: Decodable {
     let access_token: String?
     let token_type: String?
+    let scope: String?
     let error: String?
     let interval: Int?
 }
 enum DeviceOAuthRules {
-    static func scope(privateRepositories: Bool, followUsers: Bool, writeProfile: Bool = false) -> String {
-        (writeProfile ? "user" : "read:user") + (privateRepositories ? " repo" : " public_repo") + (followUsers ? " user:follow" : "")
+    static func scope(privateRepositories: Bool, followUsers: Bool, writeProfile: Bool = false, preserving granted: [String] = []) -> String {
+        let requested = (writeProfile ? "user" : "read:user") + (privateRepositories ? " repo" : " public_repo") + (followUsers ? " user:follow" : "")
+        let existing = Set(requested.split(separator: " ").map(String.init))
+        let retained = writeProfile ? Set(granted).subtracting(existing.union(["read:user", "user:email", "user:follow"])).sorted() : []
+        return ([requested] + retained).joined(separator: " ")
     }
     static func clientID(_ source: String) throws -> String {
         let value = source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -94,7 +98,8 @@ final class DeviceOAuthRedirectPolicy: NSObject, URLSessionTaskDelegate {
             defer { if operation == identifier { busy = false; task = nil; userCode = ""; verificationURL = nil } }
             do {
                 let client = try DeviceOAuthRules.clientID(clientID)
-                let scope = DeviceOAuthRules.scope(privateRepositories: privateRepositories, followUsers: followUsers, writeProfile: writeProfile)
+                let scope = DeviceOAuthRules.scope(privateRepositories: privateRepositories, followUsers: followUsers, writeProfile: writeProfile,
+                                                  preserving: writeProfile ? (api.oauthScopes ?? []) : [])
                 let code: DeviceAuthorization = try await post("/login/device/code", fields: ["client_id": client, "scope": scope])
                 let url = try DeviceOAuthRules.validate(code)
                 try Task.checkCancellation(); guard operation == identifier, api.isCurrentSession else { return }
@@ -129,7 +134,7 @@ final class DeviceOAuthRedirectPolicy: NSObject, URLSessionTaskDelegate {
                             try Task.checkCancellation()
                             guard operation == identifier, api.isCurrentSession else { return }
                             do {
-                                try await api.addAccount(token: token)
+                                try await api.addAccount(token: token, expectedAccountID: writeProfile ? api.accountID : nil, grantedScopes: result.scope)
                                 break
                             } catch {
                                 try Task.checkCancellation()
