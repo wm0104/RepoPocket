@@ -38,8 +38,7 @@ class SocialPlatformTests(unittest.TestCase):
         self.assertIn('controller.delegate = context.coordinator', source)
         self.assertIn('func safariViewControllerDidFinish(_ controller: SFSafariViewController)', source)
         self.assertIn('context.coordinator.onClose = onClose', source)
-        self.assertIn('present(browser, animated: false)', source)
-        self.assertIn('return Presenter(browser: controller)', source)
+        self.assertIn('Button("关闭", action: onClose).accessibilityIdentifier("reading-link-close")', source)
         self.assertIn('onClose()', source)
         for name in ['ReadingViews.swift', 'ReadmeHTMLView.swift', 'RepositorySearchView.swift']:
             caller = (ROOT / 'RepoPocket' / name).read_text(encoding='utf-8')

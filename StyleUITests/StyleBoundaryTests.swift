@@ -124,12 +124,16 @@ final class StyleBoundaryTests: XCTestCase {
         guard done.waitForExistence(timeout: 10) else {
             XCTFail("Without an associated app, keep the author page inside Safari: " + app.debugDescription); return
         }
-        // Safari's remote AX Address frame overlaps Done's center on this runtime.
-        done.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)).tap()
-        let safariClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)
-        guard XCTWaiter.wait(for: [safariClosed], timeout: 10) == .completed else {
-            XCTFail("Safari Done must close the presented web page: " + app.debugDescription); return
+        let close = app.buttons["reading-link-close"]
+        guard close.waitForExistence(timeout: 10), close.isHittable else {
+            XCTFail("The app must provide an accessible web-page close action: " + app.debugDescription); return
         }
+        close.tap()
+        let safariClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: close)
+        guard XCTWaiter.wait(for: [safariClosed], timeout: 10) == .completed else {
+            XCTFail("Closing the web page must dismiss its presentation: " + app.debugDescription); return
+        }
+        XCTAssertFalse(done.exists)
         XCTAssertTrue(contact.waitForExistence(timeout: 10))
         let unsupported = app.buttons["profile-social-fixtureapp://author"]
         tapContact(unsupported)

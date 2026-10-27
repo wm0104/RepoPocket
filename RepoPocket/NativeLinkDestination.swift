@@ -39,9 +39,16 @@ struct ReadingLinkDestination: View {
                 }
             }
         } else {
-            // Safari supplies its own navigation bar and Done button.
-            ContainedWebPage(url: url, onClose: onClose)
-                .ignoresSafeArea()
+            NavigationStack {
+                ContainedWebPage(url: url, onClose: onClose)
+                    .ignoresSafeArea(.container, edges: .bottom)
+                    .navigationTitle("网页").navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("关闭", action: onClose).accessibilityIdentifier("reading-link-close")
+                        }
+                    }
+            }
         }
     }
 }
@@ -50,41 +57,20 @@ struct ContainedWebPage: UIViewControllerRepresentable {
     let url: URL
     let onClose: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(onClose) }
-    func makeUIViewController(context: Context) -> Presenter {
+    func makeUIViewController(context: Context) -> SFSafariViewController {
         let configuration = SFSafariViewController.Configuration()
         configuration.barCollapsingEnabled = false
         let controller = SFSafariViewController(url: url, configuration: configuration)
         controller.delegate = context.coordinator
-        #if DEBUG
-        NSLog("RepoPocket.WebSheet created")
-        #endif
-        return Presenter(browser: controller)
+        return controller
     }
-    func updateUIViewController(_ controller: Presenter, context: Context) {
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {
         context.coordinator.onClose = onClose
-    }
-    // Safari is presented modally, rather than embedded as SwiftUI's child controller.
-    final class Presenter: UIViewController {
-        let browser: SFSafariViewController
-        private var presented = false
-        init(browser: SFSafariViewController) { self.browser = browser; super.init(nibName: nil, bundle: nil) }
-        required init?(coder: NSCoder) { return nil }
-        override func viewDidLoad() { super.viewDidLoad(); view.backgroundColor = .systemBackground }
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            guard !presented else { return }
-            presented = true
-            browser.modalPresentationStyle = .fullScreen
-            present(browser, animated: false)
-        }
     }
     final class Coordinator: NSObject, SFSafariViewControllerDelegate {
         var onClose: () -> Void
         init(_ onClose: @escaping () -> Void) { self.onClose = onClose }
         func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
-            #if DEBUG
-            NSLog("RepoPocket.WebSheet safari-finish")
-            #endif
             onClose()
         }
     }
