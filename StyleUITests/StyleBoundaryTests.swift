@@ -124,7 +124,8 @@ final class StyleBoundaryTests: XCTestCase {
         guard done.waitForExistence(timeout: 10) else {
             XCTFail("Without an associated app, keep the author page inside Safari: " + app.debugDescription); return
         }
-        done.tap()
+        // Safari's remote AX Address frame overlaps Done's center on this runtime.
+        done.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)).tap()
         let safariClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)
         guard XCTWaiter.wait(for: [safariClosed], timeout: 10) == .completed else {
             XCTFail("Safari Done must close the presented web page: " + app.debugDescription); return

@@ -55,6 +55,9 @@ struct ContainedWebPage: UIViewControllerRepresentable {
         configuration.barCollapsingEnabled = false
         let controller = SFSafariViewController(url: url, configuration: configuration)
         controller.delegate = context.coordinator
+        #if DEBUG
+        NSLog("RepoPocket.WebSheet created")
+        #endif
         return controller
     }
     func updateUIViewController(_ controller: SFSafariViewController, context: Context) {
