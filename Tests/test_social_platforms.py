@@ -33,12 +33,31 @@ class SocialPlatformTests(unittest.TestCase):
         profile = (ROOT / 'RepoPocket/DiscoveryViews.swift').read_text(encoding='utf-8')
         self.assertIn('SocialAccountIcon(url: contact.url, provider: contact.provider)', profile)
 
+    def test_social_account_long_press_uses_existing_delete_confirmation(self):
+        source = (ROOT / 'RepoPocket/SocialAccountsView.swift').read_text(encoding='utf-8')
+        listing = source.split('struct SocialAccountsView: View {', 1)[1].split('private struct SocialAccountEditor:', 1)[0]
+        self.assertNotIn('.swipeActions', listing)
+        self.assertIn('.contextMenu {', listing)
+        self.assertIn('Button(role: .destructive) { pendingDeletion = account.url }', listing)
+        self.assertIn('Label("删除", systemImage: "trash")', listing)
+        self.assertIn('.accessibilityIdentifier("social-account-context-delete")', listing)
+        self.assertIn('.accessibilityHint("长按可删除社交账号")', listing)
+        menu = listing.split('.contextMenu {', 1)[1].split('if state.loaded', 1)[0]
+        self.assertIn('.disabled(state.busy || state.loading || !api.isCurrentSession)', menu)
+        self.assertIn('presenting: pendingDeletion) { target in', listing)
+        self.assertIn('Task { await state.delete(target, api: api) }', listing)
+        self.assertIn('Button("取消", role: .cancel) { pendingDeletion = nil }', listing)
+        self.assertIn('pendingDeletion = nil; showingEditor = false; state.accountChanged()', listing)
+        self.assertIn('Button { state.beginEditing(account); showingEditor = true }', listing)
+        self.assertIn('Button("删除这个社交账号", role: .destructive)', source)
+
     def test_safari_done_also_dismisses_the_swiftui_sheet(self):
         source = (ROOT / 'RepoPocket/NativeLinkDestination.swift').read_text(encoding='utf-8')
         self.assertIn('controller.delegate = context.coordinator', source)
         self.assertIn('func safariViewControllerDidFinish(_ controller: SFSafariViewController)', source)
         self.assertIn('context.coordinator.onClose = onClose', source)
-        self.assertIn('Button("关闭", action: onClose).accessibilityIdentifier("reading-link-close")', source)
+        self.assertNotIn('reading-link-close', source)
+        self.assertNotIn('.navigationTitle("网页")', source)
         self.assertIn('onClose()', source)
         for name in ['ReadingViews.swift', 'ReadmeHTMLView.swift', 'RepositorySearchView.swift']:
             caller = (ROOT / 'RepoPocket' / name).read_text(encoding='utf-8')

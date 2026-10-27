@@ -39,16 +39,7 @@ struct ReadingLinkDestination: View {
                 }
             }
         } else {
-            NavigationStack {
-                ContainedWebPage(url: url, onClose: onClose)
-                    .ignoresSafeArea(.container, edges: .bottom)
-                    .navigationTitle("网页").navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("关闭", action: onClose).accessibilityIdentifier("reading-link-close")
-                        }
-                    }
-            }
+            ContainedWebPage(url: url, onClose: onClose).ignoresSafeArea()
         }
     }
 }

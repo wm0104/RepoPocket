@@ -41,10 +41,12 @@ final class StyleBoundaryTests: XCTestCase {
         let edited = app.buttons["social-account-https://example.invalid/edited"]
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.textFields["social-account-url"])], timeout: 15), .completed)
         XCTAssertTrue(edited.waitForExistence(timeout: 15)); XCTAssertFalse(added.exists)
-        reveal(edited, in: app); edited.tap()
-        let remove = app.buttons["删除这个社交账号"]
-        reveal(remove, in: app); remove.tap()
-        let confirm = app.buttons.matching(NSPredicate(format: "label == '删除'")).firstMatch
+        reveal(edited, in: app); edited.press(forDuration: 1)
+        let remove = app.buttons["social-account-context-delete"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 5))
+        keepScreenshot(app, name: "social-accounts-long-press")
+        remove.tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label == '删除' AND identifier != 'social-account-context-delete'")).firstMatch
         guard confirm.waitForExistence(timeout: 10) else {
             XCTFail("Show the native social-account deletion confirmation: " + app.debugDescription); return
         }
@@ -54,13 +56,15 @@ final class StyleBoundaryTests: XCTestCase {
         }
         cancelDeletion.tap()
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: confirm)], timeout: 5), .completed)
-        XCTAssertTrue(app.textFields["social-account-url"].exists)
-        remove.tap()
+        XCTAssertTrue(edited.exists, "Cancelling must keep the selected social account")
+        XCTAssertTrue(original.exists)
+        XCTAssertFalse(app.textFields["social-account-url"].exists, "Long press must not open the editor")
+        reveal(edited, in: app); edited.press(forDuration: 1)
+        XCTAssertTrue(remove.waitForExistence(timeout: 5)); remove.tap()
         guard confirm.waitForExistence(timeout: 10) else {
             XCTFail("Show the deletion confirmation again after cancelling: " + app.debugDescription); return
         }
         confirm.tap()
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.textFields["social-account-url"])], timeout: 15), .completed)
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: edited)], timeout: 15), .completed)
         XCTAssertTrue(original.exists)
         keepScreenshot(app, name: "social-accounts-managed")
@@ -124,16 +128,22 @@ final class StyleBoundaryTests: XCTestCase {
         guard done.waitForExistence(timeout: 10) else {
             XCTFail("Without an associated app, keep the author page inside Safari: " + app.debugDescription); return
         }
-        let close = app.buttons["reading-link-close"]
-        guard close.waitForExistence(timeout: 10), close.isHittable else {
-            XCTFail("The app must provide an accessible web-page close action: " + app.debugDescription); return
+        XCTAssertFalse(app.buttons["reading-link-close"].exists, "Use Safari's existing Done button without a second close bar")
+        done.tap()
+        let safariClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)
+        if XCTWaiter.wait(for: [safariClosed], timeout: 3) != .completed {
+            // Remote Safari controls can ignore Simulator taps; also exercise native sheet dismissal.
+            let browser = app.descendants(matching: .other).matching(NSPredicate(format: "identifier BEGINSWITH 'BrowserView?'")).firstMatch
+            let frame = app.frame
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let top = browser.exists ? browser.frame.minY + 4 : frame.minY + 75
+            origin.withOffset(CGVector(dx: frame.midX, dy: top)).press(forDuration: 0.1,
+                thenDragTo: origin.withOffset(CGVector(dx: frame.midX, dy: frame.maxY - 90)))
         }
-        close.tap()
-        let safariClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: close)
-        guard XCTWaiter.wait(for: [safariClosed], timeout: 10) == .completed else {
+        let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)
+        guard XCTWaiter.wait(for: [closed], timeout: 10) == .completed else {
             XCTFail("Closing the web page must dismiss its presentation: " + app.debugDescription); return
         }
-        XCTAssertFalse(done.exists)
         XCTAssertTrue(contact.waitForExistence(timeout: 10))
         let unsupported = app.buttons["profile-social-fixtureapp://author"]
         tapContact(unsupported)

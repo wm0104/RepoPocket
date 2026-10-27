@@ -160,10 +160,14 @@ struct SocialAccountsView: View {
                                 }.frame(minHeight: 44)
                             }
                             .accessibilityIdentifier("social-account-" + account.url)
+                            .accessibilityHint("长按可删除社交账号")
                             .disabled(state.loading || !api.isCurrentSession)
-                            .swipeActions {
-                                Button("删除", role: .destructive) { pendingDeletion = account.url }
-                                    .disabled(state.loading || !api.isCurrentSession)
+                            .contextMenu {
+                                Button(role: .destructive) { pendingDeletion = account.url } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                                .accessibilityIdentifier("social-account-context-delete")
+                                .disabled(state.busy || state.loading || !api.isCurrentSession)
                             }
                         }
                     }
