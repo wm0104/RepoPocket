@@ -48,10 +48,19 @@ struct ReadingLinkDestination: View {
 
 struct ContainedWebPage: UIViewControllerRepresentable {
     let url: URL
+    @Environment(\.dismiss) private var dismiss
+    func makeCoordinator() -> Coordinator { Coordinator(dismiss) }
     func makeUIViewController(context: Context) -> SFSafariViewController {
         let configuration = SFSafariViewController.Configuration()
         configuration.barCollapsingEnabled = false
-        return SFSafariViewController(url: url, configuration: configuration)
+        let controller = SFSafariViewController(url: url, configuration: configuration)
+        controller.delegate = context.coordinator
+        return controller
     }
     func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+    final class Coordinator: NSObject, SFSafariViewControllerDelegate {
+        let dismiss: DismissAction
+        init(_ dismiss: DismissAction) { self.dismiss = dismiss }
+        func safariViewControllerDidFinish(_ controller: SFSafariViewController) { dismiss() }
+    }
 }

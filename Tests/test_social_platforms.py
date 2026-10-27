@@ -33,6 +33,11 @@ class SocialPlatformTests(unittest.TestCase):
         profile = (ROOT / 'RepoPocket/DiscoveryViews.swift').read_text(encoding='utf-8')
         self.assertIn('SocialAccountIcon(url: contact.url, provider: contact.provider)', profile)
 
+    def test_safari_done_also_dismisses_the_swiftui_sheet(self):
+        source = (ROOT / 'RepoPocket/NativeLinkDestination.swift').read_text(encoding='utf-8')
+        self.assertIn('controller.delegate = context.coordinator', source)
+        self.assertIn('func safariViewControllerDidFinish(_ controller: SFSafariViewController) { dismiss() }', source)
+
 
 if __name__ == '__main__':
     unittest.main()

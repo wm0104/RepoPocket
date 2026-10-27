@@ -71,8 +71,18 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(error.waitForExistence(timeout: 15))
         XCTAssertEqual(app.textFields["social-account-url"].value as? String, "https://example.invalid/denied")
         XCTAssertFalse(app.buttons["social-account-https://example.invalid/denied"].exists)
-        let authorize = app.buttons["授权社交账号管理"]
-        reveal(authorize, in: app); authorize.tap()
+        let authorize = app.buttons["social-account-authorize-editor"]
+        guard authorize.waitForExistence(timeout: 10) else {
+            XCTFail("The editor must offer authorization after a permission error: " + app.debugDescription); return
+        }
+        for _ in 0..<6 {
+            if authorize.isHittable { break }
+            app.swipeUp()
+        }
+        guard authorize.isHittable else {
+            XCTFail("The editor authorization link must be tappable: " + app.debugDescription); return
+        }
+        authorize.tap()
         let permission = app.switches["oauth-write-profile"]
         XCTAssertTrue(permission.waitForExistence(timeout: 10)); XCTAssertEqual(permission.value as? String, "1")
         keepScreenshot(app, name: "social-accounts-permission")
@@ -115,6 +125,10 @@ final class StyleBoundaryTests: XCTestCase {
             XCTFail("Without an associated app, keep the author page inside Safari: " + app.debugDescription); return
         }
         done.tap()
+        let safariClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)
+        guard XCTWaiter.wait(for: [safariClosed], timeout: 10) == .completed else {
+            XCTFail("Safari Done must close the presented web page: " + app.debugDescription); return
+        }
         XCTAssertTrue(contact.waitForExistence(timeout: 10))
         let unsupported = app.buttons["profile-social-fixtureapp://author"]
         tapContact(unsupported)

@@ -309,6 +309,7 @@ private struct SocialAccountsAuthorizationSection: View {
                     SoftGroupRow("authorize") {
                         NavigationLink("授权社交账号管理") { DeviceOAuthView(api: api, writeProfile: true) }
                             .disabled(!api.isCurrentSession)
+                            .accessibilityIdentifier(managesAccounts ? "social-account-authorize-main" : "social-account-authorize-editor")
                     }
                 }
                 if managesAccounts {
