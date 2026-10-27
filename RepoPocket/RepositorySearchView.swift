@@ -187,6 +187,7 @@ struct RepositorySearchView: View {
 
 struct UserRepositoriesView: View {
     @State private var attempted = false
+    @State private var readingLink: ReadingLink?
     @ObservedObject var api: GitHub
     let user: User
     @State private var repositories: [Repository] = []
@@ -196,7 +197,7 @@ struct UserRepositoriesView: View {
     @State private var error = ""
     var body: some View {
         List {
-            CommunityProfileSection(api: api, login: user.login, avatar: user.avatar_url)
+            CommunityProfileSection(api: api, login: user.login, avatar: user.avatar_url) { readingLink = ReadingLink(url: $0) }
             ForEach(repositories) { repository in
                 NavigationLink { BrowserView(api: api, repo: repository.full_name, path: "", branch: repository.default_branch ?? "") }
                 label: { RepositoryCard(repository: repository, account: api.login, api: api) }.softGroupedRow(top: repository.id == repositories.first?.id, bottom: repository.id == repositories.last?.id && !more)
@@ -208,6 +209,7 @@ struct UserRepositoriesView: View {
                 if !busy && error.isEmpty && repositories.isEmpty && !more { Text("暂无仓库").softGroupedRow(top: true, bottom: true) }
             }
         }.navigationTitle(user.login).adaptiveWorkspaceLayout().task { guard !attempted else { return }; attempted = true; await load() }
+        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) }
     }
     private func load() async {
         guard !busy else { return }; busy = true; defer { busy = false }

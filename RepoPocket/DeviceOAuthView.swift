@@ -8,6 +8,11 @@ struct DeviceOAuthView: View {
     @StateObject private var controller = DeviceOAuthController()
     @State private var privateRepositories = false
     @State private var followUsers = false
+    @State private var writeProfile: Bool
+    init(api: GitHub, writeProfile: Bool = false) {
+        self.api = api
+        _writeProfile = State(initialValue: writeProfile)
+    }
     var body: some View {
         Form {
             Section("GitHub 浏览器授权") {
@@ -16,7 +21,9 @@ struct DeviceOAuthView: View {
                 SoftGroupRow("scope") { Toggle("授权私有仓库访问", isOn: $privateRepositories).disabled(controller.busy) }
                 SoftGroupRow("follow") { Toggle("授权关注与取消关注", isOn: $followUsers).disabled(controller.busy) }
                 if followUsers { SoftGroupRow("follow-help") { Text("额外请求 user:follow 权限，用于管理当前账号的关注关系。").font(.caption).foregroundStyle(.secondary) } }
-                SoftGroupRow("help") { Text(privateRepositories ? "请求 read:user、repo 权限。" : "请求 read:user、public_repo 权限。私有仓库及某些管理操作可继续使用原来的 Token 登录。")
+                SoftGroupRow("profile") { Toggle("授权社交账号管理", isOn: $writeProfile).disabled(controller.busy).accessibilityIdentifier("oauth-write-profile") }
+                if writeProfile { SoftGroupRow("profile-help") { Text("请求 user 账号权限，用于写入公开资料和社交链接，也包含邮箱读取及关注关系管理，并非只限社交链接。").font(.caption).foregroundStyle(.secondary) } }
+                SoftGroupRow("help") { Text("请求 \(writeProfile ? "user" : "read:user")、\(privateRepositories ? "repo" : "public_repo") 权限。私有仓库及某些管理操作可继续使用原来的 Token 登录。")
                     .font(.caption).foregroundStyle(.secondary) }
                 if controller.busy {
                     SoftGroupRow("busy") { ProgressView("等待 GitHub 授权…") }
@@ -29,7 +36,7 @@ struct DeviceOAuthView: View {
                 } else {
                     SoftGroupRow("start") {
                     Button("开始授权") {
-                        controller.start(clientID: clientID, privateRepositories: privateRepositories, followUsers: followUsers, api: api) { presentation.showing = false }
+                        controller.start(clientID: clientID, privateRepositories: privateRepositories, followUsers: followUsers, writeProfile: writeProfile, api: api) { presentation.showing = false }
                     }.disabled((try? DeviceOAuthRules.clientID(clientID)) == nil)
                     }
                 }

@@ -1430,3 +1430,62 @@ final class GitHub: ObservableObject {
     }
 
 }
+
+// Current-account profile writes have their own endpoint and acknowledgement checks.
+extension GitHub {
+    func socialAccountRead(_ login: String, page: Int) async throws -> Data {
+        try await socialAccountData(method: "GET", page: page, path: "/users/" + Self.component(login) + "/social_accounts")
+    }
+    func ownSocialAccounts() async throws -> [CommunitySocialAccount] {
+        var result: [CommunitySocialAccount] = []
+        var seen = Set<String>()
+        for page in 1...CommunityRules.pageLimit {
+            let bytes = try await socialAccountData(method: "GET", page: page)
+            let batch = try JSONDecoder().decode([CommunitySocialAccount].self, from: bytes)
+            result += batch.filter { seen.insert($0.id).inserted }
+            if batch.count < CommunityRules.pageSize { return result }
+        }
+        throw AppError(text: "社交账号列表未加载完整，请稍后重试。")
+    }
+    func addSocialAccount(_ raw: String) async throws {
+        guard raw.utf8.count <= 2048, let target = CommunityRules.profileWebsiteURL(raw) else {
+            throw AppError(text: "请填写有效的社交账号网页链接，例如 https://t.me/用户名。")
+        }
+        let bytes = try await socialAccountData(method: "POST", link: target.absoluteString)
+        let result = try JSONDecoder().decode([CommunitySocialAccount].self, from: bytes)
+        guard result.contains(where: { $0.url == target.absoluteString }) else {
+            throw AppError(text: "GitHub 未确认新增链接，请刷新核实；原链接不会自动删除。")
+        }
+    }
+    func deleteSocialAccount(_ link: String) async throws {
+        guard !link.isEmpty, link.utf8.count <= 2048 else { throw AppError(text: "无效的社交账号链接。") }
+        _ = try await socialAccountData(method: "DELETE", link: link)
+    }
+    private func socialAccountData(method: String, link: String? = nil, page: Int = 1, path: String = "/user/social_accounts") async throws -> Data {
+        try Task.checkCancellation(); try ensureActiveAccount()
+        guard ["GET", "POST", "DELETE"].contains(method) else { throw AppError(text: "无效的社交账号操作。") }
+        guard method == "GET" || path == "/user/social_accounts" else { throw AppError(text: "社交账号只能修改当前账号。") }
+        let body = try link.map { try JSONSerialization.data(withJSONObject: ["account_urls": [$0]]) }
+        let query = method == "GET" ? try CommunityRules.page(page) : []
+        var r = try request(url(path, query: query), method: method, body: body)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        try Task.checkCancellation(); try ensureActiveAccount()
+        let code = (response as? HTTPURLResponse)?.statusCode
+        if code == 403, method != "GET" {
+            throw AppError(text: "当前授权无法管理社交账号。浏览器授权请开启“授权社交账号管理”；Token 需 user 或 Profile 写入权限。")
+        }
+        if code == 422 {
+            throw AppError(text: "GitHub 未接受此链接，请检查格式、是否重复或数量已满。如已满，请先删除不再使用的链接，再添加新链接。")
+        }
+        try check(bytes, response, operation: "社交账号管理")
+        let expected = method == "GET" ? 200 : (method == "POST" ? 201 : 204)
+        guard code == expected else { throw AppError(text: "未收到社交账号操作成功确认，请刷新核实后重试。") }
+        guard bytes.count <= 1024 * 1024 else { throw AppError(text: "社交账号响应过大。") }
+        if method != "GET" {
+            NotificationCenter.default.post(name: .socialAccountsChanged, object: nil,
+                userInfo: ["account": accountID, "generation": accountGeneration])
+        }
+        return bytes
+    }
+}

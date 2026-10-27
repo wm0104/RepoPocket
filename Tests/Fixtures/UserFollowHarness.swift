@@ -83,6 +83,11 @@ final class FollowProtocol: URLProtocol {
         precondition(DeviceOAuthRules.scope(privateRepositories: false, followUsers: false) == "read:user public_repo")
         precondition(DeviceOAuthRules.scope(privateRepositories: true, followUsers: true) == "read:user repo user:follow")
         precondition(DeviceOAuthRules.scope(privateRepositories: false, followUsers: true) == "read:user public_repo user:follow")
+        precondition(DeviceOAuthRules.scope(privateRepositories: true, followUsers: false, writeProfile: false) == "read:user repo")
+        precondition(DeviceOAuthRules.scope(privateRepositories: false, followUsers: false, writeProfile: true) == "user public_repo")
+        precondition(DeviceOAuthRules.scope(privateRepositories: true, followUsers: false, writeProfile: true) == "user repo")
+        precondition(DeviceOAuthRules.scope(privateRepositories: false, followUsers: true, writeProfile: true) == "user public_repo user:follow")
+        precondition(DeviceOAuthRules.scope(privateRepositories: true, followUsers: true, writeProfile: true) == "user repo user:follow")
         let state = UserFollowStore(api: api)
         CredentialStore.token = ""
         do { _ = try await state.load("target"); fatalError() } catch {}

@@ -719,7 +719,11 @@ struct SettingsView: View {
                         Button { accountPresentation.showing = true } label: {
                             Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
                         }.accessibilityLabel("账号管理：切换、添加或移除本机账号")
-                    }.padding(.vertical, 8).softGroupedRow(top: true, bottom: true)
+                    }.padding(.vertical, 8).softGroupedRow(top: true, bottom: savedAccount == nil)
+                    if savedAccount != nil {
+                        NavigationLink { SocialAccountsView(api: api) } label: { Label("社交账号", systemImage: "link") }
+                            .accessibilityIdentifier("settings-social-accounts").softGroupedRow(bottom: true)
+                    }
                 }
                 Section("账号与安全") {
                     Text("Token 仅保存在本机钥匙串，切换账号自动隔离，账号资料不含 Token。")

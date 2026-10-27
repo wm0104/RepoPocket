@@ -2,6 +2,60 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testSettingsSocialAccountsAddEditDeleteAndPermissionRecovery() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        func openAccounts(_ flags: [String] = []) {
+            app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-social-account-settings-preview"] + flags
+            app.launch()
+            let entry = app.buttons["settings-social-accounts"]
+            XCTAssertTrue(entry.waitForExistence(timeout: 20)); entry.tap()
+            XCTAssertTrue(app.buttons["social-account-https://t.me/fixture_owner"].waitForExistence(timeout: 15))
+        }
+        func fill(_ text: String) {
+            let field = app.textFields["social-account-url"]
+            reveal(field, in: app); field.tap()
+            if let value = field.value as? String, value.hasPrefix("https://") {
+                field.press(forDuration: 1)
+                let selectAll = app.descendants(matching: .any).matching(NSPredicate(format: "label IN {'Select All', '全选'}")).firstMatch
+                XCTAssertTrue(selectAll.waitForExistence(timeout: 5)); selectAll.tap()
+                field.typeText(XCUIKeyboardKey.delete.rawValue)
+            }
+            field.typeText(text + "\n")
+            XCTAssertEqual(field.value as? String, text)
+            let save = app.buttons["social-account-save"]
+            reveal(save, in: app); save.tap()
+        }
+        openAccounts()
+        let original = app.buttons["social-account-https://t.me/fixture_owner"]
+        fill("https://example.invalid/new")
+        let added = app.buttons["social-account-https://example.invalid/new"]
+        XCTAssertTrue(added.waitForExistence(timeout: 15)); XCTAssertTrue(original.exists)
+        reveal(added, in: app); added.tap(); fill("https://example.invalid/edited")
+        let edited = app.buttons["social-account-https://example.invalid/edited"]
+        XCTAssertTrue(edited.waitForExistence(timeout: 15)); XCTAssertFalse(added.exists)
+        reveal(edited, in: app); edited.tap()
+        let remove = app.buttons["删除这个社交账号"]
+        reveal(remove, in: app); remove.tap()
+        let confirm = app.buttons["删除"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); app.buttons["取消"].tap()
+        XCTAssertTrue(edited.exists)
+        remove.tap(); XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: edited)], timeout: 15), .completed)
+        XCTAssertTrue(original.exists)
+        keepScreenshot(app, name: "social-accounts-managed")
+        app.terminate(); openAccounts(["-social-accounts-denied"])
+        fill("https://example.invalid/denied")
+        let error = app.staticTexts["social-account-error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 15)); XCTAssertTrue(original.exists)
+        XCTAssertFalse(app.buttons["social-account-https://example.invalid/denied"].exists)
+        let authorize = app.buttons["授权社交账号管理"]
+        reveal(authorize, in: app); authorize.tap()
+        let permission = app.switches["oauth-write-profile"]
+        XCTAssertTrue(permission.waitForExistence(timeout: 10)); XCTAssertEqual(permission.value as? String, "1")
+        keepScreenshot(app, name: "social-accounts-permission")
+    }
+
     func testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -22,7 +76,9 @@ final class StyleBoundaryTests: XCTestCase {
         keepScreenshot(app, name: "profile-public-contacts")
         reveal(contact, in: app); contact.tap()
         let done = app.buttons.matching(NSPredicate(format: "label IN {'Done', '完成'}")).firstMatch
-        XCTAssertTrue(done.waitForExistence(timeout: 10), "Without an associated app, keep the author page inside Safari")
+        guard done.waitForExistence(timeout: 10) else {
+            XCTFail("Without an associated app, keep the author page inside Safari: " + app.debugDescription); return
+        }
         done.tap()
         XCTAssertTrue(contact.waitForExistence(timeout: 10))
         let unsupported = app.buttons["profile-social-fixtureapp://author"]

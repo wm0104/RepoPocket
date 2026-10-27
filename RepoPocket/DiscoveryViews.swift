@@ -5,11 +5,11 @@ struct CommunityProfileSection: View {
     @ObservedObject var api: GitHub
     let login: String
     let avatar: String?
+    let openWeb: (URL) -> Void
     @State private var profile: CommunityProfile?
     @State private var error = ""
     @State private var revision = 0
     @StateObject private var contacts = CommunityPageStore<CommunitySocialAccount>()
-    @State private var readingLink: ReadingLink?
     @State private var linkRequest: UUID?
     @State private var unsupportedLink: String?
 
@@ -74,12 +74,18 @@ struct CommunityProfileSection: View {
                 if !error.isEmpty { SoftGroupRow("error") { Text(error).font(.caption) }; SoftGroupRow("retry") { Button("重试资料加载") { revision += 1 } } }
             }
         }
-        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) }
         .alert("无法打开此链接", isPresented: Binding(get: { unsupportedLink != nil }, set: { if !$0 { unsupportedLink = nil } }), presenting: unsupportedLink) { value in
             Button("复制链接") { UIPasteboard.general.string = value }
             Button("取消", role: .cancel) {}
         } message: { _ in Text("此链接没有可用的网页地址，可以复制后在对应应用中使用。") }
         .onDisappear { contacts.cancel(); linkRequest = nil; unsupportedLink = nil }
+        .onReceive(NotificationCenter.default.publisher(for: .socialAccountsChanged)) { notice in
+            let viewer = api.login.isEmpty ? AccountStore.accounts.first { $0.id == api.accountID }?.login : api.login
+            guard api.isCurrentSession, viewer?.lowercased() == login.lowercased(),
+                  notice.userInfo?["account"] as? String == api.accountID,
+                  notice.userInfo?["generation"] as? UUID == AccountStore.generation else { return }
+            contacts.load(reset: true, api: api) { try await api.communitySocialAccounts(login, page: $0) }
+        }
         .task(id: revision) {
             error = ""
             do {
@@ -100,7 +106,7 @@ struct CommunityProfileSection: View {
             guard linkRequest == request else { return }
             linkRequest = nil
             guard api.isCurrentSession, !opened else { return }
-            readingLink = ReadingLink(url: url)
+            openWeb(url)
         }
     }
 }

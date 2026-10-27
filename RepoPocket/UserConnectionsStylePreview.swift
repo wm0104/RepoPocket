@@ -5,10 +5,14 @@ import SwiftUI
 struct UserConnectionsStylePreview: View {
     @State private var api: GitHub?
     @State private var error = ""
+    @StateObject private var updateChecker = UpdateChecker()
+    @StateObject private var accountPresentation = AccountPresentation()
     var body: some View {
         Group {
             if let api {
-                if ProcessInfo.processInfo.arguments.contains("-issue-deletion-repository-preview") {
+                if ProcessInfo.processInfo.arguments.contains("-social-account-settings-preview") {
+                    SettingsView(api: api, updateChecker: updateChecker).environmentObject(accountPresentation)
+                } else if ProcessInfo.processInfo.arguments.contains("-issue-deletion-repository-preview") {
                     NavigationStack { CollaborationListView(api: api, repo: "fixture-owner/sample", kind: .issues) }
                 } else if ProcessInfo.processInfo.arguments.contains("-fork-author-preview") {
                     RepositorySocialView(api: api, repository: try! JSONDecoder().decode(Repository.self, from: Data(ConnectionsPreviewProtocol.repository.utf8)), destination: .forks)
@@ -41,10 +45,32 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
     private static var deleted = false
     private static var followed: Set<String> = ["fixture-following", "fixture-second"]
     private static var contactAttempts = 0
+    private static var socialURLs = ["https://t.me/fixture_owner"]
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if path == "/user/social_accounts" {
+            let method = request.httpMethod ?? ""
+            let allowed = request.url?.host == "api.github.com" && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"
+            Self.lock.lock()
+            var code = 403
+            if allowed {
+                if method == "GET" { code = 200 }
+                else if !ProcessInfo.processInfo.arguments.contains("-social-accounts-denied"),
+                        let bytes = Self.body(request), let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: [String]],
+                        let urls = object["account_urls"], urls.count == 1 {
+                    if method == "POST", Self.socialURLs.count < 4 { Self.socialURLs += urls; code = 201 }
+                    else if method == "DELETE" { Self.socialURLs.removeAll { urls.contains($0) }; code = 204 }
+                    else { code = 422 }
+                }
+            }
+            let rows = Self.socialURLs.map { ["provider": "generic", "url": $0] }
+            let bytes = code == 204 ? Data() : (try! JSONSerialization.data(withJSONObject: rows))
+            Self.lock.unlock()
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: bytes); client?.urlProtocolDidFinishLoading(self); return
+        }
         if path.hasPrefix("/users/fixture-owner/following/") || path.hasPrefix("/user/following/") {
             let target = path.components(separatedBy: "/").last ?? ""
             let method = request.httpMethod ?? ""

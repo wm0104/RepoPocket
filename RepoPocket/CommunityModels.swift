@@ -1,5 +1,9 @@
 import Foundation
 
+extension Notification.Name {
+    static let socialAccountsChanged = Notification.Name("RepoPocket.socialAccountsChanged")
+}
+
 enum UserConnectionKind: String, CaseIterable, Identifiable {
     case followers, following
     var id: String { rawValue }

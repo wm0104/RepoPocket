@@ -280,6 +280,15 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
              'ReleasePublishPlan.swift', 'ReleaseTransfers.swift']:
     current = source(file)
     if file == 'GitHub.swift':
+        # Current-account social writes are isolated and covered by native request/state fixtures.
+        social_marker = '// Current-account profile writes have their own endpoint and acknowledgement checks.\n'
+        assert current.count(social_marker) == 1
+        social = current.split(social_marker, 1)[1]
+        assert 'path: String = "/user/social_accounts"' in social
+        assert 'guard method == "GET" || path == "/user/social_accounts"' in social
+        assert 'delegate: OfficialUpdateRedirectPolicy()' in social
+        assert 'guard code == expected' in social
+        current = current.split(social_marker, 1)[0].removesuffix('\n')
         # Exact additions for the account-scoped follow capability have their own native request/race fixtures.
         current = current.replace('    lazy var follows = UserFollowStore(api: self)\n', '')
         current = current.replace('                self?.follows.invalidate()\n', '')

@@ -64,6 +64,11 @@ enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error
  func communityRead(_ path: String, query: [URLQueryItem]) async throws -> Data {
    calls.append((path, query)); return payload
  }
+ func socialAccountRead(_ login: String, page: Int) async throws -> Data {
+   let result = try await communityRead("/users/" + Self.component(login) + "/social_accounts", query: CommunityRules.page(page))
+   try Task.checkCancellation(); guard isCurrentSession else { throw CancellationError() }
+   return result
+ }
 }
 '''+models+'\n'+follow_rules+'\n'+(ROOT/'RepoPocket/RepositoryInput.swift').read_text()+'\n'+(ROOT/'RepoPocket/DesktopModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/RepositorySearchRules.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/HomeCommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityAPI.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityPaging.swift').read_text()+'\n'+oauth+r'''
 struct Row: Identifiable { let id: Int }
@@ -419,6 +424,33 @@ final class OAuthFixtureProtocol: URLProtocol {
             executable = str(Path(folder)/'tests')
             subprocess.run(['swiftc', '-parse-as-library', str(path), '-o', executable], check=True)
             subprocess.run([executable], check=True, timeout=30)
+    @unittest.skipUnless(shutil.which('swiftc'), 'Native social-account regressions run on macOS')
+    def test_production_social_account_management(self):
+        github = (ROOT/'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
+        models = github[github.index('struct User: Decodable'):github.index('struct Release: Decodable')]
+        request = '    private func request(' + github.split('    private func request(', 1)[1].split('    // Public official update metadata', 1)[0]
+        social_api = github.split('// Current-account profile writes have their own endpoint and acknowledgement checks.', 1)[1]
+        social_state = (ROOT/'RepoPocket/SocialAccountsView.swift').read_text(encoding='utf-8')
+        social_state = '@MainActor' + social_state.split('@MainActor', 1)[1].split('struct SocialAccountsView:', 1)[0]
+        program = (ROOT/'Tests/Fixtures/SocialAccountsHarness.swift').read_text(encoding='utf-8')
+        sources = {
+            '// PRODUCTION_MODELS': models,
+            '// PRODUCTION_REPOSITORY_INPUT': (ROOT/'RepoPocket/RepositoryInput.swift').read_text(encoding='utf-8'),
+            '// PRODUCTION_COMMUNITY_MODELS': (ROOT/'RepoPocket/CommunityModels.swift').read_text(encoding='utf-8'),
+            '// PRODUCTION_REDIRECT_POLICY': (ROOT/'RepoPocket/OfficialUpdateRedirectPolicy.swift').read_text(encoding='utf-8'),
+            '// PRODUCTION_REQUEST': request,
+            '// PRODUCTION_SOCIAL_API': social_api,
+            '// PRODUCTION_SOCIAL_STATE': social_state,
+        }
+        for marker, source in sources.items():
+            self.assertEqual(program.count(marker), 1)
+            program = program.replace(marker, source)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'main.swift'
+            path.write_text(program, encoding='utf-8')
+            executable = str(Path(folder)/'social-accounts')
+            subprocess.run(['swiftc', '-parse-as-library', str(path), '-o', executable], check=True)
+            subprocess.run([executable], check=True, timeout=60)
 
 
 if __name__ == '__main__':

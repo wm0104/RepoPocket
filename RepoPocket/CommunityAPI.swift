@@ -49,8 +49,8 @@ extension GitHub {
     }
     func communitySocialAccounts(_ login: String, page: Int) async throws -> [CommunitySocialAccount] {
         let target = try UserFollowRules.login(login)
-        return try await communityDecode([CommunitySocialAccount].self,
-            path: "/users/" + Self.component(target) + "/social_accounts", query: CommunityRules.page(page))
+        let bytes = try await socialAccountRead(target, page: page)
+        return try JSONDecoder().decode([CommunitySocialAccount].self, from: bytes)
     }
     func userConnections(_ login: String, kind: UserConnectionKind, page: Int) async throws -> [RepositorySocialUser] {
         try Task.checkCancellation()
