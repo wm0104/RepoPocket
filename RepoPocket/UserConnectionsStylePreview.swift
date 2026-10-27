@@ -138,7 +138,7 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
             payload = "{\"login\":\"" + login + "\",\"type\":\"User\",\"blog\":\"" + website + "\",\"bio\":\"关注列表测试用户\",\"public_repos\":0,\"followers\":0,\"following\":0}"
         } else if path.hasSuffix("/social_accounts") {
             payload = ProcessInfo.processInfo.arguments.contains("-profile-contacts-preview")
-                ? #"[{"provider":"mastodon","url":"https://mastodon.example.invalid/@author"},{"provider":"bluesky","url":"https://bluesky.example.invalid/profile/author"},{"provider":"generic","url":"https://threads.example.invalid/author"},{"provider":"generic","url":"fixtureapp://author"}]"# : "[]"
+                ? #"[{"provider":"mastodon","url":"https://mastodon.example.invalid/@author"},{"provider":"bluesky","url":"https://bsky.app/profile/author.example.invalid"},{"provider":"generic","url":"https://threads.net/fixture-author"},{"provider":"generic","url":"fixtureapp://author"}]"# : "[]"
         } else if path == "/user/repos" {
             payload = #"[{"id":501,"name":"alpha","full_name":"fixture-owner/alpha","html_url":"https://github.com/fixture-owner/alpha"},{"id":502,"name":"beta","full_name":"fixture-owner/beta","html_url":"https://github.com/fixture-owner/beta"}]"#
         } else if path == "/user/starred" {

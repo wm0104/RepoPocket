@@ -121,6 +121,9 @@ final class StyleBoundaryTests: XCTestCase {
         let contact = app.buttons["profile-social-https://mastodon.example.invalid/@author"]
         XCTAssertTrue(contact.waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["profile-website"].exists)
+        XCTAssertTrue(app.buttons["profile-social-https://bsky.app/profile/author.example.invalid"].exists)
+        XCTAssertTrue(app.buttons["profile-social-https://threads.net/fixture-author"].exists)
+        XCTAssertFalse(app.buttons["profile-github"].exists, "The native author profile must not repeat an external GitHub profile entry")
         XCTAssertEqual(contact.value as? String, "https://mastodon.example.invalid/@author")
         keepScreenshot(app, name: "profile-public-contacts")
         tapContact(contact)

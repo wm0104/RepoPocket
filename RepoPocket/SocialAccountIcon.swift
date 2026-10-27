@@ -8,13 +8,13 @@ struct SocialAccountIcon: View {
         Group {
             if let platform = SocialPlatform.identify(url: url, provider: provider) {
                 Image("social-" + platform.rawValue)
-                    .resizable().scaledToFit().padding(2)
+                    .resizable().scaledToFit().frame(width: 22, height: 22)
                     .foregroundStyle(color(platform))
             } else {
                 Image(systemName: "globe")
                     .font(.system(size: 21)).foregroundStyle(.secondary)
             }
-        }.frame(width: 26, height: 26).accessibilityHidden(true)
+        }.frame(width: 26, height: 26, alignment: .center).accessibilityHidden(true)
     }
 
     private func color(_ platform: SocialPlatform) -> Color {

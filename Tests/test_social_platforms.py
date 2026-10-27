@@ -33,6 +33,20 @@ class SocialPlatformTests(unittest.TestCase):
         profile = (ROOT / 'RepoPocket/DiscoveryViews.swift').read_text(encoding='utf-8')
         self.assertIn('SocialAccountIcon(url: contact.url, provider: contact.provider)', profile)
 
+    def test_profile_link_icons_are_centered_without_a_duplicate_github_entry(self):
+        source = (ROOT / 'RepoPocket/DiscoveryViews.swift').read_text(encoding='utf-8')
+        profile = source.split('struct CommunityProfileSection: View {', 1)[1].split('struct CommunityEventsView:', 1)[0]
+        self.assertEqual(profile.count('HStack(alignment: .center, spacing: 12)'), 2)
+        self.assertNotIn('profile-github', profile)
+        self.assertNotIn('查看 GitHub 主页', profile)
+        self.assertIn('SoftGroupRow("events")', profile)
+        self.assertIn('SoftGroupRow("chart")', profile)
+        icon = (ROOT / 'RepoPocket/SocialAccountIcon.swift').read_text(encoding='utf-8')
+        self.assertIn('.scaledToFit().frame(width: 22, height: 22)', icon)
+        self.assertIn('.frame(width: 26, height: 26, alignment: .center)', icon)
+        self.assertIn('.accessibilityHidden(true)', icon)
+        self.assertNotIn('.scaledToFill()', icon)
+
     def test_social_account_long_press_uses_existing_delete_confirmation(self):
         source = (ROOT / 'RepoPocket/SocialAccountsView.swift').read_text(encoding='utf-8')
         listing = source.split('struct SocialAccountsView: View {', 1)[1].split('private struct SocialAccountEditor:', 1)[0]

@@ -37,7 +37,10 @@ struct CommunityProfileSection: View {
                     if let site = profile.blog, !site.isEmpty {
                         SoftGroupRow("site") {
                             Button { openContact(site) } label: {
-                                Label { Text(site).font(.subheadline) } icon: { SocialAccountIcon(url: site) }
+                                HStack(alignment: .center, spacing: 12) {
+                                    SocialAccountIcon(url: site)
+                                    Text(site).font(.subheadline).multilineTextAlignment(.leading)
+                                }
                             }
                                 .accessibilityIdentifier("profile-website").accessibilityValue(site)
                                 .disabled(linkRequest != nil)
@@ -47,12 +50,13 @@ struct CommunityProfileSection: View {
                 for contact in contacts.items {
                     SoftGroupRow("social-" + contact.id) {
                         Button { openContact(contact.url) } label: {
-                            Label {
+                            HStack(alignment: .center, spacing: 12) {
+                                SocialAccountIcon(url: contact.url, provider: contact.provider)
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(contact.title).font(.caption).foregroundStyle(.secondary)
                                     Text(contact.url).font(.subheadline).multilineTextAlignment(.leading)
                                 }
-                            } icon: { SocialAccountIcon(url: contact.url, provider: contact.provider) }
+                            }
                         }.accessibilityIdentifier("profile-social-" + contact.id).accessibilityValue(contact.url)
                             .disabled(linkRequest != nil)
                     }
@@ -63,13 +67,6 @@ struct CommunityProfileSection: View {
                     SoftGroupRow("contacts-retry") { Button("重试联系方式") { loadContacts() } }
                 } else if contacts.loaded && contacts.more {
                     SoftGroupRow("contacts-more") { Button("加载更多联系方式") { loadContacts() }.disabled(contacts.busy) }
-                }
-                if let target = try? UserFollowRules.login(login), let url = URL(string: "https://github.com/" + target) {
-                    SoftGroupRow("github-profile") {
-                        Button { openContact(url.absoluteString) } label: { Label("查看 GitHub 主页", systemImage: "person.crop.circle") }
-                            .accessibilityIdentifier("profile-github").accessibilityValue(url.absoluteString)
-                            .disabled(linkRequest != nil)
-                    }
                 }
                 SoftGroupRow("events") { NavigationLink("公开活动") { CommunityEventsView(api: api, login: login) } }
                 SoftGroupRow("chart") { NavigationLink("活动图表") { NativeActivityChartView(api: api, login: login) } }
