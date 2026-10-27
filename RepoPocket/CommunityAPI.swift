@@ -47,6 +47,11 @@ extension GitHub {
     func communityProfile(_ login: String) async throws -> CommunityProfile {
         try await communityDecode(CommunityProfile.self, path: "/users/" + Self.component(login))
     }
+    func communitySocialAccounts(_ login: String, page: Int) async throws -> [CommunitySocialAccount] {
+        let target = try UserFollowRules.login(login)
+        return try await communityDecode([CommunitySocialAccount].self,
+            path: "/users/" + Self.component(target) + "/social_accounts", query: CommunityRules.page(page))
+    }
     func userConnections(_ login: String, kind: UserConnectionKind, page: Int) async throws -> [RepositorySocialUser] {
         try Task.checkCancellation()
         guard isCurrentSession else { throw CancellationError() }

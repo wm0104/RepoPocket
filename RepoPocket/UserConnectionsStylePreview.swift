@@ -40,6 +40,7 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
     private static var posted = ""
     private static var deleted = false
     private static var followed: Set<String> = ["fixture-following", "fixture-second"]
+    private static var contactAttempts = 0
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -73,6 +74,13 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
         let allowed = request.url?.host == "api.github.com"
             && (request.httpMethod == "GET" || acceptedPost || graph)
             && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"
+        if path.hasSuffix("/social_accounts"), ProcessInfo.processInfo.arguments.contains("-profile-contacts-error") {
+            Self.lock.lock(); Self.contactAttempts += 1; let first = Self.contactAttempts == 1; Self.lock.unlock()
+            if first {
+                client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocolDidFinishLoading(self); return
+            }
+        }
         let payload: String
         if graph && allowed, let bytes = Self.body(request),
            let body = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
@@ -100,7 +108,11 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
             payload = #"[{"id":404,"login":"fixture-following"}]"#
         } else if ["/users/fixture-follower", "/users/fixture-following", "/users/fixture-owner", "/users/fixture-second"].contains(path) {
             let login = path.components(separatedBy: "/").last!
-            payload = "{\"login\":\"" + login + "\",\"type\":\"User\",\"bio\":\"关注列表测试用户\",\"public_repos\":0,\"followers\":0,\"following\":0}"
+            let website = ProcessInfo.processInfo.arguments.contains("-profile-contacts-preview") ? "https://example.invalid/author" : ""
+            payload = "{\"login\":\"" + login + "\",\"type\":\"User\",\"blog\":\"" + website + "\",\"bio\":\"关注列表测试用户\",\"public_repos\":0,\"followers\":0,\"following\":0}"
+        } else if path.hasSuffix("/social_accounts") {
+            payload = ProcessInfo.processInfo.arguments.contains("-profile-contacts-preview")
+                ? #"[{"provider":"mastodon","url":"https://mastodon.example.invalid/@author"},{"provider":"bluesky","url":"https://bluesky.example.invalid/profile/author"},{"provider":"generic","url":"https://threads.example.invalid/author"},{"provider":"generic","url":"fixtureapp://author"}]"# : "[]"
         } else if path == "/user/repos" {
             payload = #"[{"id":501,"name":"alpha","full_name":"fixture-owner/alpha","html_url":"https://github.com/fixture-owner/alpha"},{"id":502,"name":"beta","full_name":"fixture-owner/beta","html_url":"https://github.com/fixture-owner/beta"}]"#
         } else if path == "/user/starred" {

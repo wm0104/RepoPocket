@@ -25,6 +25,7 @@ expected.update({'local-history-collapsed', 'local-history-expanded', 'local-com
 expected.update({'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'})
 expected.update({'patch-highlight-left', 'patch-highlight-right', 'patch-raw-left', 'patch-raw-right'})
 profiles = {'profile-issue-list', 'profile-fork', 'profile-activity', 'profile-fork-repository', 'profile-activity-repository'}
+profiles.update({'profile-public-contacts', 'profile-contacts-retry'})
 actions = {'release-compact-attachments', 'release-inline-progress', 'profile-following-action', 'profile-follow-status-error', 'repository-owner-profile'}
 actions.update({'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'})
 file_feedback = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-editor'}

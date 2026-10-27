@@ -77,6 +77,21 @@ struct CommunityProfile: Decodable {
     let public_repos: Int?
 }
 
+struct CommunitySocialAccount: Decodable, Identifiable {
+    let provider: String
+    let url: String
+    var id: String { url }
+    var title: String {
+        switch provider.lowercased() {
+        case "mastodon": return "Mastodon"
+        case "bluesky": return "Bluesky"
+        case "twitter": return "X / Twitter"
+        case "generic": return "社交链接"
+        default: return provider.capitalized
+        }
+    }
+}
+
 struct CommunityEvent: Decodable, Identifiable {
     let id: String
     let type: String
@@ -119,6 +134,17 @@ enum CommunityRules {
     static func webURL(_ raw: String?) -> URL? {
         guard let raw, let url = URL(string: raw), url.scheme == "https",
               url.host != nil, url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+    static func profileWebsiteURL(_ raw: String?) -> URL? {
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
+              !value.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }) else { return nil }
+        // A bare domain can have a port; app schemes must not become web hosts.
+        if !value.contains("://"), let scheme = URLComponents(string: value)?.scheme, !scheme.contains(".") { return nil }
+        let candidate = value.hasPrefix("//") ? "https:" + value : (value.contains("://") ? value : "https://" + value)
+        guard let url = URL(string: candidate), let scheme = url.scheme?.lowercased(),
+              ["https", "http"].contains(scheme), let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil else { return nil }
         return url
     }
     static func repositoryURL(_ repo: String, suffix: String = "") -> URL? {

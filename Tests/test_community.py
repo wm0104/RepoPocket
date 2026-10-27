@@ -41,6 +41,7 @@ class CommunityTests(unittest.TestCase):
         source = (ROOT/'RepoPocket/GitHub.swift').read_text()
         models = source[source.index('struct User: Decodable'):source.index('struct Release: Decodable')]
         oauth = (ROOT/'RepoPocket/DeviceOAuth.swift').read_text()
+        follow_rules = (ROOT/'RepoPocket/UserFollow.swift').read_text().split('/// Shared only', 1)[0]
         program = '''import Foundation
 import Combine
 struct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }
@@ -64,7 +65,7 @@ enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error
    calls.append((path, query)); return payload
  }
 }
-'''+models+'\n'+(ROOT/'RepoPocket/RepositoryInput.swift').read_text()+'\n'+(ROOT/'RepoPocket/DesktopModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/RepositorySearchRules.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/HomeCommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityAPI.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityPaging.swift').read_text()+'\n'+oauth+r'''
+'''+models+'\n'+follow_rules+'\n'+(ROOT/'RepoPocket/RepositoryInput.swift').read_text()+'\n'+(ROOT/'RepoPocket/DesktopModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/RepositorySearchRules.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/HomeCommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityAPI.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityPaging.swift').read_text()+'\n'+oauth+r'''
 struct Row: Identifiable { let id: Int }
 enum SampleError: Error { case offline }
 final class OAuthFixtureProtocol: URLProtocol {
@@ -95,6 +96,38 @@ final class OAuthFixtureProtocol: URLProtocol {
  @MainActor static func main() async throws {
    let decoder = JSONDecoder()
    let api = GitHub()
+   api.payload = Data(#"[{"provider":"mastodon","url":"https://infosec.exchange/@opa334"},{"provider":"bluesky","url":"https://bsky.app/profile/opa334.bsky.social"},{"provider":"generic","url":"https://threads.net/opa334"}]"#.utf8)
+   let contacts = try await api.communitySocialAccounts("OPA334", page: 2)
+   precondition(contacts.count == 3 && contacts[0].title == "Mastodon" && contacts[1].title == "Bluesky")
+   precondition(contacts[2].id == "https://threads.net/opa334")
+   precondition(api.calls.last!.0 == "/users/opa334/social_accounts")
+   precondition(api.calls.last!.1.contains { $0.name == "page" && $0.value == "2" })
+   precondition(api.calls.last!.1.contains { $0.name == "per_page" && $0.value == "30" })
+   let contactCalls = api.calls.count
+   for invalid in ["", "../user", "user/name", "name?x=1", String(repeating:"a",count:40)] {
+     do { _ = try await api.communitySocialAccounts(invalid,page:1); preconditionFailure() } catch {}
+   }
+   for page in [0,11] {
+     do { _ = try await api.communitySocialAccounts("opa334",page:page); preconditionFailure() } catch {}
+   }
+   precondition(api.calls.count == contactCalls)
+   api.isCurrentSession = false
+   do { _ = try await api.communitySocialAccounts("opa334",page:1); preconditionFailure() } catch is CancellationError {}
+   api.isCurrentSession = true
+   api.payload = Data("[]".utf8)
+   let emptyContacts = try await api.communitySocialAccounts("other",page:1)
+   precondition(emptyContacts.isEmpty)
+   for invalid in [nil, "", "   ", "javascript:alert(1)", "file:///tmp/x", "https://user:password@example.com", "https://example.com/with space"] as [String?] {
+     precondition(CommunityRules.profileWebsiteURL(invalid) == nil)
+   }
+   precondition(CommunityRules.profileWebsiteURL(" example.com/about ")?.absoluteString == "https://example.com/about")
+   precondition(CommunityRules.profileWebsiteURL("https://example.com/about")?.absoluteString == "https://example.com/about")
+   precondition(CommunityRules.profileWebsiteURL("http://example.com")?.scheme == "http")
+   precondition(CommunityRules.profileWebsiteURL("example.com:8443/about")?.port == 8443)
+   precondition(CommunityRules.profileWebsiteURL("//example.com/about")?.absoluteString == "https://example.com/about")
+   precondition(CommunityRules.profileWebsiteURL("fixtureapp://author") == nil)
+   precondition(CommunityRules.profileWebsiteURL("tel:123") == nil)
+   precondition(CommunityRules.profileWebsiteURL("sms:123") == nil)
    api.payload = Data(#"[{"id":8,"login":"example-user","avatar_url":null}]"#.utf8)
    for kind in UserConnectionKind.allCases {
      let people = try await api.userConnections("fixture-owner", kind:kind, page:2)

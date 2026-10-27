@@ -2,6 +2,46 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        func openAuthor(_ flags: [String] = []) {
+            app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-profile-contacts-preview"] + flags
+            app.launch()
+            let issue = app.buttons["home-issue-4"]
+            XCTAssertTrue(issue.waitForExistence(timeout: 20)); issue.tap()
+            let author = app.buttons["issue-author"]
+            XCTAssertTrue(author.waitForExistence(timeout: 15)); author.tap()
+            XCTAssertTrue(app.navigationBars["fixture-follower"].waitForExistence(timeout: 10))
+        }
+        openAuthor()
+        let contact = app.buttons["profile-social-https://mastodon.example.invalid/@author"]
+        XCTAssertTrue(contact.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["profile-website"].exists)
+        XCTAssertEqual(contact.value as? String, "https://mastodon.example.invalid/@author")
+        keepScreenshot(app, name: "profile-public-contacts")
+        reveal(contact, in: app); contact.tap()
+        let done = app.buttons.matching(NSPredicate(format: "label IN {'Done', '完成'}")).firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "Without an associated app, keep the author page inside Safari")
+        done.tap()
+        XCTAssertTrue(contact.waitForExistence(timeout: 10))
+        let unsupported = app.buttons["profile-social-fixtureapp://author"]
+        reveal(unsupported, in: app); unsupported.tap()
+        let alert = app.alerts["无法打开此链接"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.buttons["复制链接"].exists)
+        alert.buttons["取消"].tap()
+        app.terminate(); openAuthor(["-profile-contacts-error"])
+        let retry = app.buttons["重试联系方式"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["user-follow-action"].exists)
+        XCTAssertTrue(app.buttons["profile-website"].exists)
+        reveal(retry, in: app); keepScreenshot(app, name: "profile-contacts-retry")
+        retry.tap()
+        XCTAssertTrue(contact.waitForExistence(timeout: 15))
+        XCTAssertFalse(retry.exists)
+    }
+
     func testWorkflowFiltersAndSelectionKeepGroupedRows() {
         continueAfterFailure = false
         let app = XCUIApplication()
