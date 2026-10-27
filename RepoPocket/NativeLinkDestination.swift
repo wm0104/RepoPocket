@@ -50,7 +50,7 @@ struct ContainedWebPage: UIViewControllerRepresentable {
     let url: URL
     let onClose: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(onClose) }
-    func makeUIViewController(context: Context) -> SFSafariViewController {
+    func makeUIViewController(context: Context) -> Presenter {
         let configuration = SFSafariViewController.Configuration()
         configuration.barCollapsingEnabled = false
         let controller = SFSafariViewController(url: url, configuration: configuration)
@@ -58,10 +58,23 @@ struct ContainedWebPage: UIViewControllerRepresentable {
         #if DEBUG
         NSLog("RepoPocket.WebSheet created")
         #endif
-        return controller
+        return Presenter(browser: controller)
     }
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {
+    func updateUIViewController(_ controller: Presenter, context: Context) {
         context.coordinator.onClose = onClose
+    }
+    // Safari is presented modally, rather than embedded as SwiftUI's child controller.
+    final class Presenter: UIViewController {
+        let browser: SFSafariViewController
+        init(browser: SFSafariViewController) { self.browser = browser; super.init(nibName: nil, bundle: nil) }
+        required init?(coder: NSCoder) { return nil }
+        override func viewDidLoad() { super.viewDidLoad(); view.backgroundColor = .systemBackground }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            guard browser.presentingViewController == nil else { return }
+            browser.modalPresentationStyle = .fullScreen
+            present(browser, animated: false)
+        }
     }
     final class Coordinator: NSObject, SFSafariViewControllerDelegate {
         var onClose: () -> Void
