@@ -31,6 +31,7 @@ actions = {'release-compact-attachments', 'release-inline-progress', 'profile-fo
 actions.update({'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'})
 file_feedback = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-editor'}
 download_lifecycle = file_feedback | {'local-file-sheet-dismissed', 'release-compact-attachments', 'release-inline-progress'}
+file_edit = {'remote-file-editor-cancelled', 'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'}
 if scope == 'profiles':
     expected = profiles
 elif scope == 'workflow-selection':
@@ -41,11 +42,14 @@ elif scope == 'file-feedback':
     expected = file_feedback
 elif scope == 'download-lifecycle':
     expected = download_lifecycle
+elif scope == 'file-edit':
+    expected = file_edit
 elif scope == 'all':
     expected.update(profiles)
     expected.update(actions)
     expected.update(file_feedback)
     expected.update(download_lifecycle)
+    expected.update(file_edit)
 else:
     raise ValueError('Unknown UI test scope')
 

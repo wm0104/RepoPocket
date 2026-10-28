@@ -10,7 +10,11 @@ struct UserConnectionsStylePreview: View {
     var body: some View {
         Group {
             if let api {
-                if ProcessInfo.processInfo.arguments.contains("-social-account-settings-preview") {
+                if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
+                    NavigationStack {
+                        FileView(api: api, repo: "fixture-owner/sample", entry: ConnectionsPreviewProtocol.editorEntry, branch: "main", canWrite: true)
+                    }
+                } else if ProcessInfo.processInfo.arguments.contains("-social-account-settings-preview") {
                     SettingsView(api: api, updateChecker: updateChecker).environmentObject(accountPresentation)
                 } else if ProcessInfo.processInfo.arguments.contains("-issue-deletion-repository-preview") {
                     NavigationStack { CollaborationListView(api: api, repo: "fixture-owner/sample", kind: .issues) }
@@ -46,10 +50,32 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
     private static var followed: Set<String> = ["fixture-following", "fixture-second"]
     private static var contactAttempts = 0
     private static var socialURLs = ["https://t.me/fixture_owner"]
+    static let editorSource = (1...79).map { "# Fixture line \($0)" }.joined(separator: "\n") + "\nEND_MARKER"
+    static var editorEntry: Entry {
+        Entry(name: "editor.py", path: "editor.py", type: "file", sha: "fixture-editor-sha", size: editorSource.utf8.count,
+              download_url: nil, content: Data(editorSource.utf8).base64EncodedString(), encoding: "base64")
+    }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let allowed = request.url?.host == "api.github.com" && request.httpMethod == "GET"
+                && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"
+            var code = 403, payload: [String: Any] = ["message": "Unexpected editor fixture request"]
+            if allowed, path == "/repos/fixture-owner/sample/contents/editor.py",
+               query.count == 1, query.first?.name == "ref", query.first?.value == "main" {
+                payload = ["name": "editor.py", "path": "editor.py", "type": "file", "sha": "fixture-editor-sha",
+                           "size": Self.editorSource.utf8.count, "content": Data(Self.editorSource.utf8).base64EncodedString(), "encoding": "base64"]
+                code = 200
+            } else if allowed, path == "/repos/fixture-owner/sample", query.isEmpty {
+                payload = ["full_name": "fixture-owner/sample", "permissions": ["push": true]]; code = 200
+            }
+            let bytes = try! JSONSerialization.data(withJSONObject: payload)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: bytes); client?.urlProtocolDidFinishLoading(self); return
+        }
         if path == "/user/social_accounts" {
             let method = request.httpMethod ?? ""
             let allowed = request.url?.host == "api.github.com" && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"

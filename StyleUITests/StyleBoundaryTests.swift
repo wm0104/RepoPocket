@@ -851,6 +851,65 @@ final class StyleBoundaryTests: XCTestCase {
         }
     }
 
+    func testRemoteFileEditorConfirmationDoesNotRestoreKeyboard() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-remote-file-editor-preview"]
+        app.launch()
+        let edit = app.buttons["编辑"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 20)); edit.tap()
+        let editor = app.navigationBars["编辑 editor.py"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        let surfaces = app.textViews.matching(identifier: "代码正文")
+        XCTAssertTrue(surfaces.firstMatch.waitForExistence(timeout: 10))
+        // The reading surface can remain behind the presented editor.
+        let code = surfaces.element(boundBy: surfaces.count - 1)
+        XCTAssertTrue(code.isHittable)
+        let original = code.value as? String ?? ""
+        XCTAssertTrue(original.hasSuffix("END_MARKER"))
+        XCTAssertEqual(original.components(separatedBy: "\n").count, 80)
+        for _ in 0..<6 { code.swipeUp() }
+        let viewport = code.frame.intersection(app.frame)
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: viewport.maxX - 24, dy: viewport.maxY - 24)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Setup must focus the shipping code editor")
+        code.typeText("x" + XCUIKeyboardKey.delete.rawValue + "_EDIT")
+        let draft = code.value as? String ?? ""
+        XCTAssertEqual(draft, original + "_EDIT", "Setup must edit and delete at the actual document end")
+        let message = app.textFields["提交说明"]
+        XCTAssertTrue(message.exists)
+        var commitMessage = message.value as? String ?? ""
+        var restoredFocus: [String] = []
+        for focus in ["source", "commit-message"] {
+            if focus == "commit-message" {
+                message.tap(); message.typeText(" fixture")
+                commitMessage = message.value as? String ?? ""
+                XCTAssertTrue(commitMessage.contains("fixture"), "Setup must edit the commit message")
+            }
+            XCTAssertTrue(app.keyboards.firstMatch.exists, "Setup must begin confirmation with \(focus) focused")
+            editor.buttons["提交"].tap()
+            let dialog = app.sheets.firstMatch
+            XCTAssertTrue(dialog.waitForExistence(timeout: 5), "The real FileView confirmation must open")
+            XCTAssertTrue(dialog.buttons["确认提交"].exists)
+            keepScreenshot(app, name: "remote-file-editor-confirmation-" + focus)
+            let cancel = dialog.buttons.matching(NSPredicate(format: "label == '取消' OR label == 'Cancel'")).firstMatch
+            XCTAssertTrue(cancel.exists); cancel.tap()
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: dialog)], timeout: 5), .completed)
+            XCTAssertTrue(editor.exists, "Cancelling confirmation must keep the editor sheet")
+            XCTAssertEqual(code.value as? String, draft, "Cancelling must preserve the edited body")
+            XCTAssertEqual(message.value as? String, commitMessage, "Cancelling must preserve the commit message")
+            let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
+            if XCTWaiter.wait(for: [hidden], timeout: 3) != .completed { restoredFocus.append(focus) }
+            else {
+                let reappeared = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.keyboards.firstMatch)
+                reappeared.isInverted = true
+                if XCTWaiter.wait(for: [reappeared], timeout: 1) != .completed { restoredFocus.append(focus) }
+            }
+        }
+        keepScreenshot(app, name: "remote-file-editor-cancelled")
+        XCTAssertTrue(restoredFocus.isEmpty, "Cancelling confirmation must not reopen the keyboard; restored focus: \(restoredFocus)")
+    }
+
     func testSourcePreviewAndEditorHorizontalScrolling() {
         continueAfterFailure = false
         let app = XCUIApplication()

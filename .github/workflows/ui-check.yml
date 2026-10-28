@@ -5,7 +5,7 @@ on:
       test_scope:
         description: Run all UI checks, profile navigation, or attachment/follow actions
         type: choice
-        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle]
+        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit]
         default: all
   push:
     branches: [main, 'codex/**']
