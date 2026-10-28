@@ -888,13 +888,14 @@ final class StyleBoundaryTests: XCTestCase {
             }
             XCTAssertTrue(app.keyboards.firstMatch.exists, "Setup must begin confirmation with \(focus) focused")
             editor.buttons["提交"].tap()
-            let dialog = app.sheets.firstMatch
-            XCTAssertTrue(dialog.waitForExistence(timeout: 5), "The real FileView confirmation must open")
-            XCTAssertTrue(dialog.buttons["确认提交"].exists)
+            let confirm = app.buttons["确认提交"]
+            XCTAssertTrue(confirm.waitForExistence(timeout: 5), "The real FileView confirmation must open: " + app.debugDescription)
             keepScreenshot(app, name: "remote-file-editor-confirmation-" + focus)
-            let cancel = dialog.buttons.matching(NSPredicate(format: "label == '取消' OR label == 'Cancel'")).firstMatch
-            XCTAssertTrue(cancel.exists); cancel.tap()
-            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: dialog)], timeout: 5), .completed)
+            let cancel = app.buttons.matching(NSPredicate(format: "label == '取消' OR label == 'Cancel'"))
+                .allElementsBoundByIndex.last(where: { $0.isHittable })
+            guard let cancel else { XCTFail("Missing confirmation cancel: " + app.debugDescription); return }
+            cancel.tap()
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: confirm)], timeout: 5), .completed)
             XCTAssertTrue(editor.exists, "Cancelling confirmation must keep the editor sheet")
             XCTAssertEqual(code.value as? String, draft, "Cancelling must preserve the edited body")
             XCTAssertEqual(message.value as? String, commitMessage, "Cancelling must preserve the commit message")
