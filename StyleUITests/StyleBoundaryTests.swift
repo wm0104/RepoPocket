@@ -688,7 +688,12 @@ final class StyleBoundaryTests: XCTestCase {
         keepScreenshot(app, name: "local-deb-editor")
         save.tap()
         XCTAssertTrue(folder.waitForExistence(timeout: 20))
-        menu.tap(); app.buttons["编辑包信息"].tap()
+        // Saving starts a project scan; visible rows remain disabled until it finishes.
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in menu.exists && menu.isEnabled && menu.isHittable }, object: nil)], timeout: 20), .completed)
+        menu.tap()
+        let edit = app.buttons["编辑包信息"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5)); edit.tap()
         XCTAssertTrue(version.waitForExistence(timeout: 20))
         XCTAssertEqual(version.value as? String, "2.0", "The edited DEB must be saved to its original project path")
         app.buttons["关闭"].tap()
