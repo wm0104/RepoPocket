@@ -620,7 +620,11 @@ struct FileView: View {
             }.navigationTitle("编辑 " + entry.name).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { editing = false }.disabled(busy) }
-                ToolbarItem(placement: .confirmationAction) { Button(busy ? "提交中…" : "提交") { confirmSave = true }
+                ToolbarItem(placement: .confirmationAction) { Button(busy ? "提交中…" : "提交") {
+                    // End input before presenting, so dismissing confirmation cannot restore the keyboard.
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    confirmSave = true
+                }
                     .disabled(busy || !writable || text == originalText || text.utf8.count > SourceTextRules.byteLimit || commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             }
             .confirmationDialog("把修改提交到 \(repo)？", isPresented: $confirmSave, titleVisibility: .visible) { Button("确认提交") { Task { await save() } } }
