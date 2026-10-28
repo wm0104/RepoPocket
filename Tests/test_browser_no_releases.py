@@ -17,6 +17,11 @@ class BrowserRollbackTests(unittest.TestCase):
             current = (ROOT/file).read_text()
             historic = subprocess.check_output(['git','show',f'{BASE}:{file}'],cwd=ROOT,text=True)
             if file.endswith('/RepositoryUI.swift'):
+                # Only the obsolete manual reset is removed from the avatar pipeline.
+                self.assertNotIn('    func clearIfIdle()', current)
+                cache_start = historic.index('    func clearIfIdle()')
+                cache_end = historic.index('    func image(for url:', cache_start)
+                historic = historic[:cache_start] + historic[cache_end:]
                 # Only the newly approved star/fork count destinations differ.
                 begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
                 self.assertEqual(current.split(begin)[0], historic.split(begin)[0])
@@ -53,6 +58,24 @@ class BrowserRollbackTests(unittest.TestCase):
         # account/host/error guards. Normalize only those exact additions before
         # comparing the complete historic write/download implementation.
         normalized = api_new[:added_start].replace(approved, historic)
+        # Normalize the removed manual cache reset and the exact bounded error
+        # read only; every other historic transport byte remains protected.
+        self.assertNotIn('    func clearMemoryCaches()', normalized)
+        cache_start = api_original.index('    func clearMemoryCaches()')
+        cache_end = api_original.index('    var canCheckAppUpdate:', cache_start)
+        normalized = normalized.replace('    var canCheckAppUpdate:', api_original[cache_start:cache_end] + '    var canCheckAppUpdate:', 1)
+        bounded_error = '''        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        var body = Data()
+        if !(200..<300).contains(status), let handle = try? FileHandle(forReadingFrom: tmp) {
+            defer { try? handle.close() }
+            body = (try? handle.read(upToCount: 8192)) ?? Data()
+        }
+        try check(body, response, operation: "下载归档/文件")
+'''
+        self.assertEqual(normalized.count(bounded_error), 1)
+        old_download = api_original.split('    private func download(', 1)[1]
+        old_error = '        do {\n' + old_download.split('        do {\n', 1)[1].split('        let dir =', 1)[0]
+        normalized = normalized.replace(bounded_error, old_error, 1)
         # Account-scoped follow storage is independently exercised by test_user_follow.py.
         normalized = normalized.replace('    lazy var follows = UserFollowStore(api: self)\n', '')
         normalized = normalized.replace('                self?.follows.invalidate()\n', '')

@@ -743,7 +743,6 @@ struct SettingsView: View {
                     }.softGroupedRow(top: true, bottom: true)
                 }
                 DownloadLocationSection()
-                CacheSettingsSection(api: api, checker: updateChecker)
                 Section("关于") {
                     AppUpdateSection(api: api, checker: updateChecker)
                     // The version is the stable final row of the update group in every state.

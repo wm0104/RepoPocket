@@ -127,7 +127,7 @@ jobs:
         run: python3 Tests/test_soft_groups.py
       - name: Test always-visible repository list contracts
         run: python3 Tests/test_repository_disclosure.py
-      - name: Test persistent downloads, cache whitelist and account lifecycle mocks
+      - name: Test persistent downloads and account lifecycle mocks
         run: python3 Tests/test_download_store.py
       - name: Test UTF-8 workspace ZIP entry names
         run: python3 Tests/test_zip_filename_encoding.py

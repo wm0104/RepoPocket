@@ -212,10 +212,6 @@ final class GitHub: ObservableObject {
         }
         starRevision += 1
     }
-    func clearMemoryCaches() {
-        guard parentTasks.isEmpty else { return }
-        parentCache.removeAll(); collectionCache.removeAll()
-    }
     var canCheckAppUpdate: Bool { isCurrentSession && !CredentialStore.read(account: accountID).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     /// The public releases endpoint works signed out; a token only raises the rate limit.
     var canCheckOfficialUpdate: Bool { isCurrentSession }
@@ -1243,11 +1239,13 @@ final class GitHub: ObservableObject {
         let (tmp, response) = try await session.download(for: request, delegate: redirect)
         defer { try? FileManager.default.removeItem(at: tmp) }
         try ensureActiveAccount()
-        do {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let body = (200..<300).contains(status) ? Data() : ((try? Data(contentsOf: tmp)) ?? Data())
-            try check(Data(body.prefix(8192)), response, operation: "下载归档/文件")
-        } catch { try? FileManager.default.removeItem(at: tmp); throw error }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        var body = Data()
+        if !(200..<300).contains(status), let handle = try? FileHandle(forReadingFrom: tmp) {
+            defer { try? handle.close() }
+            body = (try? handle.read(upToCount: 8192)) ?? Data()
+        }
+        try check(body, response, operation: "下载归档/文件")
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = DownloadRules.safeName(name)
