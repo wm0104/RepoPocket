@@ -688,9 +688,9 @@ final class StyleBoundaryTests: XCTestCase {
         keepScreenshot(app, name: "local-deb-editor")
         save.tap()
         XCTAssertTrue(folder.waitForExistence(timeout: 20))
-        // Saving starts a project scan; visible rows remain disabled until it finishes.
+        // Wait for the scan; SwiftUI's Menu wrapper can lack an AX hit point even when enabled.
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in menu.exists && menu.isEnabled && menu.isHittable }, object: nil)], timeout: 20), .completed)
+            predicate: NSPredicate { _, _ in menu.exists && menu.isEnabled }, object: nil)], timeout: 20), .completed)
         menu.tap()
         let edit = app.buttons["编辑包信息"]
         XCTAssertTrue(edit.waitForExistence(timeout: 5)); edit.tap()

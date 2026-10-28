@@ -8,8 +8,9 @@ class FileFeedbackTests(unittest.TestCase):
         source = (ROOT/'StyleUITests/StyleBoundaryTests.swift').read_text(encoding='utf-8')
         case = source.split('    func testLocalDEBUsesExistingEditorAndSavesToProject()', 1)[1].split('    func testLocalWholeFolderImportsAllChildrenAndSelectsThem()', 1)[0]
         reopen = case.split('        save.tap()', 1)[1]
-        self.assertIn('menu.exists && menu.isEnabled && menu.isHittable', reopen)
-        self.assertLess(reopen.index('menu.exists && menu.isEnabled && menu.isHittable'), reopen.index('menu.tap()'))
+        self.assertIn('menu.exists && menu.isEnabled', reopen)
+        self.assertNotIn('menu.isHittable', reopen)
+        self.assertLess(reopen.index('menu.exists && menu.isEnabled'), reopen.index('menu.tap()'))
         self.assertIn('XCTAssertTrue(edit.waitForExistence(timeout: 5))', reopen)
         self.assertIn('XCTAssertEqual(version.value as? String, "2.0"', reopen)
 
