@@ -13,17 +13,24 @@ struct LocalGitRepositoryPicker: View {
         query.isEmpty ? repositories : repositories.filter { $0.full_name.localizedCaseInsensitiveContains(query) }
     }
     var body: some View {
-        List {
+        let matches = visible
+        return List {
             Section("当前账号可访问的仓库") {
-                ForEach(visible) { repository in
-                    Button { select(repository); dismiss() } label: {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Label(repository.full_name, systemImage: repository.private == true ? "lock" : "folder")
-                            if let branch = repository.default_branch { Text("默认分支：" + branch).font(.caption).foregroundStyle(.secondary) }
+                SoftGroupRows {
+                    for repository in matches {
+                        SoftGroupRow("repository:" + String(repository.id)) {
+                            Button { select(repository); dismiss() } label: {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Label(repository.full_name, systemImage: repository.private == true ? "lock" : "folder")
+                                    if let branch = repository.default_branch { Text("默认分支：" + branch).font(.caption).foregroundStyle(.secondary) }
+                                }
+                            }
                         }
-                    }.softGroupedRow(top: repository.id == visible.first?.id, bottom: repository.id == visible.last?.id)
+                    }
+                    if matches.isEmpty && !busy && failure.isEmpty {
+                        SoftGroupRow("empty") { Text(query.isEmpty ? "暂无可访问仓库" : "没有匹配的仓库") }
+                    }
                 }
-                if visible.isEmpty && !busy && failure.isEmpty { Text(query.isEmpty ? "暂无可访问仓库" : "没有匹配的仓库").softGroupedRow(top: true, bottom: true) }
             }
             if busy { ProgressView("正在读取仓库…").softGroupedRow(top: true, bottom: true) }
             if !failure.isEmpty { Section { Text(failure).font(.caption).softGroupedRow(top: true); Button("重试") { Task { await load() } }.softGroupedRow(bottom: true) } }

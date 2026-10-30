@@ -188,7 +188,7 @@ assert 'top: original["Name"] == nil && original["Author"] == nil' in source('De
 assert 'top: repository.id == filteredRepositories.first?.id' in source('RepositorySections.swift')
 assert 'bottom: repository.id == filteredRepositories.last?.id' in source('RepositorySections.swift')
 for file in ['AccountManagement.swift', 'DebEditorView.swift', 'DesktopViews.swift',
-             'GitWorkspaceView.swift', 'ReleaseEntryView.swift', 'RepositoryDeletionView.swift',
+             'ReleaseEntryView.swift', 'RepositoryDeletionView.swift',
              'RepositorySearchView.swift', 'TargetPickerView.swift', 'TrollMetadataView.swift']:
     text = source(file)
     assert '.softGroupedRow(' in text and 'top:' in text and 'bottom:' in text, file

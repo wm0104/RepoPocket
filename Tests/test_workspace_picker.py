@@ -18,13 +18,16 @@ assert 'forOpeningContentTypes: types, asCopy: false' in picker
 assert picker.count('[.item]') == 1  # Broad types apply only to explicit file import.
 assert 'var allowsMultipleSelection = true' in picker
 assert 'picker.allowsMultipleSelection = allowsMultipleSelection' in picker
-git_view = Path(REPO_ROOT, 'RepoPocket/GitWorkspaceView.swift').read_text()
+git_view = Path(REPO_ROOT, 'RepoPocket/LocalProjectImportView.swift').read_text()
 core = Path(REPO_ROOT, 'RepoPocket/GitCore.swift').read_text()
 assert 'FolderPicker' not in git_view and 'UIDocumentPickerViewController' not in git_view
-assert '.sheet(item: $importRequest)' in git_view and '.id(request.id)' in git_view
-assert 'WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false)' in git_view
-assert 'importRequest = nil\n                    guard let url = urls?.first else { return }' in git_view
-assert 'try gitCore.importRepository(url)' in git_view
+assert '@State private var picker: WorkspaceImportRequest?' in git_view
+assert 'WorkspaceImportRequest(kind: .folder)' in git_view
+assert '.sheet(item: $picker)' in git_view and '.id(request.id)' in git_view
+callback = git_view.split('WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false)', 1)[1].split('.id(request.id)', 1)[0]
+assert 'if let url = urls?.first { acceptPicker(url) }' in callback
+assert callback.index('acceptPicker(url)') < callback.index('picker = nil')
+assert 'folder = try store.prepare(url)' in git_view
 for required in ('restoreBookmarks()', 'persistBookmarks()', 'startAccessingSecurityScopedResource()', 'stopAccessingSecurityScopedResource()', 'bookmarkData(options: []', 'URL(resolvingBookmarkData: bookmark, options: []'):
     assert required in core
 assert 'withSecurityScope]' not in core
