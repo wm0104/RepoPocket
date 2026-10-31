@@ -344,6 +344,9 @@ struct BrowserView: View {
                         SoftGroupRow("history") {
                             NavigationLink { HistoryView(api: api, repo: repo, branch: activeBranch) } label: { RepositoryFeatureLabel(title: "提交", symbol: "clock.arrow.circlepath", color: .gray) }
                         }
+                        SoftGroupRow("upstream-sync") {
+                            NavigationLink { UpstreamSyncView(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, repository: repositoryInfo) } label: { Text("上游同步") }
+                        }
                     }
                 }
                 RepositoryReadmeSection(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, state: readmeState)
