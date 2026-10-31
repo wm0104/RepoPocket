@@ -100,13 +100,6 @@ class BrowserRollbackTests(unittest.TestCase):
         self.assertIn('try Task.checkCancellation()', gateway)
         self.assertNotIn('method:', gateway.split('    // Native collaboration transport:')[0])
         normalized = normalized[:gateway_start] + normalized[gateway_end:]
-        # Upstream sync appends one self-contained API block before
-        # fetchWorkspace; its compare/merge/ref request shapes are covered by
-        # test_upstream_sync.py, so the historic tail stays byte-exact.
-        sync_start = normalized.index('    // MARK: - Upstream sync\n')
-        sync_end = normalized.index('    func fetchWorkspace(', sync_start)
-        self.assertIn('UpstreamSyncRules.comparePath', normalized[sync_start:sync_end])
-        normalized = normalized[:sync_start] + normalized[sync_end:]
         # Explicit fork-status fix: new lookup and accepted-POST bookkeeping are
         # covered by test_repository_fork_status.py. Keep every unrelated byte
         # of the historic transport and mutation guards protected below.

@@ -43,9 +43,7 @@ assert '@State private var files: [DesktopCommit.File] = []' in v
 assert '.textSelection(.enabled)' in v and '收起说明' in v and '展开完整说明' in v
 print('PASS commit text contracts: Dynamic Type, expansion, preserved detail state, no ineffective pinch or reset')
 assert '"/commits/" + Self.component(sha)' in g and '.init(name: "sha", value: branch)' in g
-# Upstream sync adds one API block right after createBranch; its bodies are
-# covered by test_upstream_sync.py, so bound this guard at that block.
-create=g[g.index('    func createBranch'):g.index('    // MARK: - Upstream sync')]
+create=g[g.index('    func createBranch'):g.index('    func fetchWorkspace')]
 assert '== expectedHead' in create and 'method: "POST"' in create and '"refs/heads/" + name' in create and 'PATCH' not in create
 assert 'remote: (repo, entry, activeBranch)' in a and 'initialBranch: activeBranch' in a
 assert 'HistoryView(api:' in a and 'BranchPickerView(api:' in a
