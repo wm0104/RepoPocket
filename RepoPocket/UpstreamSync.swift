@@ -350,7 +350,7 @@ struct UpstreamSyncView: View {
         UpstreamSyncRules.candidates(parent: repository?.parent?.full_name,
                                      source: repository?.source?.full_name,
                                      current: repo).map { name in
-            let isParent = repository?.parent?.full_name?.lowercased() == name.lowercased()
+            let isParent = repository?.parent?.full_name.lowercased() == name.lowercased()
             let reference = isParent ? repository?.parent : repository?.source
             return (name, reference?.default_branch, isParent ? "父仓库" : "来源仓库")
         }
