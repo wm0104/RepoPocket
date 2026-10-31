@@ -1,4 +1,5 @@
 name: Build IPA
+run-name: 更新：复制链接与原生页面
 on:
   workflow_dispatch:
     inputs:
@@ -26,11 +27,11 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+      - name: Select Xcode 16.4
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
       - uses: actions/cache@v4
         with:
           path: NativeBuild
@@ -51,6 +52,9 @@ jobs:
         run: python3 Tests/test_local_file_presentation.py
       - name: Test language-aware code and automatic text reading
         run: python3 Tests/test_source_code.py
+
+      - name: Copy link entry points
+        run: python3 Tests/test_copy_link_menu.py
       - name: Test build workflow entry points
         run: python3 Tests/test_build_workflow.py
       - name: Test home search, quoted replies and daily activity coverage
@@ -111,6 +115,8 @@ jobs:
         run: python3 Tests/test_repository_input.py
       - name: Test repository menu canonical links and isolated fork mocks
         run: python3 Tests/test_repository_copy_link.py
+      - name: Test branch-scoped file, folder and raw links
+        run: python3 Tests/test_repository_content_link.py
       - name: Test existing fork status and account isolation
         run: python3 Tests/test_repository_fork_status.py
       - name: Test production star state and account guards with network-free mocks
@@ -157,6 +163,8 @@ jobs:
         run: python3 Tests/test_repository_page_lifecycle.py
       - name: Test Swift source structure before compiling
         run: python3 Tests/test_swift_structure.py
+      - name: Test native routing for GitHub links
+        run: python3 Tests/test_native_link_routing.py
       - name: Test upstream sync request shapes, conflicts and fast-forward apply
         run: python3 Tests/test_upstream_sync.py
       - name: Generate Xcode project
@@ -177,16 +185,16 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.6"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.1.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.1.6"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.1.5"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.1.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.1.6"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.1.6"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
           codesign --display --entitlements :- "$EXT"

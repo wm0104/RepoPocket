@@ -32,10 +32,10 @@ class DescriptionTests(unittest.TestCase):
         for forbidden in ['requireWriteAccess', 'starRevision', 'object:', 'FileManager']:
             self.assertNotIn(forbidden, body)
         project = (ROOT/'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.1.5"', project)
+        self.assertIn('MARKETING_VERSION: "1.1.6"', project)
         workflow = (ROOT/'.github/workflows/build.yml').read_text()
         self.assertIn('zip -qry RepoPocket.ipa Payload', workflow)
-        self.assertNotIn('RepoPocket-1.1.5', workflow)
+        self.assertNotIn('RepoPocket-1.1.6', workflow)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'native permission/race fixtures run on macOS')
     def test_permission_and_account_races_with_production_rules(self):

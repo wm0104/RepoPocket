@@ -282,6 +282,11 @@ struct BrowserView: View {
     @State private var repositoryDeletionTarget: RepositoryDeletionTarget?
     @Environment(\.dismiss) private var dismiss
     private var activeBranch: String { selectedBranch.isEmpty ? branch : selectedBranch }
+    /// Root page or the current folder page; the long-press folder menu uses the same rules.
+    private var directoryLink: URL? {
+        path.isEmpty ? RepositoryLinkRules.canonicalURL(repo)
+            : RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: path, folder: true)
+    }
     @State private var entries: [Entry] = []
     @State private var loaded = false
     @State private var refreshing = false
@@ -360,6 +365,9 @@ struct BrowserView: View {
                 if e.type == "dir" {
                     NavigationLink { DirectoryBrowserDestination(api: api, repo: repo, path: e.path, branch: activeBranch) } label: { Label(e.name, systemImage: "folder") }
                         .softGroupedRow(top: e.id == entries.first?.id, bottom: e.id == entries.last?.id)
+                        .contextMenu {
+                            Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path, folder: true)) } label: { Label("复制文件夹链接", systemImage: "doc.on.doc") }
+                        }
                 } else if e.type == "file" {
                     HStack {
                         NavigationLink { FileView(api: api, repo: repo, entry: e, branch: activeBranch, canWrite: canWrite) } label: {
@@ -383,6 +391,8 @@ struct BrowserView: View {
                     }
                     .softGroupedRow(top: e.id == entries.first?.id, bottom: e.id == entries.last?.id)
                     .contextMenu {
+                        Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path)) } label: { Label("复制文件链接", systemImage: "doc.on.doc") }
+                        Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path, raw: true)) } label: { Label("复制 raw 链接", systemImage: "link") }
                         if canWrite { Button("删除", role: .destructive) {
                             deleteAccount = api.accountID; deleteGeneration = AccountStore.generation
                             deleteBranch = activeBranch; deleteEntry = e
@@ -411,6 +421,8 @@ struct BrowserView: View {
             if canWrite { Button("上传") { showUpload = true }.disabled(busy) }
             Menu {
                 CopyRepositoryLinkButton(repository: repo, feedback: copyFeedback)
+                Button { copyFeedback.copy(url: directoryLink) } label: { Label("复制当前目录链接", systemImage: "doc.on.doc") }
+                    .disabled(directoryLink == nil)
                 if !path.isEmpty || showFiles {
                     ForkRepositoryMenuButton(repository: repo, api: api, state: forkMenu)
                     RepositoryStarMenuButton(name: repo, repository: repositoryInfo, api: api)
@@ -547,6 +559,7 @@ struct FileView: View {
     @State private var commitMessage = "Update file via RepoPocket"
     @State private var showMetadata = false
     @State private var showDeb = false
+    @StateObject private var copyFeedback = RepositoryCopyFeedback()
     @State private var confirmSave = false
     @State private var confirmDelete = false
     @State private var deleted = false
@@ -581,6 +594,10 @@ struct FileView: View {
                 if writable && editable && !deleted { Button("编辑") { text = originalText; editing = true }.disabled(busy || currentSHA.isEmpty) }
                 Menu {
                     Button("文件信息") { showFileInfo = true }
+                    Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: branch, path: entry.path)) } label: { Label("复制文件链接", systemImage: "doc.on.doc") }
+                        .disabled(RepositoryLinkRules.contentURL(repo, branch: branch, path: entry.path) == nil)
+                    Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: branch, path: entry.path, raw: true)) } label: { Label("复制 raw 链接", systemImage: "link") }
+                        .disabled(RepositoryLinkRules.contentURL(repo, branch: branch, path: entry.path, raw: true) == nil)
                     Button("下载 / 存到文件") { Task { await download() } }.disabled(busy || deleted)
                     NavigationLink("此文件的历史记录") { NativeFileHistoryView(api: api, repo: repo, path: entry.path, branch: branch) }
                     if editable { Button("重新加载") { Task { await read() } }.disabled(busy || deleted) }
@@ -594,6 +611,7 @@ struct FileView: View {
         .sheet(isPresented: $editing, onDismiss: { text = originalText }) { editor }
         .sheet(isPresented: $showDeb) { DebEditorView(api: api, remote: (repo, entry, branch), canWrite: writable) }
         .sheet(isPresented: $showMetadata) { TrollMetadataView(api: api, repo: repo, entry: entry, branch: branch, canWrite: writable) }
+        .repositoryCopyNotice(copyFeedback)
         .downloadCompletionNotice($downloadedFile)
         .confirmationDialog("永久删除仓库中的 \(entry.name)？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("确认删除", role: .destructive) { Task { await remove() } }
