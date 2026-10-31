@@ -9,7 +9,11 @@ final class RepositoryCopyFeedback: ObservableObject {
     // Called only by an explicit menu button action; never during view rendering.
     func copy(_ input: String) {
         guard let url = RepositoryLinkRules.canonicalURL(input) else { return }
-        UIPasteboard.general.string = url.absoluteString
+        copy(link: url)
+    }
+
+    func copy(link: URL) {
+        UIPasteboard.general.string = link.absoluteString
         timeout?.cancel()
         let token = notice.show()
         timeout = Task { [weak self] in

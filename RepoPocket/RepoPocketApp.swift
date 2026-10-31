@@ -360,6 +360,11 @@ struct BrowserView: View {
                 if e.type == "dir" {
                     NavigationLink { DirectoryBrowserDestination(api: api, repo: repo, path: e.path, branch: activeBranch) } label: { Label(e.name, systemImage: "folder") }
                         .softGroupedRow(top: e.id == entries.first?.id, bottom: e.id == entries.last?.id)
+                        .contextMenu {
+                            if let link = RepositoryLinkRules.directoryURL(repo, branch: activeBranch, path: e.path) {
+                                Button("复制目录链接") { copyFeedback.copy(link: link) }
+                            }
+                        }
                 } else if e.type == "file" {
                     HStack {
                         NavigationLink { FileView(api: api, repo: repo, entry: e, branch: activeBranch, canWrite: canWrite) } label: {
@@ -383,6 +388,12 @@ struct BrowserView: View {
                     }
                     .softGroupedRow(top: e.id == entries.first?.id, bottom: e.id == entries.last?.id)
                     .contextMenu {
+                        if let link = RepositoryLinkRules.fileURL(repo, branch: activeBranch, path: e.path) {
+                            Button("复制文件链接") { copyFeedback.copy(link: link) }
+                        }
+                        if let raw = RepositoryLinkRules.rawURL(repo, branch: activeBranch, path: e.path) {
+                            Button("复制 raw 链接") { copyFeedback.copy(link: raw) }
+                        }
                         if canWrite { Button("删除", role: .destructive) {
                             deleteAccount = api.accountID; deleteGeneration = AccountStore.generation
                             deleteBranch = activeBranch; deleteEntry = e
@@ -411,6 +422,9 @@ struct BrowserView: View {
             if canWrite { Button("上传") { showUpload = true }.disabled(busy) }
             Menu {
                 CopyRepositoryLinkButton(repository: repo, feedback: copyFeedback)
+                if let link = RepositoryLinkRules.directoryURL(repo, branch: activeBranch, path: path) {
+                    Button("复制目录链接") { copyFeedback.copy(link: link) }
+                }
                 if !path.isEmpty || showFiles {
                     ForkRepositoryMenuButton(repository: repo, api: api, state: forkMenu)
                     RepositoryStarMenuButton(name: repo, repository: repositoryInfo, api: api)
@@ -556,6 +570,7 @@ struct FileView: View {
     @State private var editing = false
     @State private var originalText = ""
     @State private var showFileInfo = false
+    @StateObject private var copyFeedback = RepositoryCopyFeedback()
     var body: some View {
         VStack(spacing: 0) {
             if deleted { Text("文件已删除，请返回目录刷新。").padding(); Spacer() }
@@ -581,6 +596,12 @@ struct FileView: View {
                 if writable && editable && !deleted { Button("编辑") { text = originalText; editing = true }.disabled(busy || currentSHA.isEmpty) }
                 Menu {
                     Button("文件信息") { showFileInfo = true }
+                    if let link = RepositoryLinkRules.fileURL(repo, branch: branch, path: entry.path) {
+                        Button("复制文件链接") { copyFeedback.copy(link: link) }
+                    }
+                    if let raw = RepositoryLinkRules.rawURL(repo, branch: branch, path: entry.path) {
+                        Button("复制 raw 链接") { copyFeedback.copy(link: raw) }
+                    }
                     Button("下载 / 存到文件") { Task { await download() } }.disabled(busy || deleted)
                     NavigationLink("此文件的历史记录") { NativeFileHistoryView(api: api, repo: repo, path: entry.path, branch: branch) }
                     if editable { Button("重新加载") { Task { await read() } }.disabled(busy || deleted) }
@@ -590,6 +611,7 @@ struct FileView: View {
                 } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("文件操作")
             }
         }
+        .repositoryCopyNotice(copyFeedback)
         .sheet(isPresented: $showFileInfo) { fileInformation }
         .sheet(isPresented: $editing, onDismiss: { text = originalText }) { editor }
         .sheet(isPresented: $showDeb) { DebEditorView(api: api, remote: (repo, entry, branch), canWrite: writable) }

@@ -42,6 +42,25 @@ class CopyLinkTests(unittest.TestCase):
         for forbidden in ['api.message', 'canWrite', 'permissions', 'URLSession', 'GitHub()']:
             self.assertNotIn(forbidden, ui)
 
+    def test_file_and_directory_links_copy_from_list_and_detail(self):
+        rules = (ROOT/'RepoPocket/RepositoryLinkRules.swift').read_text()
+        for name in ['fileURL', 'rawURL', 'directoryURL']:
+            self.assertIn('static func ' + name + '(', rules)
+        app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
+        browser = app.split('struct BrowserView:', 1)[1].split('struct FileView:', 1)[0]
+        detail = app.split('struct FileView:', 1)[1]
+        for text in ['Button("复制目录链接") { copyFeedback.copy(link: link) }',
+                     'Button("复制文件链接") { copyFeedback.copy(link: link) }',
+                     'Button("复制 raw 链接") { copyFeedback.copy(link: raw) }']:
+            self.assertIn(text, browser)
+        for text in ['Button("复制文件链接") { copyFeedback.copy(link: link) }',
+                     'Button("复制 raw 链接") { copyFeedback.copy(link: raw) }',
+                     '.repositoryCopyNotice(copyFeedback)']:
+            self.assertIn(text, detail)
+        ui = (ROOT/'RepoPocket/RepositoryCopyUI.swift').read_text()
+        self.assertIn('func copy(link: URL)', ui)
+        self.assertEqual(ui.count('UIPasteboard.general.string ='), 1)
+
     def test_fork_menu_guards_and_coverage(self):
         source = (ROOT/'RepoPocket/RepositoryForkMenu.swift').read_text()
         for text in ['fixed.fullName', 'fixed.generation == AccountStore.generation',
@@ -199,6 +218,13 @@ for (input, expected) in valid {
 for bad in ["", "owner/..", "owner/.git", "owner/repo/tree/main", "owner/repo/blob/main/file", "owner/repo%2Ftree", "owner/repo?x", "owner/repo#x", "https://evil.test/a/b", "https://github.com.evil.test/a/b", "https://github.com@evil.test/a/b", "https://user@github.com/a/b", "https://github.com:443/a/b", "http://github.com/a/b", "https://github.com/a/b?", "https://github.com/a/b#", "owner/repo\\name", "owner/re\npo"] {
     precondition(RepositoryLinkRules.canonicalURL(bad) == nil)
 }
+precondition(RepositoryLinkRules.fileURL("o/r", branch: "main", path: "rule/Surge/Telegram/Telegram.list")?.absoluteString == "https://github.com/o/r/blob/main/rule/Surge/Telegram/Telegram.list")
+precondition(RepositoryLinkRules.rawURL("o/r", branch: "main", path: "rule/Surge/Telegram/Telegram.list")?.absoluteString == "https://raw.githubusercontent.com/o/r/main/rule/Surge/Telegram/Telegram.list")
+precondition(RepositoryLinkRules.directoryURL("o/r", branch: "main", path: "rule/Surge/Telegram")?.absoluteString == "https://github.com/o/r/tree/main/rule/Surge/Telegram")
+precondition(RepositoryLinkRules.fileURL("o/r", branch: "main", path: "文 档/a.md")?.absoluteString == "https://github.com/o/r/blob/main/%E6%96%87%20%E6%A1%A3/a.md")
+precondition(RepositoryLinkRules.fileURL("o/r", branch: "", path: "a.md") == nil)
+precondition(RepositoryLinkRules.directoryURL("o/r", branch: "main", path: "") == nil)
+precondition(RepositoryLinkRules.rawURL("o/..", branch: "main", path: "a.md") == nil)
 var notice = RepositoryCopyNoticeState()
 let first = notice.show()
 let second = notice.show()
