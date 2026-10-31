@@ -477,7 +477,10 @@ final class OAuthFixtureProtocol: URLProtocol {
         github = (ROOT/'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
         models = github[github.index('struct User: Decodable'):github.index('struct Release: Decodable')]
         request = '    private func request(' + github.split('    private func request(', 1)[1].split('    // Public official update metadata', 1)[0]
-        social_api = github.split('// Current-account profile writes have their own endpoint and acknowledgement checks.', 1)[1]
+        # Upstream sync adds API blocks after the social ones; its pure request
+        # shapes live in UpstreamSync.swift, so bound this slice there.
+        social_api = github.split('// Current-account profile writes have their own endpoint and acknowledgement checks.', 1)[1] \
+            .split('    // MARK: - Upstream sync', 1)[0]
         social_state = (ROOT/'RepoPocket/SocialAccountsView.swift').read_text(encoding='utf-8')
         social_state = '@MainActor' + social_state.split('@MainActor', 1)[1].split('struct SocialAccountsView:', 1)[0]
         program = (ROOT/'Tests/Fixtures/SocialAccountsHarness.swift').read_text(encoding='utf-8')
