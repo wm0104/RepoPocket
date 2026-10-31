@@ -157,6 +157,8 @@ jobs:
         run: python3 Tests/test_repository_page_lifecycle.py
       - name: Test Swift source structure before compiling
         run: python3 Tests/test_swift_structure.py
+      - name: Test upstream sync request shapes, conflicts and fast-forward apply
+        run: python3 Tests/test_upstream_sync.py
       - name: Generate Xcode project
         run: |
           brew install xcodegen

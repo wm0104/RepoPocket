@@ -352,6 +352,12 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         helper_start = current.index('    private func uploadGitBlobFile(')
         helper_end = current.index('    func history(', helper_start)
         current = current[:helper_start] + current[helper_end:]
+        # Upstream sync appends one self-contained API block before fetchWorkspace;
+        # test_upstream_sync.py covers its request shapes, so keep the rest exact.
+        sync_start = current.index('    // MARK: - Upstream sync\n')
+        sync_end = current.index('    func fetchWorkspace(', sync_start)
+        assert 'UpstreamSyncRules.comparePath' in current[sync_start:sync_end]
+        current = current[:sync_start] + current[sync_end:]
         old_github = baseline(file)
         # Only the obsolete manual cache-reset hook is removed; retain the
         # byte guard on cache fetching and every unrelated API operation.
