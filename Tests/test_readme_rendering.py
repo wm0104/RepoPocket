@@ -81,6 +81,22 @@ assert.deepEqual(messages, [124, 171, 20000, 21000]);
         self.assertIn('api.github.com', policy)
         self.assertIn('url.scheme?.lowercased() == "https"', policy)
 
+    def test_file_page_prefers_server_html_for_native_readmes(self):
+        render = (ROOT / 'RepoPocket/FileMarkdownRenderer.swift').read_text()
+        views = (ROOT / 'RepoPocket/ReadingViews.swift').read_text()
+        self.assertIn('"mode": "gfm"', render)
+        self.assertIn('"context": canonical', render)
+        self.assertIn('api.github.com/markdown', render)
+        self.assertIn('"POST"', render)
+        self.assertNotIn('requireWriteAccess', render)
+        page = views.split('struct FileReadingView: View {', 1)[1]
+        self.assertIn('ReadmeHTMLView(html: renderedHTML', page)
+        self.assertIn('onFailure: { _ in self.renderedHTML = nil }', page)
+        self.assertIn('FileMarkdownRenderer.html(text, repo: repo)', page)
+        self.assertLess(page.index('else if let renderedHTML'), page.index('CommunityMarkdown(text: text'))
+        # The transport byte guards only cover GitHub.swift, which this feature leaves alone.
+        self.assertNotIn('renderedMarkdownHTML', (ROOT / 'RepoPocket/GitHub.swift').read_text())
+
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift regression runs on macOS')
     def test_production_readme_formats_and_html_transport(self):
         api = (ROOT / 'RepoPocket/GitHub.swift').read_text()

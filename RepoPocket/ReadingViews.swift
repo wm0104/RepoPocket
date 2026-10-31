@@ -107,11 +107,28 @@ struct FileReadingView: View {
     let branch: String
     var api: GitHub? = nil
     @State private var markdown = true
+    @State private var renderedHTML: String?
+    @State private var htmlHeight: CGFloat = 0
+    @State private var readingLink: ReadingLink?
     private var isMarkdown: Bool { ["md", "markdown", "mdown"].contains((path as NSString).pathExtension.lowercased()) }
     var body: some View {
         VStack(spacing: 0) {
           if isMarkdown { Toggle("Markdown 排版", isOn: $markdown).padding(.horizontal).padding(.vertical, 8) }
           if !isMarkdown || !markdown { SourceCodeView(text: text, filename: path) }
+          else if let renderedHTML {
+            ScrollView {
+              ReadmeHTMLView(html: renderedHTML,
+                             baseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: false),
+                             mediaBaseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: true),
+                             height: $htmlHeight,
+                             onFailure: { _ in self.renderedHTML = nil },
+                             openLink: { url in
+                               guard let safe = CommunityRules.webURL(url.absoluteString) else { return }
+                               readingLink = ReadingLink(url: safe)
+                             })
+                .frame(height: max(htmlHeight, 1))
+            }
+          }
           else { ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                     CommunityMarkdown(text: text, baseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: false),
@@ -119,5 +136,15 @@ struct FileReadingView: View {
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
           } }
         }.navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
+        // Multi-language READMEs use native HTML that MarkdownUI shows literally; GitHub's own
+        // renderer keeps it. Fall back to the local renderer when signed out or offline.
+        .task(id: markdown) {
+            guard isMarkdown, markdown, api?.isCurrentSession == true, renderedHTML == nil else { return }
+            let html = try? await FileMarkdownRenderer.html(text, repo: repo)
+            guard !Task.isCancelled, let html, !html.isEmpty else { return }
+            renderedHTML = html
+        }
+        .onChange(of: text) { _ in renderedHTML = nil }
+        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
     }
 }
