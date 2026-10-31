@@ -1525,4 +1525,64 @@ extension GitHub {
         }
         return bytes
     }
+    // MARK: - Upstream sync
+    // Step 1 is read-only: one compare request, no refs, no merges.
+    func upstreamCompare(repo: String, base: String, upstream: UpstreamSyncRules.Target) async throws -> UpstreamCompare {
+        let path = try UpstreamSyncRules.comparePath(repo: repo, base: base, upstream: upstream)
+        return try await decoded(UpstreamCompare.self, path)
+    }
+    func upstreamBranchHead(repo: String, branch: String) async throws -> String {
+        let bytes = try await data(try UpstreamSyncRules.branchHeadPath(repo: repo, branch: branch))
+        guard let sha = UpstreamSyncRules.objectSHA(bytes) else {
+            throw AppError(text: "未能读取目标分支的最新提交，请刷新后重试。")
+        }
+        return sha
+    }
+    /// Creates the backup tag and the temporary branch. Both point at the exact
+    /// head that was just read; neither moves the target branch.
+    func createUpstreamRef(repo: String, ref: String, sha: String) async throws {
+        guard UpstreamSyncRules.validSHA(sha) else { throw AppError(text: "提交 SHA 无效，未创建任何引用。") }
+        _ = try await data(try UpstreamSyncRules.refsPath(repo: repo), method: "POST",
+                           object: UpstreamSyncRules.refObject(ref: ref, sha: sha))
+    }
+    func mergeUpstream(repo: String, base: String, upstream: UpstreamSyncRules.Target,
+                       message: String) async throws -> UpstreamSyncRules.MergeOutcome {
+        try ensureActiveAccount()
+        try await requireWriteAccess(repo)
+        try Task.checkCancellation()
+        let body = try JSONSerialization.data(withJSONObject:
+            UpstreamSyncRules.mergeObject(base: base, upstream: upstream, message: message))
+        var r = try request(url(try UpstreamSyncRules.mergesPath(repo: repo)), method: "POST", body: body)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await session.data(for: r)
+        try Task.checkCancellation(); try ensureActiveAccount()
+        guard let http = response as? HTTPURLResponse else { throw AppError(text: "无有效服务器响应") }
+        if [401, 403, 404].contains(http.statusCode) {
+            throw GitHubAPIError(status: http.statusCode, operation: "合并上游到临时分支",
+                                 reason: UpstreamSyncRules.message(bytes) ?? "GitHub 拒绝了合并请求",
+                                 permissions: http.value(forHTTPHeaderField: "X-Accepted-GitHub-Permissions"))
+        }
+        return UpstreamSyncRules.mergeOutcome(status: http.statusCode, body: bytes)
+    }
+    /// Fast-forward only: the request always sends force: false.
+    func applyUpstreamFastForward(repo: String, branch: String,
+                                  sha: String) async throws -> UpstreamSyncRules.ApplyOutcome {
+        guard UpstreamSyncRules.validSHA(sha) else { throw AppError(text: "提交 SHA 无效，未更新分支。") }
+        try ensureActiveAccount()
+        try await requireWriteAccess(repo)
+        try Task.checkCancellation()
+        let body = try JSONSerialization.data(withJSONObject: UpstreamSyncRules.applyObject(sha: sha))
+        var r = try request(url(try UpstreamSyncRules.branchRefPath(repo: repo, branch: branch)),
+                            method: "PATCH", body: body)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await session.data(for: r)
+        try Task.checkCancellation(); try ensureActiveAccount()
+        guard let http = response as? HTTPURLResponse else { throw AppError(text: "无有效服务器响应") }
+        if [401, 403, 404].contains(http.statusCode) {
+            throw GitHubAPIError(status: http.statusCode, operation: "应用快进更新",
+                                 reason: UpstreamSyncRules.message(bytes) ?? "GitHub 拒绝了引用更新",
+                                 permissions: http.value(forHTTPHeaderField: "X-Accepted-GitHub-Permissions"))
+        }
+        return UpstreamSyncRules.applyOutcome(status: http.statusCode, body: bytes)
+    }
 }

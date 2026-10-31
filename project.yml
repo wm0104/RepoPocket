@@ -12,8 +12,8 @@ settings:
     HEADER_SEARCH_PATHS: "$(SRCROOT)/Vendor/DebCodecs/xz"
     GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) XZ_USE_CRC64 XZ_USE_SHA256"
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "1.1.4"
-    CURRENT_PROJECT_VERSION: "1.1.4"
+    MARKETING_VERSION: "1.1.5"
+    CURRENT_PROJECT_VERSION: "1.1.5"
 packages:
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui.git
