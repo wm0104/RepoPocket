@@ -100,8 +100,11 @@ import Foundation
         let sha = String(repeating: "a", count: 40)
         let upstream = try UpstreamSyncRules.target(repository: " upstream-owner/upstream-repo ", branch: "main")
         precondition(upstream.repository == "upstream-owner/upstream-repo" && upstream.branch == "main")
-        precondition(try UpstreamSyncRules.target(repository: "https://github.com/upstream-owner/upstream-repo", branch: "main").repository == "upstream-owner/upstream-repo")
-        precondition(try UpstreamSyncRules.target(repository: "upstream-owner/upstream-repo.git", branch: "main").repository == "upstream-owner/upstream-repo")
+        // Hoist the throwing calls out of precondition's non-throwing autoclosure.
+        let parsedURL = try UpstreamSyncRules.target(repository: "https://github.com/upstream-owner/upstream-repo", branch: "main")
+        precondition(parsedURL.repository == "upstream-owner/upstream-repo")
+        let parsedGit = try UpstreamSyncRules.target(repository: "upstream-owner/upstream-repo.git", branch: "main")
+        precondition(parsedGit.repository == "upstream-owner/upstream-repo")
         let same = try UpstreamSyncRules.comparePath(repo: "target-owner/target-repo", base: "main", upstream: upstream)
         precondition(same == "/repos/target-owner/target-repo/compare/main...upstream-owner:main", same)
         let nested = try UpstreamSyncRules.comparePath(repo: "target-owner/target-repo", base: "feature/topic",
