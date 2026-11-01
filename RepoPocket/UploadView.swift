@@ -92,7 +92,7 @@ struct UploadView: View {
                                 ShareLink("分享下载链接", item: url).softGroupedRow()
                             }
                         }
-                        if let url = URL(string: r.html_url) { Link("在 GitHub 查看", destination: url).softGroupedRow() }
+                        if let url = URL(string: r.html_url) { InAppLinkButton(url: url, api: api) { Text("在 GitHub 查看") }.softGroupedRow() }
                         Text("Release 附件不自动加入源索引。").font(.caption).softGroupedRow(bottom: true)
                     }
                 }

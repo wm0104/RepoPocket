@@ -68,6 +68,9 @@ private struct NativeLinkView: View {
             ReleaseListView(api: api, repo: repo)
         case .runs(_, _):
             WorkflowRunsView(api: api, repo: repo, branch: "")
+        case let .user(login):
+            UserRepositoriesView(api: api, user: User(id: nil, login: login, avatar_url: nil,
+                                                       name: nil, followers: nil, following: nil))
         }
     }
 
@@ -147,5 +150,19 @@ struct ContainedWebPage: UIViewControllerRepresentable {
         func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
             onClose()
         }
+    }
+}
+
+
+/// Any URL opened inside the app: GitHub links resolve to native screens, other hosts use
+/// the contained web page. Never hands the link to Safari.
+struct InAppLinkButton<Label: View>: View {
+    let url: URL
+    let api: GitHub?
+    @ViewBuilder var label: Label
+    @State private var link: ReadingLink?
+    var body: some View {
+        Button { link = ReadingLink(url: url) } label: { label }
+            .sheet(item: $link) { ReadingLinkDestination(url: $0.url, api: api) { link = nil } }
     }
 }

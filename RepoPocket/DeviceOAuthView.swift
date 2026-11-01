@@ -51,8 +51,8 @@ import SwiftUI
             Section("首次配置") {
                 SoftGroupRows {
                 SoftGroupRow("setup") { Text("在自己的 GitHub 账号下创建 OAuth App 并启用 Device Flow，然后将 Client ID 填到这里。无需填写 Client Secret，也不需要部署服务器。") }
-                SoftGroupRow("apps") { Link("管理自己的 OAuth Apps", destination: URL(string: "https://github.com/settings/developers")!) }
-                SoftGroupRow("docs") { Link("GitHub 官方设备授权说明", destination: URL(string: "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow")!) }
+                SoftGroupRow("apps") { InAppLinkButton(url: URL(string: "https://github.com/settings/developers")!, api: nil) { Text("管理自己的 OAuth Apps") } }
+                SoftGroupRow("docs") { InAppLinkButton(url: URL(string: "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow")!, api: nil) { Text("GitHub 官方设备授权说明") } }
                 }
             }
         }.navigationTitle("浏览器授权登录").adaptiveWorkspaceLayout()
