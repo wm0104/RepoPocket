@@ -1,4 +1,5 @@
 """README production decoding/transport regression; fixtures never contact GitHub."""
+from html.parser import HTMLParser
 from pathlib import Path
 import json
 import re
@@ -10,7 +11,80 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def mobile_readme_fixture():
+    """Use the production shell unchanged, including viewport/CSP/CSS, for browser checks."""
+    rules = (ROOT / 'RepoPocket/ReadmeDocument.swift').read_text()
+    shell = rules.split('static func document(', 1)[1].split('return """', 1)[1].split('"""', 1)[0]
+    fragment = ('<h1>README 标题</h1><p>正文首段：' + 'readable-long-word' * 40 + '</p>'
+                '<img width="2400" height="1200" alt="wide image" '
+                'src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'2400\' height=\'1200\'%3E%3C/svg%3E">'
+                '<table><tr>' + '<td>' + ('wide column ' * 12 + '</td><td>') * 8 + 'last</td></tr></table>'
+                '<pre><code>' + 'long_code_line_' * 200 + '</code></pre>'
+                + '<p>完整正文，不截断。Complete paragraph.</p>' * 400
+                + '<p id="end-marker">END 完整结尾</p>')
+    return shell.replace(r'\(fragment)', fragment)
+
+
 class ReadmeRenderingTests(unittest.TestCase):
+    def test_mobile_fixture_uses_one_production_document_and_complete_content(self):
+        class Document(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.tags = []
+            def handle_starttag(self, tag, attrs):
+                self.tags.append((tag, dict(attrs)))
+        html = mobile_readme_fixture()
+        parsed = Document()
+        parsed.feed(html)
+        self.assertEqual(sum(tag == 'html' for tag, _ in parsed.tags), 1)
+        self.assertEqual(sum(tag == 'main' for tag, _ in parsed.tags), 1)
+        self.assertTrue(any(tag == 'meta' and attrs.get('name') == 'viewport' and
+                            attrs.get('content') == 'width=device-width, initial-scale=1'
+                            for tag, attrs in parsed.tags))
+        self.assertTrue(any(attrs.get('id') == 'end-marker' for _, attrs in parsed.tags))
+        self.assertEqual(html.count('完整正文，不截断。'), 400)
+        for tag in ('img', 'table', 'pre'):
+            self.assertTrue(any(name == tag for name, _ in parsed.tags))
+        self.assertIn("script-src 'none'", html)
+
+    def test_file_markdown_opens_formatted_without_returned_toggle(self):
+        views = (ROOT / 'RepoPocket/ReadingViews.swift').read_text()
+        page = views.split('struct FileReadingView: View {', 1)[1]
+        self.assertNotIn('Toggle(', page)
+        self.assertNotIn('@State private var markdown', page)
+        self.assertIn('if !isMarkdown { SourceCodeView', page)
+        self.assertIn('scrolling: true', page)
+        self.assertIn('.frame(maxWidth: .infinity, maxHeight: .infinity)', page)
+        self.assertNotIn('ReadmeDocumentRules.document(', page)
+        self.assertIn('Toggle("查看原文", isOn: $raw)', views)
+
+    def test_readme_request_identity_and_fallback_are_not_stale(self):
+        views = (ROOT / 'RepoPocket/ReadingViews.swift').read_text()
+        page = views.split('struct FileReadingView: View {', 1)[1]
+        self.assertIn('[text, repo, branch, path, api?.accountID', page)
+        self.assertIn('api == nil ? "" : AccountStore.generation.uuidString', page)
+        self.assertNotIn('api?.accountGeneration', page)
+        self.assertIn('.task(id: requestKey)', page)
+        self.assertIn('renderedKey == requestKey', page)
+        self.assertIn('guard !Task.isCancelled, api.isCurrentSession', page)
+        self.assertIn('defer { if !Task.isCancelled { htmlAttempted = true } }', page)
+        self.assertIn('guard isMarkdown, let api, api.isCurrentSession', page)
+        self.assertIn('.id(requestKey)', page)
+        repository = views.split('struct RepositoryReadmeView: View {', 1)[1].split('struct FileReadingView:', 1)[0]
+        self.assertIn('.task(id: [repo, branch, api.accountID, AccountStore.generation.uuidString, String(revision)])', repository)
+        self.assertIn('!Task.isCancelled, api.isCurrentSession', repository)
+
+    def test_document_has_mobile_reading_inset_without_clipping_content(self):
+        rules = (ROOT / 'RepoPocket/ReadmeDocument.swift').read_text()
+        shell = rules.split('static func document(', 1)[1].split('extension GitHub', 1)[0]
+        self.assertIn('width=device-width, initial-scale=1', shell)
+        self.assertRegex(shell, r'#repopocket-readme\s*\{[^}]*padding:\s*16px;')
+        self.assertRegex(shell, r'pre\s*\{[^}]*max-width:\s*100%;')
+        self.assertIn('img, svg, video { max-width: 100%; height: auto; }', shell)
+        self.assertIn('table { display: block; overflow: auto;', shell)
+        self.assertNotIn('overflow: hidden', shell)
+        self.assertNotIn('width=1024', shell)
+
     def test_web_content_has_no_authenticated_session_and_only_isolated_height_messages(self):
         view = (ROOT / 'RepoPocket/ReadmeHTMLView.swift').read_text()
         self.assertIn('websiteDataStore = .nonPersistent()', view)
@@ -92,7 +166,8 @@ assert.deepEqual(messages, [124, 171, 20000, 21000]);
         self.assertNotIn('requireWriteAccess', render)
         page = views.split('struct FileReadingView: View {', 1)[1]
         self.assertIn('ReadmeHTMLView(html: renderedHTML', page)
-        self.assertIn('onFailure: { _ in self.renderedHTML = nil }', page)
+        self.assertIn('guard renderedKey == requestKey else { return }', page)
+        self.assertIn('self.renderedHTML = nil', page)
         self.assertIn('api.renderedMarkdownHTML(text, repo: repo)', page)
         self.assertLess(page.index('else if let renderedHTML'), page.index('CommunityMarkdown(text: text'))
         self.assertIn('try ReadmeDocumentRules.renderedHTML(bytes)', render)
@@ -163,6 +238,9 @@ GATEWAY
    }
    let fragment="<img src='data:image/svg+xml;base64,PHN2Zy8+'><details><summary>更多</summary>正文</details>"
    let document=ReadmeDocumentRules.document(fragment)
+   precondition(document.contains("width=device-width, initial-scale=1") && document.contains("padding: 16px;"))
+   precondition(document.components(separatedBy:"<html>").count == 2)
+   precondition(document.contains("pre { max-width: 100%; overflow: auto;"))
    precondition(document.contains(fragment) && document.contains("script-src 'none'") && document.contains("img-src https: data:"))
    precondition(document.contains("display: flow-root") && document.contains("<main id=\"repopocket-readme\">"))
    precondition(ReadmeDocumentRules.heightObserver.contains("getBoundingClientRect().height") && !ReadmeDocumentRules.heightObserver.contains("scrollHeight"))

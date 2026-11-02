@@ -74,7 +74,8 @@ extension GitHub {
         let head = try await workspaceHead(repo, branch: selected)
         let endpoint = try Self.repoPath(repo)
         let commitBytes = try await communityRead(endpoint + "/git/commits/" + Self.component(head))
-        let commit = try JSONDecoder().decode(GitCommitInfo.self, from: commitBytes)
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let commit = try decoder.decode(GitCommitInfo.self, from: commitBytes)
         let treeBytes = try await communityRead(endpoint + "/git/trees/" + Self.component(commit.tree.sha), query: [.init(name: "recursive", value: "1")])
         let tree = try await Task.detached(priority: .userInitiated) { try JSONDecoder().decode(GitTreeInfo.self, from: treeBytes) }.value
         try Task.checkCancellation()

@@ -675,9 +675,67 @@ static NSDictionary *RPRecover(git_repository *repo, NSDictionary *q, RPGitResou
 static int RPPullDiffProgress(const git_diff *diff, const char *oldPath, const char *newPath, void *payload) {
     return RPIsCancelled((__bridge NSString *)payload) ? GIT_EUSER : 0;
 }
+static NSDictionary *RPPullDiff(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    NSString *path=RPString(q,@"path");
+    RPRequire(!path.isAbsolutePath && ![path containsString:@"\\"] && path.length<4096, @"文件路径无效。");
+    for (NSString *part in [path componentsSeparatedByString:@"/"])
+        RPRequire(part.length && ![part isEqual:@"."] && ![part isEqual:@".."] && ![part.lowercaseString isEqual:@".git"], @"不能访问 Git 元数据或项目外的文件。");
+    git_tree *trees[2]={NULL,NULL};
+    NSArray *keys=@[@"beforeSHA",@"afterSHA"];
+    for (NSUInteger i=0;i<2;i++) {
+        NSString *sha=RPString(q,keys[i]); git_oid oid;
+        RPRequire(sha.length==GIT_OID_HEXSZ, @"拉取提交标识无效。");
+        RPCheck(git_oid_fromstr(&oid,sha.UTF8String), @"拉取提交标识无效。");
+        git_commit *commit=NULL;
+        RPCheck(git_commit_lookup(&commit,repo,&oid), @"本次拉取提交已不可用，请使用桌面 Git 查看。"); KEEP(commit,git_commit_free);
+        RPCheck(git_commit_tree(&trees[i],commit), @"读取拉取文件树失败。"); KEEP(trees[i],git_tree_free);
+    }
+    RPRequire(!RPIsCancelled(q[@"requestID"]), @"Git 操作已取消。");
+    git_diff_options options=GIT_DIFF_OPTIONS_INIT;
+    options.flags=GIT_DIFF_INCLUDE_TYPECHANGE|GIT_DIFF_DISABLE_PATHSPEC_MATCH;
+    options.max_size=256*1024;
+    options.progress_cb=RPPullDiffProgress; options.payload=(__bridge void *)q[@"requestID"];
+    char *onePath=(char *)path.UTF8String; options.pathspec.strings=&onePath; options.pathspec.count=1;
+    git_diff *diff=NULL;
+    RPCheck(git_diff_tree_to_tree(&diff,repo,trees[0],trees[1],&options), @"读取本次拉取差异失败。"); KEEP(diff,git_diff_free);
+    RPRequire(git_diff_num_deltas(diff)==1, @"本次拉取中没有该文件的变化。");
+    const git_diff_delta *delta=git_diff_get_delta(diff,0);
+    const char *raw=delta->status==GIT_DELTA_DELETED ? delta->old_file.path : delta->new_file.path;
+    RPRequire(raw && [path isEqual:@(raw)], @"拉取文件路径不匹配。");
+    BOOL binary=NO,truncated=NO; size_t additions=0,deletions=0; NSString *text=@"";
+    git_odb *odb=NULL; RPCheck(git_repository_odb(&odb,repo), @"读取 Git 对象失败。"); KEEP(odb,git_odb_free);
+    const git_oid *oids[2]={&delta->old_file.id,&delta->new_file.id};
+    for (NSUInteger i=0;i<2;i++) {
+        if (git_oid_is_zero(oids[i])) continue;
+        size_t size=0; git_object_t type;
+        RPCheck(git_odb_read_header(&size,&type,odb,oids[i]), @"读取拉取文件对象失败。");
+        if (type!=GIT_OBJECT_BLOB || size>256*1024) truncated=YES;
+    }
+    if (!truncated) {
+        git_patch *patch=NULL;
+        RPCheck(git_patch_from_diff(&patch,diff,0), @"生成本次拉取差异失败。"); KEEP(patch,git_patch_free);
+        binary=!patch || (delta->flags&GIT_DIFF_FLAG_BINARY);
+        if (!binary) {
+            git_patch_line_stats(NULL,&additions,&deletions,patch);
+            git_buf buffer=GIT_BUF_INIT;
+            int rc=git_patch_to_buf(&buffer,patch);
+            if (rc<0 || buffer.size>256*1024) truncated=YES;
+            else {
+                NSString *decoded=[[NSString alloc] initWithBytes:buffer.ptr length:buffer.size encoding:NSUTF8StringEncoding];
+                if (decoded) text=decoded; else binary=YES;
+            }
+            git_buf_dispose(&buffer);
+        }
+    }
+    RPRequire(!RPIsCancelled(q[@"requestID"]), @"Git 操作已取消。");
+    NSString *status=delta->status==GIT_DELTA_ADDED ? @"added" : (delta->status==GIT_DELTA_DELETED ? @"removed" : (delta->status==GIT_DELTA_RENAMED ? @"renamed" : @"modified"));
+    return @{@"text":text,@"binary":@(binary),@"truncated":@(truncated),@"status":status,
+             @"previousFilename":delta->status==GIT_DELTA_RENAMED ? @(delta->old_file.path) : NSNull.null,
+             @"additions":@(additions),@"deletions":@(deletions)};
+}
 static NSDictionary *RPPullSummary(git_repository *repo, const git_oid *before, const git_oid *target,
                                    NSString *requestID, RPGitResources *c) {
-    if (git_oid_equal(before,target)) return @{@"commits":@0,@"files":@[],@"totalFiles":@0,@"added":@0,@"modified":@0,@"deleted":@0,@"truncated":@NO};
+    if (git_oid_equal(before,target)) return @{@"beforeSHA":RPOID(before),@"afterSHA":RPOID(target),@"commits":@0,@"files":@[],@"totalFiles":@0,@"added":@0,@"modified":@0,@"deleted":@0,@"truncated":@NO};
     size_t commits=0, behind=0;
     RPCheck(git_graph_ahead_behind(&commits,&behind,repo,target,before), @"统计本次拉取提交失败，尚未更新工作文件。");
     git_commit *oldCommit=NULL,*newCommit=NULL; git_tree *oldTree=NULL,*newTree=NULL;
@@ -705,7 +763,7 @@ static NSDictionary *RPPullSummary(git_repository *repo, const git_oid *before, 
             [files addObject:@{@"path":path,@"kind":kind}];
         }
     }
-    return @{@"commits":@(commits),@"files":files,@"totalFiles":@(total),@"added":@(added),@"modified":@(modified),@"deleted":@(deleted),@"truncated":total>files.count ? @YES : @NO};
+    return @{@"beforeSHA":RPOID(before),@"afterSHA":RPOID(target),@"commits":@(commits),@"files":files,@"totalFiles":@(total),@"added":@(added),@"modified":@(modified),@"deleted":@(deleted),@"truncated":total>files.count ? @YES : @NO};
 }
 static NSDictionary *RPPull(git_repository *repo, NSMutableDictionary *q, RPGitResources *c) {
     NSDictionary *status = RPStatus(repo,c); RPWritable(repo,status);
@@ -829,6 +887,7 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
                 if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"]) RPScanBudget(repo,requestID,c);
                 if ([op isEqual:@"status"] || [op isEqual:@"inspect"]) result = RPStatus(repo, c);
                 else if ([op isEqual:@"diff"]) result = RPDiff(repo, q, c);
+                else if ([op isEqual:@"pullDiff"]) result = RPPullDiff(repo, q, c);
                 else if ([op isEqual:@"commit"]) result = RPCommit(repo, q, c);
                 else if ([op isEqual:@"history"]) result = RPHistory(repo,c);
                 else if ([op isEqual:@"commitDetail"]) result = RPCommitDetail(repo,q,c);

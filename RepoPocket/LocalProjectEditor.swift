@@ -167,6 +167,10 @@ struct LocalProjectFilesView: View {
         .task { guard !loaded else { return }; await load() }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
+                NavigationLink {
+                    LocalProjectSearchView(api: api, project: project, internalRoot: internalRoot, imported: imported, changed: changed)
+                } label: { Image(systemName: "magnifyingglass").accessibilityLabel("搜索项目文件") }
+                    .disabled(creating || importer.busy || filePresentation.locked || !api.isCurrentSession || generation != AccountStore.generation)
                 Menu {
                     Button("新建文件") { newFolder = false; newName = ""; showCreate = true }
                     Button("新建文件夹") { newFolder = true; newName = ""; showCreate = true }
@@ -245,5 +249,125 @@ struct LocalProjectFilesView: View {
             guard api.isCurrentSession, generation == AccountStore.generation else { return }
             entries = result
         } catch { self.error = error.localizedDescription }
+    }
+}
+
+struct LocalProjectSearchView: View {
+    @ObservedObject var api: GitHub
+    let project: LocalGitProject
+    let internalRoot: URL
+    var imported: (([String]) -> Void)? = nil
+    let changed: () -> Void
+    @State private var generation = AccountStore.generation
+    @State private var query = ""
+    @State private var entries: [LocalGitSearchEntry] = []
+    @State private var loading = false
+    @State private var loaded = false
+    @State private var error = ""
+    @State private var job: LocalGitSearchJob?
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var filePresentation = LocalFilePresentation()
+    private var valid: Bool { api.isCurrentSession && generation == AccountStore.generation }
+    private var matches: [LocalGitSearchEntry] {
+        guard valid, error.isEmpty else { return [] }
+        return entries.filter { $0.matches(query) }
+    }
+    var body: some View {
+        let results = matches
+        List {
+            Section { searchStatus(count: results.count) }
+            Section { searchRows(results) }
+        }.listStyle(.insetGrouped).navigationTitle("搜索项目文件").adaptiveWorkspaceLayout()
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "文件或文件夹名称 / 路径")
+            .task { if !loaded { await load() } }
+            .refreshable { await load() }
+            .toolbar { Button("刷新目录") { refresh() }.disabled(loading || filePresentation.locked || !valid) }
+            .onDisappear { job?.cancel(); refreshTask?.cancel() }
+            .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in
+                job?.cancel(); refreshTask?.cancel(); entries = []; loaded = false; error = ""
+            }
+            .sheet(item: Binding(get: { filePresentation.selected }, set: { if $0 == nil { filePresentation.dismissing() } }), onDismiss: {
+                filePresentation.didDismiss(); loaded = false; refresh()
+            }) { file in
+                Group {
+                    if file.path.lowercased().hasSuffix(".deb") {
+                        LocalProjectDebEditor(api: api, project: project, internalRoot: internalRoot, path: file.path, changed: changed)
+                    } else {
+                        LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, changed: changed)
+                    }
+                }.id(file.id)
+            }
+    }
+    private func searchStatus(count: Int) -> some View {
+        let message = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "输入名称开始搜索。" : (count > 200 ? "找到 \(count) 项，显示前 200 项，请缩小搜索范围。" : "找到 \(count) 项。")
+        return SoftGroupRows {
+            SoftGroupRow("scope") { Text("整个项目：" + project.name).font(.caption) }
+            SoftGroupRow("hint") { Text("搜索整个项目的文件、文件夹名称与路径，不搜索正文，不跟随符号链接或访问 Git 元数据。").font(.caption).foregroundStyle(.secondary) }
+            if loading { SoftGroupRow("loading") { ProgressView("加载项目目录…") } }
+            if !error.isEmpty {
+                SoftGroupRow("error") { Text(error).font(.caption).foregroundStyle(.red) }
+                SoftGroupRow("retry") { Button("重试加载目录") { refresh() }.disabled(loading || !valid) }
+            } else if loaded {
+                SoftGroupRow("count") { Text(message).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+    }
+    private func searchRows(_ results: [LocalGitSearchEntry]) -> some View {
+        SoftGroupRows {
+            for entry in results.prefix(200) {
+                SoftGroupRow(entry.id) {
+                    if entry.directory {
+                        NavigationLink {
+                            LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, imported: imported, changed: changed)
+                        } label: { label(entry) }
+                            .disabled(filePresentation.locked || !valid)
+                            .accessibilityIdentifier("local-project-search-entry-" + entry.path)
+                    } else {
+                        Button { guard valid else { return }; filePresentation.open(path: entry.path) } label: { label(entry) }
+                            .buttonStyle(.borderless).disabled(filePresentation.locked || !valid)
+                            .accessibilityIdentifier("local-project-search-entry-" + entry.path)
+                    }
+                }
+            }
+        }
+    }
+    private func label(_ entry: LocalGitSearchEntry) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.name)
+                Text(entry.path).font(.caption).foregroundStyle(.secondary)
+            }
+        } icon: { Image(systemName: entry.directory ? "folder" : "doc.text") }
+    }
+    private func refresh() {
+        guard !loading, valid else { return }
+        refreshTask = Task { @MainActor in await load() }
+    }
+    private func load() async {
+        guard !loading, valid, !filePresentation.locked else { return }
+        let scan = LocalGitSearchJob(), capturedGeneration = generation
+        job = scan; loading = true; loaded = false; entries = []; error = ""
+        defer { loading = false; job = nil }
+        do {
+            let result = try await withTaskCancellationHandler(operation: {
+                try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: capturedGeneration) { root in
+                    try LocalGitFileAccess.coordinate(root, writing: false) { coordinated in
+                        guard coordinated.standardizedFileURL == root.standardizedFileURL,
+                              try LocalGitFileAccess.identity(coordinated) == project.identity else {
+                            throw LocalGitError(text: "项目目录已变化，请重新授权原目录。")
+                        }
+                        return try LocalGitFileAccess.searchEntries(root: root) {
+                            try scan.check()
+                            guard capturedGeneration == AccountStore.generation else { throw CancellationError() }
+                        }
+                    }
+                }
+            }, onCancel: { scan.cancel() })
+            try Task.checkCancellation(); try scan.check()
+            guard valid else { return }
+            entries = result; loaded = true
+        } catch {
+            if valid, !RefreshFailure.isCancellation(error) { self.error = error.localizedDescription }
+        }
     }
 }

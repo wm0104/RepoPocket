@@ -3,6 +3,7 @@ options:
   projectFormat: xcode15_3
   xcodeVersion: "15.4"
   bundleIdPrefix: com.wm0104
+  developmentLanguage: zh-Hans
   deploymentTarget:
     iOS: "16.0"
 settings:
@@ -49,6 +50,8 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         CFBundleDisplayName: RepoPocket
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans]
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false

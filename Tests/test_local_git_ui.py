@@ -31,6 +31,15 @@ class LocalGitUITests(unittest.TestCase):
         self.assertLess(sync.index('Task.checkCancellation()'), sync.index('pullSummary = reply.pullSummary'))
         self.assertLess(sync.index('guard valid else'), sync.index('pullSummary = reply.pullSummary'))
 
+    def test_pull_files_open_pinned_diff_with_legacy_notice(self):
+        page = (ROOT/'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
+        summary = page.split('    private func pullResultSection(', 1)[1].split('    private func changesSection(', 1)[0]
+        for text in ['NavigationLink', 'summary.beforeSHA', 'summary.afterSHA', 'LocalProjectDiffView', '缺少拉取前后提交']:
+            self.assertIn(text, summary)
+        diff = page.split('struct LocalProjectDiffView:', 1)[1]
+        for text in ['"pullDiff"', 'beforeSHA', 'afterSHA', 'diff.status', 'diff.previousFilename', 'diff.truncated', '二进制', '本次拉取前 → 拉取后', '.onDisappear { visible = false; diffTask?.cancel() }']:
+            self.assertIn(text, diff)
+
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift production pull-summary decoding regression runs on macOS')
     def test_pull_summary_decodes_legacy_noop_and_fast_forward_replies(self):
         fixture = r'''
@@ -46,6 +55,15 @@ import Foundation
   let noop = try reply(#"{"head":"same","pullSummary":{"commits":0,"files":[],"totalFiles":0,"added":0,"modified":0,"deleted":0,"truncated":false}}"#).pullSummary!
   precondition(noop.commits == 0 && noop.files.isEmpty && noop.totalFiles == 0)
   precondition(noop.added == 0 && noop.modified == 0 && noop.deleted == 0 && !noop.truncated)
+  precondition(noop.beforeSHA == nil && noop.afterSHA == nil)
+  let pinned = try reply(#"{"pullSummary":{"beforeSHA":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","afterSHA":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","commits":1,"files":[{"path":"old.txt","kind":"deleted"}],"totalFiles":1,"added":0,"modified":0,"deleted":1,"truncated":false}}"#).pullSummary!
+  precondition(pinned.beforeSHA == String(repeating:"a",count:40) && pinned.afterSHA == String(repeating:"b",count:40))
+  let roundTrip = try JSONDecoder().decode(LocalGitPullSummary.self, from: JSONEncoder().encode(pinned))
+  precondition(roundTrip.beforeSHA == pinned.beforeSHA && roundTrip.afterSHA == pinned.afterSHA)
+  let oldDiff = try JSONDecoder().decode(LocalGitDiff.self, from: Data(#"{"text":"old patch","binary":false,"truncated":false}"#.utf8))
+  precondition(oldDiff.status == nil && oldDiff.previousFilename == nil && oldDiff.text == "old patch")
+  let diff = try JSONDecoder().decode(LocalGitDiff.self, from: Data(#"{"text":"deleted patch","binary":false,"truncated":false,"status":"removed","previousFilename":null,"additions":0,"deletions":1}"#.utf8))
+  precondition(diff.status == "removed" && diff.deletions == 1 && diff.additions == 0)
   let changed = try reply(#"{"head":"new","pullSummary":{"commits":2,"files":[{"path":"新增.txt","kind":"added"},{"path":"src/main.swift","kind":"modified"},{"path":"old.txt","kind":"deleted"}],"totalFiles":3,"added":1,"modified":1,"deleted":1,"truncated":false}}"#).pullSummary!
   precondition(changed.commits == 2 && changed.totalFiles == 3 && changed.files.count == 3)
   precondition(changed.added == 1 && changed.modified == 1 && changed.deleted == 1)

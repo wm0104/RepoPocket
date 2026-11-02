@@ -175,13 +175,21 @@ struct LocalProjectView: View {
                             }
                         }.buttonStyle(.plain).accessibilityValue(pullFilesExpanded ? "已展开" : "已折叠")
                     }
+                    if summary.beforeSHA == nil || summary.afterSHA == nil {
+                        SoftGroupRow("missing-revisions") {
+                            Text("此记录缺少拉取前后提交，只能显示摘要；下次成功拉取后可点按文件查看差异。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     if pullFilesExpanded {
                         for file in summary.files.prefix(1000) {
                             SoftGroupRow("file:" + file.path) {
-                                HStack(alignment: .top, spacing: 12) {
-                                    Text(file.label).foregroundStyle(.secondary)
-                                    Text(file.path).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                                }.font(.caption)
+                                if let beforeSHA = summary.beforeSHA, let afterSHA = summary.afterSHA {
+                                    NavigationLink {
+                                        LocalProjectDiffView(project: project, metadata: store.metadata(project), internalRoot: store.internalRoot,
+                                                             path: file.path, head: "", beforeSHA: beforeSHA, afterSHA: afterSHA, isValid: { valid })
+                                    } label: { pullFileLabel(file) }
+                                } else { pullFileLabel(file) }
                             }
                         }
                         if summary.truncated {
@@ -194,6 +202,13 @@ struct LocalProjectView: View {
                 }
             }
         }.transaction { $0.animation = nil; $0.disablesAnimations = true }
+    }
+
+    private func pullFileLabel(_ file: LocalGitPullSummary.File) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(file.label).foregroundStyle(.secondary)
+            Text(file.path).frame(maxWidth: .infinity, alignment: .leading)
+        }.font(.caption)
     }
 
     private func changesSection(_ snapshot: LocalGitSnapshot) -> some View {
@@ -381,6 +396,12 @@ struct LocalProjectView: View {
 
 struct LocalProjectDiffView:View {
     let project:LocalGitProject;let metadata:URL;let internalRoot:URL;let path:String;let head:String
+    var beforeSHA: String? = nil
+    var afterSHA: String? = nil
+    var isValid: () -> Bool = { true }
+    @State private var diffTask: Task<LocalGitDiff, Error>?
+    @State private var visible = false
+    private var pinned: Bool { beforeSHA != nil && afterSHA != nil }
     @Environment(\.dismiss) private var dismiss
     @StateObject private var request = RepositoryPageLoadState<LocalGitDiff>()
     @State private var generation = AccountStore.generation
@@ -391,19 +412,38 @@ struct LocalProjectDiffView:View {
             Group {
                 if let diff {
                     VStack(spacing: 0) {
-                        if diff.truncated { Text("差异超过 256 KiB，未完整展示。").font(.caption).foregroundStyle(.secondary).padding() }
-                        CommitPatchView(file: DesktopCommit.File(filename: path, previous_filename: nil, status: "modified", additions: 0, deletions: 0, patch: diff.binary ? nil : diff.text), workingTree: true)
+                        if pinned {
+                            Text("本次拉取前 → 拉取后（不包含后续工作区修改）").font(.caption).foregroundStyle(.secondary).padding(8)
+                            Text(String((beforeSHA ?? "").prefix(12)) + " → " + String((afterSHA ?? "").prefix(12)))
+                                .font(.caption.monospaced()).textSelection(.enabled)
+                        }
+                        if diff.truncated { Text("文件或差异超过 256 KiB 预览限制，未完整展示；请使用桌面 Git 查看。").font(.caption).foregroundStyle(.secondary).padding() }
+                        else if diff.binary { Text("二进制或非 UTF-8 文件已变化，无法展示文本差异。").font(.caption).foregroundStyle(.secondary).padding() }
+                        CommitPatchView(file: DesktopCommit.File(filename: path, previous_filename: diff.previousFilename, status: diff.status ?? "modified", additions: diff.additions ?? 0, deletions: diff.deletions ?? 0, patch: diff.binary || diff.truncated ? nil : diff.text), workingTree: !pinned, comparisonLabel: pinned ? "显示本次拉取前后的文件变化" : nil)
                     }
                 } else if failure.isEmpty { ProgressView("读取文件差异…") }
                 else { VStack { Text(failure).foregroundStyle(.secondary); Button("重试") { Task { await load(refresh: true) } } }.padding() }
             }
                 .navigationTitle((path as NSString).lastPathComponent).toolbar { Button("关闭"){dismiss()} }
-                .task { await load() }
+                .task { visible = true; await load() }
+                .onDisappear { visible = false; diffTask?.cancel() }
         }
     }
     private func load(refresh: Bool = false) async {
-        await request.load(key: project.id.uuidString + ":" + path + ":" + head + ":" + generation.uuidString, refresh: refresh,
-            operation: { try await LocalGitEngine.shared.run("diff", project: project, metadata: metadata, internalRoot: internalRoot, arguments: ["path":path,"expectedHead":head], generation: generation) },
-            isValid: { generation == AccountStore.generation })
+        let arguments: [String: Any]
+        if let beforeSHA, let afterSHA { arguments = ["path":path,"beforeSHA":beforeSHA,"afterSHA":afterSHA] }
+        else { arguments = ["path":path,"expectedHead":head] }
+        await request.load(key: project.id.uuidString + ":" + path + ":" + (beforeSHA ?? head) + ":" + (afterSHA ?? "") + ":" + generation.uuidString, refresh: refresh,
+            operation: {
+                guard visible, isValid() else { throw CancellationError() }
+                let task = Task<LocalGitDiff, Error> {
+                    try await LocalGitEngine.shared.run(pinned ? "pullDiff" : "diff", project: project, metadata: metadata,
+                                                       internalRoot: internalRoot, arguments: arguments, generation: generation)
+                }
+                diffTask = task
+                defer { diffTask = nil }
+                return try await task.value
+            },
+            isValid: { visible && generation == AccountStore.generation && isValid() })
     }
 }

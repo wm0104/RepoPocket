@@ -1,5 +1,5 @@
 name: Build IPA
-run-name: 增加手机代码编辑、仓库搜索与构建跟踪
+run-name: 修复自述排版与搜索并增加拉取差异
 on:
   workflow_dispatch:
     inputs:
@@ -54,6 +54,8 @@ jobs:
         run: python3 Tests/test_source_code.py
       - name: Test mobile editor, directory search and exact pushed builds
         run: python3 Tests/test_mobile_editor.py
+      - name: Test recursive local project file search
+        run: python3 Tests/test_local_project_search.py
 
       - name: Copy link entry points
         run: python3 Tests/test_copy_link_menu.py

@@ -4,6 +4,16 @@ import shutil, subprocess, tempfile, unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 class FinalPublishTests(unittest.TestCase):
+    def test_native_find_uses_declared_chinese_localization(self):
+        project = (ROOT/'project.yml').read_text()
+        self.assertIn('developmentLanguage: zh-Hans', project)
+        self.assertIn('CFBundleDevelopmentRegion: zh-Hans', project)
+        self.assertIn('CFBundleLocalizations: [zh-Hans]', project)
+        surface = (ROOT/'RepoPocket/SourceTextSurface.swift').read_text()
+        self.assertIn('UIFindInteraction', surface)
+        self.assertNotIn('AppleLanguages', surface)
+        self.assertNotIn('method_exchangeImplementations', surface)
+
     def test_shared_form_and_safety(self):
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
         entry = (ROOT/'RepoPocket/ReleaseEntryView.swift').read_text()

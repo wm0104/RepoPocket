@@ -60,7 +60,15 @@ struct LocalGitStatus: Codable {
     let repoState: Int
     var canCommit: Bool { staged.isEmpty && repoState == 0 }
 }
-struct LocalGitDiff: Codable { let text: String; let binary: Bool; let truncated: Bool }
+struct LocalGitDiff: Codable {
+    let text: String
+    let binary: Bool
+    let truncated: Bool
+    let status: String?
+    let previousFilename: String?
+    let additions: Int?
+    let deletions: Int?
+}
 struct LocalGitCommit: Codable, Identifiable {
     let sha: String
     let message: String
@@ -77,6 +85,8 @@ struct LocalGitHistory: Codable {
 }
 struct LocalGitDocument { let text: String; let fingerprint: String }
 struct LocalGitPullSummary: Codable {
+    let beforeSHA: String?
+    let afterSHA: String?
     let commits: Int
     let files: [File]
     let totalFiles: Int

@@ -28,16 +28,17 @@ class MarkdownFileRenderTests(unittest.TestCase):
 
     def test_file_page_prefers_html_then_falls_back(self):
         page = views.split('struct FileReadingView: View {', 1)[1]
-        self.assertIn('Toggle("Markdown 排版", isOn: $markdown)', page)
+        self.assertIn('if !isMarkdown { SourceCodeView(text: text, filename: path) }', page)
+        self.assertNotIn('Toggle(', page)
         self.assertIn('@State private var renderedHTML: String?', page)
-        self.assertIn('if !isMarkdown || !markdown { SourceCodeView(text: text, filename: path) }', page)
-        self.assertIn('else if let renderedHTML {', page)
+        self.assertIn('else if let renderedHTML, renderedKey == requestKey {', page)
         self.assertIn('ReadmeHTMLView(html: renderedHTML, baseURL: baseURL, mediaBaseURL: mediaBaseURL', page)
-        self.assertIn('onFailure: { _ in self.renderedHTML = nil }', page)
-        self.assertIn('.task(id: [text, repo, branch, path, String(markdown), api?.accountID ?? ""])', page)
+        self.assertIn('guard renderedKey == requestKey else { return }', page)
+        self.assertIn('self.renderedHTML = nil', page)
+        self.assertIn('.task(id: requestKey)', page)
         self.assertIn('let html = try? await api.renderedMarkdownHTML(text, repo: repo)', page)
         # Offline and signed-out states keep the local MarkdownUI rendering.
-        self.assertIn('guard isMarkdown, markdown, let api, api.isCurrentSession,', page)
+        self.assertIn('guard isMarkdown, let api, api.isCurrentSession,', page)
         self.assertIn('defer { if !Task.isCancelled { htmlAttempted = true } }', page)
         self.assertIn('guard !Task.isCancelled, api.isCurrentSession, !html.isEmpty', page)
         self.assertIn('CommunityMarkdown(text: text, baseURL: baseURL, imageBaseURL: mediaBaseURL, api: api)', page)
@@ -51,7 +52,7 @@ class MarkdownFileRenderTests(unittest.TestCase):
         for package in ('MarkdownUI', 'NetworkImage', 'swift-cmark', 'SnapshotTesting', 'ZIPFoundation'):
             self.assertIn(package + ':', project)
         self.assertNotIn('marked', project.lower())
-        # The source view keeps its own behaviour and the toggle still switches layouts.
+        # Non-Markdown files retain their source view; only the file Markdown toggle is removed.
         self.assertIn('SourceCodeView(text: text, filename: path)', views)
 
 
