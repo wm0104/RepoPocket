@@ -12,7 +12,18 @@ from test_workflow_dispatch import production_method
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def desktop_rules_fixture(source):
+    # The branch rule contains a literal "@{"; a brace counter would consume the enum's closing brace.
+    return 'enum DesktopRules {' + source.split('enum DesktopRules {', 1)[1].split('\nenum CommitDatePresentation', 1)[0].rstrip()
+
+
 class BranchDeletionContracts(unittest.TestCase):
+    def test_branch_rule_fixture_does_not_emit_an_extra_enum_closing_brace(self):
+        source = desktop_rules_fixture((ROOT / 'RepoPocket/DesktopModels.swift').read_text())
+        self.assertEqual(source.splitlines()[-2:], ['    }', '}'])
+        self.assertEqual(source.count('\n}'), 1)
+        self.assertIn('name.contains("@{")', source)
+
     def test_local_delete_is_pinned_merged_only_and_ref_only(self):
         source = (ROOT / 'Vendor/NativeGit/NativeGitBridge.m').read_text()
         body = source.split('static NSDictionary *RPDeleteBranch(', 1)[1].split('static NSDictionary *', 1)[0]
@@ -50,7 +61,7 @@ class BranchDeletionContracts(unittest.TestCase):
                             'struct RepositoryReference:', 'struct Repository:'])
         desktop = (ROOT / 'RepoPocket/DesktopModels.swift').read_text()
         models += '\n' + production_method(desktop, 'struct DesktopBranch:')
-        models += '\nenum DesktopRules {\n' + production_method(desktop, '    static func validBranch(') + '\n}'
+        models += '\n' + desktop_rules_fixture(desktop)
         source = HARNESS.replace('// PRODUCTION_METHODS', methods).replace('// PRODUCTION_MODELS', models)
         source += '\n' + (ROOT / 'RepoPocket/RepositoryInput.swift').read_text()
         source += '\n' + (ROOT / 'RepoPocket/OfficialUpdateRedirectPolicy.swift').read_text()
