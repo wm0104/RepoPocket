@@ -9,6 +9,21 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LocalGitUITests(unittest.TestCase):
+    def test_compact_project_keeps_metadata_and_imports_in_the_project_menu(self):
+        page = (ROOT / 'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
+        summary = page.split('    private func summarySection(', 1)[1].split('    private func pullResultSection(', 1)[0]
+        self.assertNotIn('SoftGroupRow("head")', summary)
+        self.assertNotIn('SoftGroupRow("remote")', summary)
+        self.assertIn('工作区干净', summary)
+        self.assertIn('localgit.branches', summary)
+        self.assertIn('Button("项目信息")', page)
+        self.assertEqual(page.count('Button("导入文件")'), 1)
+        self.assertIn('if !snapshot.status.files.isEmpty || !snapshot.status.canCommit', page)
+        actions = page.split('    private func actionsSection(', 1)[1].split('    private func historySection(', 1)[0]
+        self.assertNotIn('SoftGroupRow("import-', actions)
+        self.assertIn('SoftGroupRow("sync")', actions)
+        self.assertEqual(actions.count('.contentShape(Rectangle())'), 2, 'Both button labels need the full half-row hit area')
+
     def test_current_project_exposes_file_import_and_bulk_selection(self):
         page = (ROOT / 'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
         for label in ['导入文件', '导入文件夹', '全选', '取消全选']:

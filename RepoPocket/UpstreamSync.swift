@@ -359,6 +359,9 @@ struct UpstreamSyncView: View {
     @State private var branchRepository: String?
     @State private var loadedRepository: Repository?
     @State private var sourceError = ""
+    @State private var commitsExpanded = false
+    @State private var filesExpanded = false
+    @State private var receiptExpanded = false
     @FocusState private var editingRepository: Bool
     private var metadata: Repository? { loadedRepository ?? repository }
 
@@ -500,6 +503,7 @@ struct UpstreamSyncView: View {
                 SoftGroupRow("preview") {
                     Button(state.loading ? "正在比较…" : "预览差异（只读）") {
                         editingRepository = false
+                        UIRules.withoutAnimation { commitsExpanded = false; filesExpanded = false; receiptExpanded = false }
                         Task { await state.loadPreview(api: api, repo: repo, branch: branch) }
                     }
                     .disabled(state.loading || state.upstreamRepository.isEmpty || state.upstreamBranch.isEmpty)
@@ -530,7 +534,7 @@ struct UpstreamSyncView: View {
     @ViewBuilder private var previewSection: some View {
         if let compare = state.compare {
             Section("差异预览") {
-                SoftGroupRows {
+                SoftGroupRows(animateBackground: false) {
                     SoftGroupRow("summary") {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(compare.status ?? "")
@@ -548,26 +552,52 @@ struct UpstreamSyncView: View {
                             Text("没有需要合并的上游提交。").foregroundStyle(.secondary)
                         }
                     }
-                    for commit in commits {
-                        SoftGroupRow("commit-" + commit.id) {
-                            HStack(alignment: .top, spacing: 10) {
-                                Text(short(commit.sha)).font(.caption).monospacedDigit()
-                                    .foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(title(commit.commit.message)).lineLimit(2)
-                                    Text((commit.commit.author?.name ?? "未知作者") + " · "
-                                         + CommitDatePresentation.local(commit.commit.author?.date ?? ""))
-                                        .font(.caption).foregroundStyle(.secondary)
+                    if !commits.isEmpty {
+                        SoftGroupRow("commits-disclosure") {
+                            Button { UIRules.withoutAnimation { commitsExpanded.toggle() } } label: {
+                                HStack {
+                                    Text("提交记录（\(commits.count)）"); Spacer()
+                                    Image(systemName: commitsExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            }.buttonStyle(.plain).accessibilityIdentifier("upstream-commits-disclosure")
+                                .accessibilityValue(commitsExpanded ? "已展开" : "已折叠")
+                        }
+                    }
+                    if commitsExpanded {
+                        for commit in commits {
+                            SoftGroupRow("commit-" + commit.id) {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Text(short(commit.sha)).font(.caption).monospacedDigit()
+                                        .foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(title(commit.commit.message)).lineLimit(2)
+                                        Text((commit.commit.author?.name ?? "未知作者") + " · "
+                                             + CommitDatePresentation.local(commit.commit.author?.date ?? ""))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
                     }
-                    for file in files {
-                        SoftGroupRow("file-" + file.id) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(file.filename).font(.callout)
-                                Text("+\(file.additions ?? 0) / −\(file.deletions ?? 0)")
-                                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    if !files.isEmpty {
+                        SoftGroupRow("files-disclosure") {
+                            Button { UIRules.withoutAnimation { filesExpanded.toggle() } } label: {
+                                HStack {
+                                    Text("变更文件（\(files.count)）"); Spacer()
+                                    Image(systemName: filesExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            }.buttonStyle(.plain).accessibilityIdentifier("upstream-files-disclosure")
+                                .accessibilityValue(filesExpanded ? "已展开" : "已折叠")
+                        }
+                    }
+                    if filesExpanded {
+                        for file in files {
+                            SoftGroupRow("file-" + file.id) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(file.filename).font(.callout)
+                                    Text("+\(file.additions ?? 0) / −\(file.deletions ?? 0)")
+                                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                }
                             }
                         }
                     }
@@ -580,7 +610,7 @@ struct UpstreamSyncView: View {
                         }
                     }
                 }
-            }
+            }.transaction { $0.animation = nil; $0.disablesAnimations = true }
         }
     }
 
@@ -619,15 +649,26 @@ struct UpstreamSyncView: View {
     @ViewBuilder private var resultSection: some View {
         if state.stage != .preview || state.receipt != nil {
             Section("同步结果") {
-                SoftGroupRows {
+                SoftGroupRows(animateBackground: false) {
                     if state.busy {
                         SoftGroupRow("busy") { ProgressView("正在等待 GitHub…") }
                     }
                     if let receipt = state.receipt {
-                        SoftGroupRow("backup-tag") { LabeledContent("备份标签", value: receipt.backupTag) }
-                        SoftGroupRow("temp-branch") { LabeledContent("临时分支", value: receipt.tempBranch) }
-                        if !receipt.head.isEmpty {
-                            SoftGroupRow("head") { LabeledContent("起点提交", value: short(receipt.head)) }
+                        SoftGroupRow("receipt-disclosure") {
+                            Button { UIRules.withoutAnimation { receiptExpanded.toggle() } } label: {
+                                HStack {
+                                    Text("同步技术详情"); Spacer()
+                                    Image(systemName: receiptExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            }.buttonStyle(.plain).accessibilityIdentifier("upstream-receipt-disclosure")
+                                .accessibilityValue(receiptExpanded ? "已展开" : "已折叠")
+                        }
+                        if receiptExpanded {
+                            SoftGroupRow("backup-tag") { LabeledContent("备份标签", value: receipt.backupTag) }
+                            SoftGroupRow("temp-branch") { LabeledContent("临时分支", value: receipt.tempBranch) }
+                            if !receipt.head.isEmpty {
+                                SoftGroupRow("head") { LabeledContent("起点提交", value: short(receipt.head)) }
+                            }
                         }
                     }
                     if state.stage == .merged {
@@ -665,7 +706,7 @@ struct UpstreamSyncView: View {
                         }
                     }
                 }
-            }
+            }.transaction { $0.animation = nil; $0.disablesAnimations = true }
         }
     }
 }

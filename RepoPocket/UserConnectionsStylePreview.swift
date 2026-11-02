@@ -71,10 +71,21 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
         let path = request.url?.path ?? ""
         if ProcessInfo.processInfo.arguments.contains("-upstream-watch-style-preview") || ProcessInfo.processInfo.arguments.contains("-upstream-sync-style-preview") {
             let metadata = #"{"id":504,"name":"sample","full_name":"fixture-owner/sample","html_url":"https://github.com/fixture-owner/sample","default_branch":"main","fork":true,"parent":{"full_name":"fixture-upstream/origin","default_branch":"develop"},"source":{"full_name":"fixture-network/root","default_branch":"trunk"},"permissions":{"push":false}}"#
+            let arguments = ProcessInfo.processInfo.arguments
+            let empty = arguments.contains("-upstream-preview-empty")
+            let truncated = arguments.contains("-upstream-preview-truncated")
+            let count = empty ? 0 : (truncated ? 31 : (arguments.contains("-upstream-preview-many") ? 3 : 1))
+            let changes: [[String: Any]] = (0..<count).map { index in
+                ["sha": String(format: "%040x", index + 1), "commit": ["message": "Fixture upstream change \(index + 1)"]]
+            }
+            let files: [[String: Any]] = (0..<(truncated ? 101 : count)).map { ["filename": "fixture-\($0 + 1).txt", "additions": 1, "deletions": 0] }
+            let comparison: [String: Any] = ["status": empty ? "identical" : "ahead", "ahead_by": count, "behind_by": 0,
+                                            "total_commits": count, "commits": changes, "files": files]
+            let compareJSON = String(decoding: try! JSONSerialization.data(withJSONObject: comparison), as: UTF8.self)
             let routes = [
                 "/repos/fixture-owner/sample": metadata,
                 "/repos/fixture-upstream/origin/branches": #"[{"name":"develop","commit":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},{"name":"z-last","commit":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}]"#,
-                "/repos/fixture-owner/sample/compare/main...fixture-upstream:develop": #"{"status":"ahead","ahead_by":1,"behind_by":0,"total_commits":1,"commits":[],"files":[{"filename":"README.md","additions":1,"deletions":0}]}"#
+                "/repos/fixture-owner/sample/compare/main...fixture-upstream:develop": compareJSON
             ]
             if let payload = routes[path] {
                 let failure = path.contains("/compare/") && ProcessInfo.processInfo.arguments.contains("-upstream-preview-failure")

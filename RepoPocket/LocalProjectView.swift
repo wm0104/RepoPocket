@@ -68,7 +68,7 @@ struct LocalProjectView: View {
             if let snapshot = state.snapshot {
                 summarySection(snapshot)
                 if let pullSummary { pullResultSection(pullSummary) }
-                changesSection(snapshot)
+                if !snapshot.status.files.isEmpty || !snapshot.status.canCommit { changesSection(snapshot) }
                 actionsSection(snapshot)
                 historySection(snapshot)
             }
@@ -86,10 +86,12 @@ struct LocalProjectView: View {
         .task { await check() }
         .refreshable { await check(force: true) }
         .toolbar { Menu {
+            Button("项目信息") { sheet = .info }.disabled(state.snapshot == nil || busy)
+            Button("导入位置：" + ((importTarget ?? "").isEmpty ? "根目录" : (importTarget ?? ""))) { choosingImportTarget = true }.disabled(busy)
             Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(busy)
             Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(busy)
             Button("检查变化") { Task { await check(force: true) } }.disabled(busy)
-        } label: { Image(systemName: "ellipsis.circle") } }
+        } label: { Image(systemName: "ellipsis.circle") }.accessibilityIdentifier("localgit.project-actions").accessibilityLabel("项目操作") }
         .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: store.internalRoot,
                                               directory: importTarget ?? "", generation: generation, changed: imported))
         .sheet(isPresented: $choosingImportTarget) {
@@ -110,6 +112,18 @@ struct LocalProjectView: View {
             case .diff(let path): LocalProjectDiffView(project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
                                  path:path,head:state.snapshot?.status.head ?? "")
             case .commit: commitForm
+            case .info:
+                NavigationStack {
+                    List {
+                        if let snapshot = state.snapshot {
+                            Section { SoftGroupRows {
+                                SoftGroupRow("branch") { LabeledContent("当前分支", value: snapshot.status.branch) }
+                                SoftGroupRow("head") { Text(snapshot.status.head).font(.caption.monospaced()).textSelection(.enabled) }
+                                SoftGroupRow("remote") { Text(snapshot.history.remote.isEmpty ? "未配置远端仓库" : snapshot.history.remote).font(.caption).textSelection(.enabled) }
+                            } }
+                        }
+                    }.navigationTitle("项目信息").adaptiveWorkspaceLayout().toolbar { Button("关闭") { sheet = nil } }
+                }.appSheetCornerRadius()
             case .deb(let path): LocalProjectDebEditor(api: api, project: project, internalRoot: store.internalRoot, path: path) { imported([path]) }
             case .delete(let path): LocalProjectEditor(project: project, internalRoot: store.internalRoot, path: path, deleting: true) { imported([path]) }
             case .workflow(let repo, let branch):
@@ -143,25 +157,28 @@ struct LocalProjectView: View {
         }
     }
     private func summarySection(_ snapshot: LocalGitSnapshot) -> some View {
-        Section("当前分支") {
-            SoftGroupRows {
-                SoftGroupRow("branch") { Label(snapshot.status.branch, systemImage: "arrow.triangle.branch") }
+        Section {
+            SoftGroupRows(animateBackground: false) {
                 SoftGroupRow("branches") {
-                    NavigationLink("管理本地分支") {
+                    NavigationLink {
                         LocalGitBranchManagement(project: project, metadata: store.metadata(project),
                             internalRoot: store.internalRoot, generation: generation, isValid: { valid }) {
                             state.filesChanged(); state.selected.removeAll()
                             build = nil; pullSummary = nil
                             note = "分支操作已结束，请重新检查当前分支与文件。"
                         }
+                    } label: {
+                        HStack {
+                            Label(snapshot.status.branch, systemImage: "arrow.triangle.branch")
+                            Spacer()
+                            if snapshot.history.tracking {
+                                Text(snapshot.history.ahead == 0 && snapshot.history.behind == 0 ? "已同步" : "待推送 \(snapshot.history.ahead) · 远端领先 \(snapshot.history.behind)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            } else { Text("没有可比较的远端分支").font(.caption).foregroundStyle(.secondary) }
+                        }
                     }.disabled(busy || !state.fresh || !valid)
+                        .accessibilityIdentifier("localgit.branches").accessibilityHint("管理、创建或切换本地分支")
                 }
-                SoftGroupRow("head") { Text(String(snapshot.status.head.prefix(12))).font(.caption.monospaced()).textSelection(.enabled) }
-                SoftGroupRow("tracking") {
-                    if snapshot.history.tracking { Text("待推送 \(snapshot.history.ahead) · 远端领先 \(snapshot.history.behind)").font(.caption) }
-                    else { Text("没有可比较的远端分支").font(.caption) }
-                }
-                if !snapshot.history.remote.isEmpty { SoftGroupRow("remote") { Text(snapshot.history.remote).font(.caption).textSelection(.enabled) } }
                 SoftGroupRow("files") {
                     NavigationLink("浏览与编辑项目文件") { LocalProjectFilesView(api: api, project: project, internalRoot: store.internalRoot, imported: imported) {
                         state.filesChanged(); note = "文件已修改，正在检查变化。"
@@ -169,6 +186,8 @@ struct LocalProjectView: View {
                     } }.disabled(busy)
                 }
             }
+        } footer: {
+            if snapshot.status.files.isEmpty && snapshot.status.canCommit { Text("工作区干净") }
         }
     }
 
@@ -300,18 +319,25 @@ struct LocalProjectView: View {
 
     private func actionsSection(_ snapshot: LocalGitSnapshot) -> some View {
         Section {
-            SoftGroupRows {
-                SoftGroupRow("import-target") { Button("导入位置：" + ((importTarget ?? "").isEmpty ? "根目录" : (importTarget ?? ""))) { choosingImportTarget = true }.disabled(busy) }
-                SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(busy) }
-                SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(busy) }
+            SoftGroupRows(animateBackground: false) {
                 if snapshot.status.repoState == 100 { SoftGroupRow("recover") { Button("检查并恢复中断操作") { syncing = "recover" }.disabled(busy) } }
-                SoftGroupRow("commit") {
-                    Button("创建本地提交（\(selected.count) 个文件）") { if authorName.isEmpty { authorName = api.login }; sheet = .commit }
-                        .disabled(commitBlockedReason != nil)
+                if !snapshot.status.files.isEmpty {
+                    SoftGroupRow("commit") {
+                        Button("创建本地提交（\(selected.count) 个文件）") { if authorName.isEmpty { authorName = api.login }; sheet = .commit }
+                            .disabled(commitBlockedReason != nil)
+                    }
+                    if let reason = commitBlockedReason { SoftGroupRow("reason") { Text(reason).font(.caption).foregroundStyle(.secondary) } }
                 }
-                if let reason = commitBlockedReason { SoftGroupRow("reason") { Text(reason).font(.caption).foregroundStyle(.secondary) } }
-                SoftGroupRow("pull") { Button("拉取远端（仅快进）") { syncing = "pull" }.disabled(busy || !state.fresh || snapshot.history.remote.isEmpty) }
-                SoftGroupRow("push") { Button("推送本地提交") { syncing = "push" }.disabled(busy || !state.fresh || snapshot.history.remote.isEmpty) }
+                SoftGroupRow("sync") {
+                    HStack(spacing: 16) {
+                        Button { syncing = "pull" } label: {
+                            Text("拉取远端（仅快进）").frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                        }
+                        Button { syncing = "push" } label: {
+                            Text("推送本地提交").frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                        }
+                    }.buttonStyle(.borderless).disabled(busy || !state.fresh || snapshot.history.remote.isEmpty)
+                }
                 if let build, valid {
                     SoftGroupRow("build") {
                         NavigationLink("查看本次构建") { WorkflowRunsView(api: api, repo: build.repo, branch: build.branch, headSHA: build.sha) }
@@ -319,7 +345,7 @@ struct LocalProjectView: View {
                     }
                 }
             }
-        }
+        }.transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
 
     private func historySection(_ snapshot: LocalGitSnapshot) -> some View {

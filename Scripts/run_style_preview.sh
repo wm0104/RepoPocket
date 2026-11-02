@@ -96,6 +96,23 @@ xcrun simctl io "$DEVICE" recordVideo --codec=h264 screenshots/local-git-interac
 RECORDING_PID=$!
 TEST_STATUS=0
 case "${RP_STYLE_TEST_SCOPE:-all}" in
+  maintenance-regressions) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testCompactLocalProjectKeepsMetadataAndImportsAccessible
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalBranchCreationHasConfirmationAndRejectsInvalidName
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalHistoryCommitDetailAndFolding
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalImportDestinationClosesAtNestedFolder
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalGitHasFileAndFolderImport
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalWholeFolderImportsAllChildrenAndSelectsThem
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalFolderChangesAndSelectAll
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testUpstreamWatchLinkInputKeepsFormResponsiveAndBranchSelectionExplicit
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testUpstreamPreviewResolvesForkParentAndStaysOnResult
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testUpstreamPreviewFailureStaysOnFormWithError
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testUpstreamPreviewDisclosureKeepsZeroSingleManyAndTruncatedRowsStable
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowRunDetailsFoldWithoutHidingStatusBranchOrArtifacts
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryMoreReusesDisclosureAndRemovesConditionalTailRows
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowFiltersAndSelectionKeepGroupedRows
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowBatchDeleteKeepsOtherRowsAndRetriesFailures
+  ) ;;
   review-regressions) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testAccountTokenAdditionStillWorksAfterSwitching
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testAccountTokenAdditionWorksWithoutSwitching

@@ -105,13 +105,41 @@ class UpstreamSyncSourceTests(unittest.TestCase):
     def test_dynamic_sections_have_one_boundary_calculation(self):
         preview = block(FEATURE, '@ViewBuilder private var previewSection:',
                         '@ViewBuilder private var mergeSection:')
-        self.assertEqual(preview.count('SoftGroupRows {'), 1)
+        self.assertEqual(preview.count('SoftGroupRows(animateBackground: false) {'), 1)
         self.assertNotIn('.softGroupedRow(', preview)
         for row in ['"commit-" + commit.id', '"file-" + file.id', '"files-note"']:
             self.assertIn('SoftGroupRow(' + row, preview)
         result = FEATURE.split('@ViewBuilder private var resultSection:', 1)[1]
         self.assertIn('SoftGroupRow("busy")', result)
         self.assertNotIn('.softGroupedRow(', result)
+
+    def test_compact_preview_and_receipt_keep_safety_feedback_visible(self):
+        view = FEATURE.split('struct UpstreamSyncView: View {', 1)[1]
+        for name in ('commitsExpanded', 'filesExpanded', 'receiptExpanded'):
+            self.assertIn('@State private var ' + name + ' = false', view)
+        self.assertIn('UIRules.withoutAnimation { commitsExpanded = false; filesExpanded = false; receiptExpanded = false }', view)
+        preview = block(FEATURE, '@ViewBuilder private var previewSection:', '@ViewBuilder private var mergeSection:')
+        result = FEATURE.split('@ViewBuilder private var resultSection:', 1)[1]
+        for section in (preview, result):
+            self.assertIn('SoftGroupRows(animateBackground: false)', section)
+            self.assertIn('.transaction { $0.animation = nil; $0.disablesAnimations = true }', section)
+            self.assertNotIn('withAnimation', section)
+            self.assertNotIn('.clipShape', section)
+        for name in ('commitsExpanded', 'filesExpanded'):
+            self.assertIn('UIRules.withoutAnimation { ' + name + '.toggle() }', preview)
+            self.assertIn('if ' + name + ' {', preview)
+        self.assertIn('UIRules.withoutAnimation { receiptExpanded.toggle() }', result)
+        self.assertIn('if receiptExpanded {', result)
+        self.assertGreaterEqual(preview.count('minHeight: 44'), 2)
+        self.assertIn('minHeight: 44', result)
+        # Warnings stay outside expanded list/details guards, not behind a tap.
+        self.assertLess(preview.index('比较结果共'), preview.index('if commitsExpanded {'))
+        self.assertGreater(preview.index('SoftGroupRow("files-note")'), preview.index('if filesExpanded {'))
+        for token in ('Text("合并成功，目标分支尚未改变。")', 'if state.stage == .conflict',
+                      'if !state.error.isEmpty', 'if state.stage == .applied'):
+            self.assertIn(token, result)
+        self.assertIn('func testUpstreamPreviewDisclosureKeepsZeroSingleManyAndTruncatedRowsStable()',
+                      (ROOT/'StyleUITests/StyleBoundaryTests.swift').read_text())
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Production async state runs on macOS CI')
     def test_production_state_rejects_overlapping_and_stale_previews(self):

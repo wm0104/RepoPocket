@@ -258,6 +258,7 @@ struct WorkflowRunView: View {
     @State private var artifactCount: Int?
     @State private var statusError = ""
     @State private var statusRequest = UUID()
+    @State private var detailsExpanded = false
     private var displayedRun: WorkflowRun { freshRun ?? run }
     var body: some View {
         List {
@@ -266,9 +267,39 @@ struct WorkflowRunView: View {
                     .listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
             Section {
-                SoftGroupRows {
-                    SoftGroupRow("metadata") { WorkflowRunMetadata(run: displayedRun, api: api) }
+                SoftGroupRows(animateBackground: false) {
                     SoftGroupRow("metrics") { WorkflowRunMetrics(api: api, repo: repo, run: displayedRun, artifactCount: artifactCount) }
+                    SoftGroupRow("branch") {
+                        Label(displayedRun.head_branch ?? "分支未知", systemImage: "arrow.triangle.branch")
+                            .accessibilityIdentifier("workflow-run-branch")
+                    }
+                    SoftGroupRow("details") {
+                        Button { UIRules.withoutAnimation { detailsExpanded.toggle() } } label: {
+                            HStack { Text("运行详情"); Spacer(); Image(systemName: detailsExpanded ? "chevron.up" : "chevron.down").font(.caption).foregroundStyle(.secondary) }
+                        }.buttonStyle(.plain).accessibilityValue(detailsExpanded ? "已展开" : "已折叠")
+                            .accessibilityIdentifier("workflow-run-details")
+                    }
+                    if detailsExpanded {
+                        SoftGroupRow("actor") {
+                            if let actor = displayedRun.actor {
+                                CommunityAuthorLink(api: api, user: User(id: nil, login: actor.login, avatar_url: nil, name: nil, followers: nil, following: nil))
+                            } else { Text("未知用户").foregroundStyle(.secondary) }
+                        }
+                        SoftGroupRow("trigger") { LabeledContent("触发方式", value: WorkflowTime.trigger(displayedRun.event)) }
+                        SoftGroupRow("created") {
+                            LabeledContent("创建时间", value: ChinaDate.dateTime(displayedRun.created_at))
+                        }
+                        if let start = WorkflowTime.date(displayedRun.run_started_at) {
+                            SoftGroupRow("started") { LabeledContent("开始时间", value: ChinaDate.dateTime(start)) }
+                        }
+                        if let updated = WorkflowTime.date(displayedRun.updated_at) {
+                            SoftGroupRow("updated") { LabeledContent("更新时间", value: ChinaDate.dateTime(updated)) }
+                        }
+                        SoftGroupRow("sha") {
+                            Text(displayedRun.head_sha).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                                .accessibilityLabel("提交：" + displayedRun.head_sha).accessibilityIdentifier("workflow-run-sha")
+                        }
+                    }
                     if !statusError.isEmpty { SoftGroupRow("status-error") { Text(statusError).font(.caption).foregroundStyle(.secondary) } }
                 }
             } footer: { Text("总耗时按最后更新时间估算；任务与步骤使用各自起止时间。") }

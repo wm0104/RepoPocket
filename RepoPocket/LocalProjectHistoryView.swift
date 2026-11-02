@@ -1,8 +1,8 @@
 import SwiftUI
 
 enum LocalProjectSheet: Identifiable {
-    case commit, diff(String), deb(String), delete(String), workflow(repo: String, branch: String)
-    var id: String { switch self { case .commit: return "commit"; case .diff(let path): return "diff:" + path; case .deb(let path): return "deb:" + path; case .delete(let path): return "delete:" + path; case .workflow(let repo, let branch): return "workflow:" + repo + ":" + branch } }
+    case commit, info, diff(String), deb(String), delete(String), workflow(repo: String, branch: String)
+    var id: String { switch self { case .commit: return "commit"; case .info: return "info"; case .diff(let path): return "diff:" + path; case .deb(let path): return "deb:" + path; case .delete(let path): return "delete:" + path; case .workflow(let repo, let branch): return "workflow:" + repo + ":" + branch } }
 }
 struct LocalGitCommitDetail: Decodable {
     let sha: String

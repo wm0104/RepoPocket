@@ -22,25 +22,25 @@ struct RepositoryCommunitySection: View {
     private var owner: String? { (try? RepositoryInput.parse(repo))?.split(separator: "/").first.map(String.init) }
     var body: some View {
         Section {
-            SoftGroupRows {
+            SoftGroupRows(animateBackground: false) {
             SoftGroupRow("issues", separatorInset: 62) { NavigationLink { CollaborationListView(api: api, repo: repo, kind: .issues) } label: { RepositoryFeatureLabel(title: "议题", symbol: "exclamationmark.circle", color: .green) } }
             SoftGroupRow("pulls", separatorInset: 62) { NavigationLink { CollaborationListView(api: api, repo: repo, kind: .pulls) } label: { RepositoryFeatureLabel(title: "拉取请求", symbol: "arrow.triangle.branch", color: .blue) } }
             SoftGroupRow("actions", separatorInset: 62) { NavigationLink { WorkflowRunsView(api: api, repo: repo, branch: branch) } label: { RepositoryFeatureLabel(title: "操作 · Actions", symbol: "play.circle", color: .orange) } }
             SoftGroupRow("more", separatorInset: 62) {
-                Button { expanded.toggle() } label: {
+                Button { UIRules.withoutAnimation { expanded.toggle() } } label: {
                     HStack { RepositoryFeatureLabel(title: "更多", symbol: "ellipsis", color: .gray); Spacer(); Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption).foregroundStyle(.secondary) }
-                }.buttonStyle(.plain).accessibilityValue(expanded ? "已展开" : "已折叠")
+                }.buttonStyle(.plain).accessibilityValue(expanded ? "已展开" : "已折叠").accessibilityIdentifier("repository-more")
             }
             if expanded {
-            SoftGroupRow("tools") { NavigationLink { RepositoryToolsView(api: api, repo: repo) } label: { Label("贡献者、统计与工具", systemImage: "chart.bar") } }
+            SoftGroupRow("tools") { NavigationLink { RepositoryToolsView(api: api, repo: repo) } label: { Label("贡献者、统计与工具", systemImage: "chart.bar") }.accessibilityIdentifier("repository-more-tools") }
             if let owner {
-                SoftGroupRow("owner") { NavigationLink("仓库作者") { UserRepositoriesView(api: api, user: User(id: nil, login: owner, avatar_url: avatar, name: nil, followers: nil, following: nil)) } }
+                SoftGroupRow("owner") { NavigationLink("仓库作者") { UserRepositoriesView(api: api, user: User(id: nil, login: owner, avatar_url: avatar, name: nil, followers: nil, following: nil)) }.accessibilityIdentifier("repository-more-owner") }
             }
             }
             }
         }
 #if DEBUG
-        .onAppear { if ProcessInfo.processInfo.arguments.contains("-expanded-style-preview") { expanded = true } }
+        .onAppear { if ProcessInfo.processInfo.arguments.contains("-expanded-style-preview") { UIRules.withoutAnimation { expanded = true } } }
 #endif
     }
 }

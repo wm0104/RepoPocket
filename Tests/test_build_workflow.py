@@ -6,6 +6,22 @@ import unittest
 
 
 class BuildWorkflowTests(unittest.TestCase):
+    def test_maintenance_ui_scope_covers_compact_and_upstream_regressions(self):
+        script = (REPO_ROOT / 'Scripts/run_style_preview.sh').read_text()
+        scope = script.split('maintenance-regressions) TEST_ARGUMENTS=(', 1)[1].split(') ;;', 1)[0]
+        for name in ('testCompactLocalProjectKeepsMetadataAndImportsAccessible',
+                     'testLocalBranchCreationHasConfirmationAndRejectsInvalidName',
+                     'testLocalHistoryCommitDetailAndFolding',
+                     'testUpstreamWatchLinkInputKeepsFormResponsiveAndBranchSelectionExplicit',
+                     'testUpstreamPreviewResolvesForkParentAndStaysOnResult',
+                     'testUpstreamPreviewFailureStaysOnFormWithError',
+                     'testUpstreamPreviewDisclosureKeepsZeroSingleManyAndTruncatedRowsStable',
+                     'testWorkflowRunDetailsFoldWithoutHidingStatusBranchOrArtifacts',
+                     'testRepositoryMoreReusesDisclosureAndRemovesConditionalTailRows'):
+            self.assertIn('/' + name, scope)
+        ui = (REPO_ROOT / '.github/workflows/ui-check.yml').read_text()
+        self.assertIn('maintenance-regressions', ui)
+
     @classmethod
     def setUpClass(cls):
         cls.source = Path(REPO_ROOT, '.github/workflows/build.yml').read_text()
