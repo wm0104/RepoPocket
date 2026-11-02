@@ -68,6 +68,7 @@ struct AccountRootView: View {
             .task { await updateChecker.appEntryCheck(api: api) }
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
+                NotificationCenter.default.post(name: Notification.Name("RepoPocket.upstreamForegroundCheck"), object: api.accountID)
                 Task { await updateChecker.appEntryCheck(api: api) }
             }
             // Ask the system for network access during launch, not mid-Token or mid-check.
@@ -136,6 +137,7 @@ struct RepositoriesView: View {
                     }
                 } else {
                     RepositoryHomeLinksSection(api: api, owned: repos, starred: starred, loaded: loaded)
+                    UpstreamUpdatesSection(api: api).id(api.accountID + ":" + AccountStore.generation.uuidString)
                     UserConnectionsSection(api: api)
                     PersonalIssuesSection(api: api, store: personalIssues)
                 }
@@ -226,6 +228,10 @@ struct RepositoriesView: View {
             guard generation == AccountStore.generation else { return }
             repos = result; starred = stars; loaded = true
             api.cacheCollection(result, section: .owned); api.cacheCollection(stars, section: .starred)
+            if refreshing, api.isCurrentSession {
+                NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())
+                NotificationCenter.default.post(name: Notification.Name("RepoPocket.upstreamRefreshRequested"), object: api.accountID)
+            }
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
     private func fork() async {
@@ -408,7 +414,7 @@ struct BrowserView: View {
                 NavigationLink("提交历史") { HistoryView(api: api, repo: repo, branch: activeBranch) }
                 if path.isEmpty && canWrite { Button("新建发行版") { creatingRelease = true } }
                 Button("下载整个仓库 ZIP") { Task { await zip() } }
-                Button("刷新目录") { Task { await load() } }
+                Button("刷新目录") { Task { refreshing = true; defer { refreshing = false }; await load() } }
                 Button("删除远端仓库…", role: .destructive) {
                     if let repositoryInfo, repositoryInfo.permissions?.admin == true {
                         repositoryDeletionTarget = RepositoryDeletionTarget(repository: repositoryInfo, context: api.deletionContext(repositoryInfo))
@@ -470,6 +476,9 @@ struct BrowserView: View {
             try Task.checkCancellation()
             guard generation == AccountStore.generation, activeBranch == requestedBranch else { return }
             selectedBranch = resolved; entries = result; loaded = true
+            if refreshing, api.isCurrentSession {
+                NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())
+            }
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
         // Statistics are optional metadata: their failure must not block file browsing.
         // Fetch once after contents; do not clear repositoryInfo again here — the
@@ -758,7 +767,11 @@ struct SettingsView: View {
     private func refreshProfile() async {
         guard !busy, !CredentialStore.read().isEmpty else { return }
         busy = true; defer { busy = false }
-        do { try await api.identify() }
+        do {
+            try await api.identify()
+            guard api.isCurrentSession else { return }
+            NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())
+        }
         catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
     private func verify() async {

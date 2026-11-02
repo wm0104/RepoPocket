@@ -17,6 +17,8 @@ struct ReadmeHTMLView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        configuration.userContentController.addUserScript(WKUserScript(source: ReadmeDocumentRules.imageRecovery,
+            injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         if !scrolling {
             configuration.userContentController.add(HeightHandler(context.coordinator), contentWorld: .defaultClient, name: "readmeSize")
             configuration.userContentController.addUserScript(WKUserScript(source: ReadmeDocumentRules.heightObserver,

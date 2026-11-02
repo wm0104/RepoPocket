@@ -28,6 +28,24 @@ enum ReadmeDocumentRules {
     })();
     """
 
+    // Retry only a proven decode/load failure once; never reload healthy or pending media.
+    static let imageRecovery = """
+    (() => {
+      const article = document.getElementById('repopocket-readme');
+      if (!article) return;
+      const retried = new WeakSet();
+      const recover = image => {
+        if (!(image instanceof HTMLImageElement) || !image.complete || image.naturalWidth !== 0 || retried.has(image)) return;
+        const source = image.getAttribute('src');
+        if (!source || image.hasAttribute('srcset') || image.closest('picture')) return;
+        retried.add(image);
+        image.setAttribute('src', source);
+      };
+      article.addEventListener('error', event => recover(event.target), true);
+      article.querySelectorAll('img').forEach(recover);
+    })();
+    """
+
     static func source(_ entry: Entry) throws -> String {
         guard (entry.size ?? 0) <= sourceByteLimit, entry.encoding == "base64",
               let content = entry.content, let bytes = Data(base64Encoded: content, options: .ignoreUnknownCharacters),

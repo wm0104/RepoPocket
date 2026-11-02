@@ -134,6 +134,16 @@ struct LocalProjectView: View {
         Section("当前分支") {
             SoftGroupRows {
                 SoftGroupRow("branch") { Label(snapshot.status.branch, systemImage: "arrow.triangle.branch") }
+                SoftGroupRow("branches") {
+                    NavigationLink("管理本地分支") {
+                        LocalGitBranchManagement(project: project, metadata: store.metadata(project),
+                            internalRoot: store.internalRoot, generation: generation, isValid: { valid }) {
+                            state.filesChanged(); state.selected.removeAll()
+                            build = nil; pullSummary = nil
+                            note = "分支操作已结束，请重新检查当前分支与文件。"
+                        }
+                    }.disabled(busy || !state.fresh || !valid)
+                }
                 SoftGroupRow("head") { Text(String(snapshot.status.head.prefix(12))).font(.caption.monospaced()).textSelection(.enabled) }
                 SoftGroupRow("tracking") {
                     if snapshot.history.tracking { Text("待推送 \(snapshot.history.ahead) · 远端领先 \(snapshot.history.behind)").font(.caption) }

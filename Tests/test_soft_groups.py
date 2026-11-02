@@ -434,7 +434,13 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         cache_end = old.index('    func image(for url:', cache_start)
         old = old[:cache_start] + old[cache_end:]
         begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
-        assert current.split(begin)[0] == old.split(begin)[0]
+        # Explicit user refresh now revalidates cached avatars. Its actor/loader
+        # behavior is covered by test_avatar_refresh's production harness; keep
+        # the redirect policy and all unrelated repository rendering frozen.
+        assert current.split('actor AvatarPipeline')[0] == old.split('actor AvatarPipeline')[0]
+        assert 'configuration.urlCredentialStorage = nil' in current
+        assert 'RepoPocket.avatarRefreshRequested' in current
+        assert '.reloadRevalidatingCacheData' in current
         assert current.split('struct LoadingRows:')[1] == old.split('struct LoadingRows:')[1]
         assert current.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0] == old.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0]
         assert 'openOwner: openOwner' in current
@@ -613,6 +619,15 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             changed = current.get(signature, '')
             expected = body.replace('guard file.startAccessingSecurityScopedResource() else { throw AppError(text: "文件未授权，请重选。") }\n            defer { file.stopAccessingSecurityScopedResource() }', 'let scoped = file.startAccessingSecurityScopedResource()\n            defer { if scoped { file.stopAccessingSecurityScopedResource() }; ShareSelectionCleanup.remove([file]) }\n            guard FileManager.default.isReadableFile(atPath: file.path) else { throw AppError(text: "文件未授权，请重选。") }')
             assert changed == expected, signature
+            continue
+        if file == 'RepoPocketApp.swift' and signature in ('private func refresh() async', 'private func load() async', 'private func refreshProfile() async'):
+            # Explicit successful refresh may now notify avatars/upstream readers;
+            # remove only these exact events before freezing the original API path.
+            changed = current.get(signature, '')
+            changed = changed.replace('            if refreshing, api.isCurrentSession {\n                NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())\n                NotificationCenter.default.post(name: Notification.Name("RepoPocket.upstreamRefreshRequested"), object: api.accountID)\n            }\n', '')
+            changed = changed.replace('            if refreshing, api.isCurrentSession {\n                NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())\n            }\n', '')
+            changed = changed.replace('        do {\n            try await api.identify()\n            guard api.isCurrentSession else { return }\n            NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())\n        }', '        do { try await api.identify() }')
+            assert changed == body, (file, signature)
             continue
         if file == 'RepoPocketApp.swift' and signature in ('private func read() async', 'private func save() async'):
             # Approved file-reader redesign: automatic bounded reading and a

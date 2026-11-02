@@ -60,6 +60,20 @@ struct LocalGitStatus: Codable {
     let repoState: Int
     var canCommit: Bool { staged.isEmpty && repoState == 0 }
 }
+struct LocalGitBranch: Codable, Identifiable {
+    let name: String
+    let reference: String
+    let head: String
+    let remote: Bool
+    let current: Bool
+    var id: String { reference }
+}
+struct LocalGitBranches: Codable {
+    let head: String
+    let reference: String
+    let local: [LocalGitBranch]
+    let remote: [LocalGitBranch]
+}
 struct LocalGitDiff: Codable {
     let text: String
     let binary: Bool

@@ -902,6 +902,50 @@ final class GitHub: ObservableObject {
         guard id > 0 else { throw AppError(text: "无效构建产物编号") }
         return try await download(request(url(Self.repoPath(repo) + "/actions/artifacts/\(id)/zip")), name: DownloadRules.safeName(name) + ".zip", redirect: WorkflowLogRedirectPolicy())
     }
+    // Dispatch uses the account-bound session and refuses redirects, including reads.
+    var workflowDispatchSession: WorkflowDispatchSession { .init(accountID: accountID, generation: accountGeneration) }
+    private func workflowDispatchData(_ repo: String, suffix: String, page: Int? = nil,
+                              ref: String? = nil) async throws -> Data {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let body = try ref.map { try JSONSerialization.data(withJSONObject: ["ref": $0]) }
+        let query: [URLQueryItem] = page.map { [.init(name: "per_page", value: "100"), .init(name: "page", value: String($0))] } ?? []
+        let r = try request(url(Self.repoPath(repo) + suffix, query: query), method: ref == nil ? "GET" : "POST", body: body)
+        let result: (Data, URLResponse)
+        do { result = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy()) }
+        catch {
+            if ref != nil { throw AppError(text: "启动请求结果未知，可能已发送。请先刷新该分支的 Actions 核实，勿直接重试。\n" + error.localizedDescription) }
+            throw error
+        }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard let http = result.1 as? HTTPURLResponse else { throw AppError(text: "未收到有效 HTTP 响应；请刷新 Actions 核实，勿盲目重试。") }
+        try WorkflowDispatchRules.check(status: http.statusCode, dispatch: ref != nil, bytes: result.0)
+        return result.0
+    }
+    func dispatchWorkflows(_ repo: String, page: Int) async throws -> [DispatchWorkflow] {
+        guard page > 0 else { throw AppError(text: "无效页码") }
+        return try JSONDecoder().decode(DispatchWorkflows.self, from: await workflowDispatchData(repo, suffix: "/actions/workflows", page: page)).workflows
+    }
+    func dispatchBranches(_ repo: String, page: Int) async throws -> [DesktopBranch] {
+        guard page > 0 else { throw AppError(text: "无效页码") }
+        return try JSONDecoder().decode([DesktopBranch].self, from: await workflowDispatchData(repo, suffix: "/branches", page: page))
+    }
+    func dispatchWorkflow(_ target: WorkflowDispatchTarget) async throws {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard target.session == workflowDispatchSession, target.workflow.id > 0, !target.ref.isEmpty else {
+            throw AppError(text: "启动目标或账号已变化，请重新选择。")
+        }
+        struct Access: Decodable { struct Permissions: Decodable { let push: Bool? }; let permissions: Permissions? }
+        let access = try JSONDecoder().decode(Access.self, from: await workflowDispatchData(target.repo, suffix: ""))
+        guard access.permissions?.push == true else { throw AppError(text: WorkflowDispatchRules.permissionHelp) }
+        let workflow = try JSONDecoder().decode(DispatchWorkflow.self, from: await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)"))
+        guard workflow.id == target.workflow.id, workflow.state == "active" else {
+            throw AppError(text: "此工作流已停用或不再可用，请刷新工作流列表。")
+        }
+        let branch = try JSONDecoder().decode(DesktopBranch.self, from: await workflowDispatchData(target.repo, suffix: "/branches/" + Self.component(target.ref)))
+        guard branch.name == target.ref else { throw AppError(text: "所选分支已变化，请重新加载分支列表。") }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        _ = try await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)/dispatches", ref: target.ref)
+    }
     func searchUsers(_ query: String, page: Int) async throws -> UserSearchResponse {
         let endpoint = RepositorySearchRules.endpoint(kind: .users, query: query, page: page)
         let parts = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!

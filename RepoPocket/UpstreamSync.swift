@@ -240,6 +240,7 @@ enum UpstreamSyncRules {
             stage = .preview; receipt = nil; pending = nil; mergeSHA = ""; appliedSHA = ""
             UserDefaults.standard.set(UpstreamSyncRules.encodeMemory(repository: target.repository, branch: target.branch),
                                       forKey: UpstreamSyncRules.memoryKey(account: api.accountID, repository: repo))
+            NotificationCenter.default.post(name: Notification.Name("RepoPocket.upstreamSourceSelected"), object: api.accountID)
         } catch {
             guard api.isCurrentSession, !RefreshFailure.isCancellation(error),
                   (try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch)) == target else { return }
@@ -336,6 +337,7 @@ struct UpstreamSyncView: View {
     let branch: String
     let canWrite: Bool
     let repository: Repository?
+    var initialUpstream: UpstreamSyncRules.Target? = nil
     @StateObject private var state = UpstreamSyncState()
     @State private var confirmingMerge = false
     @State private var confirmingApply = false
@@ -384,7 +386,12 @@ struct UpstreamSyncView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("上游同步")
         .adaptiveWorkspaceLayout()
-        .task { state.restore(account: api.accountID, repo: repo) }
+        .task {
+            if let initialUpstream, state.upstreamRepository.isEmpty, state.upstreamBranch.isEmpty {
+                state.upstreamRepository = initialUpstream.repository
+                state.upstreamBranch = initialUpstream.branch
+            } else { state.restore(account: api.accountID, repo: repo) }
+        }
         .confirmationDialog(mergeTitle, isPresented: $confirmingMerge, titleVisibility: .visible) {
             Button("确认合并到临时分支") {
                 guard let pending = state.pending else { return }
@@ -404,20 +411,25 @@ struct UpstreamSyncView: View {
         Section {
             SoftGroupRows {
                 SoftGroupRow("upstream-repository") {
-                    TextField("上游仓库（owner/repo 或链接）", text: $state.upstreamRepository)
+                    TextField("上游仓库（owner/repo 或链接）", text: Binding(get: { state.upstreamRepository }, set: {
+                        state.upstreamRepository = $0; state.upstreamBranch = ""; state.compare = nil
+                    }))
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .onChange(of: state.upstreamRepository) { _ in state.compare = nil }
                 }
                 SoftGroupRow("upstream-branch") {
-                    TextField("上游分支", text: $state.upstreamBranch)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .onChange(of: state.upstreamBranch) { _ in state.compare = nil }
+                    NavigationLink {
+                        LocalGitBranchPicker(api: api, repo: (try? RepositoryInput.parse(state.upstreamRepository)) ?? "", current: state.upstreamBranch) {
+                            state.upstreamBranch = $0; state.compare = nil
+                        }
+                    } label: { LabeledContent("上游分支", value: state.upstreamBranch.isEmpty ? "请选择" : state.upstreamBranch) }
+                        .disabled((try? RepositoryInput.parse(state.upstreamRepository)) == nil)
                 }
                 for hint in hints {
                     SoftGroupRow("candidate-" + hint.repository) {
                         Button {
                             state.upstreamRepository = hint.repository
-                            if let branch = hint.branch, !branch.isEmpty { state.upstreamBranch = branch }
+                            state.upstreamBranch = hint.branch ?? ""
+                            state.compare = nil
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(hint.repository)
@@ -430,7 +442,7 @@ struct UpstreamSyncView: View {
                 }
                 if state.upstreamRepository.isEmpty && state.upstreamBranch.isEmpty {
                     SoftGroupRow("upstream-hint") {
-                        Text("填写要比较的上游仓库与分支；不会自动选择任何项目。")
+                        Text("填写上游仓库后点选已有分支；不会自动选择任何项目。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

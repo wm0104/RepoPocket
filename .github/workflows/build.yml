@@ -1,5 +1,5 @@
 name: Build IPA
-run-name: 修复自述排版与搜索并增加拉取差异
+run-name: 增加分支与上游动态，支持运行工作流并修复图片刷新
 on:
   workflow_dispatch:
     inputs:
@@ -57,6 +57,16 @@ jobs:
       - name: Test recursive local project file search
         run: python3 Tests/test_local_project_search.py
 
+      - name: Test local branch creation, safe checkout and first push
+        run: python3 Tests/test_local_branches.py
+      - name: Test workflow dispatch requests and confirmation lifecycle
+        run: python3 Tests/test_workflow_dispatch.py
+      - name: Test upstream activity baselines and branch selection
+        run: python3 Tests/test_upstream_watch.py
+      - name: Test bounded README image recovery
+        run: python3 Tests/test_readme_image_recovery.py
+      - name: Test explicit avatar cache revalidation
+        run: python3 Tests/test_avatar_refresh.py
       - name: Copy link entry points
         run: python3 Tests/test_copy_link_menu.py
       - name: Test build workflow entry points

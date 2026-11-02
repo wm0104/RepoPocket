@@ -23,12 +23,18 @@ struct WorkflowRunsView: View {
     @State private var failedOnly = false
     @State private var canWrite = false
     @State private var deletionTarget: WorkflowRunDeletionTarget?
+    @State private var showingDispatch = false
+    @State private var dispatchedBranch: String?
+    private var displayedBranch: String { dispatchedBranch ?? branch }
     var body: some View {
         List {
             Section {
                 SoftGroupRows {
                     if headSHA.isEmpty {
-                        SoftGroupRow("branch") { Toggle("仅当前分支", isOn: $currentBranchOnly).disabled(branch.isEmpty) }
+                        SoftGroupRow("branch") {
+                            Toggle("仅当前分支", isOn: $currentBranchOnly).disabled(displayedBranch.isEmpty)
+                            if let dispatchedBranch { Text(dispatchedBranch).font(.caption).foregroundStyle(.secondary) }
+                        }
                     } else {
                         SoftGroupRow("commit") { Text(branch + " · " + String(headSHA.prefix(7))).font(.caption).textSelection(.enabled) }
                     }
@@ -76,6 +82,11 @@ struct WorkflowRunsView: View {
         }.navigationTitle("Actions").adaptiveWorkspaceLayout()
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if headSHA.isEmpty {
+                    Button("运行工作流") { showingDispatch = true }
+                        .disabled(selection.busy || selection.active || !api.isCurrentSession)
+                        .accessibilityIdentifier("workflow-dispatch-open")
+                }
                 if canWrite {
                     Button(selection.active ? "完成" : "多选") {
                         if selection.active { selection.reset() } else { selection.active = true }
@@ -99,6 +110,16 @@ struct WorkflowRunsView: View {
             let access = try? await api.repository(repo)
             guard !Task.isCancelled, api.isCurrentSession else { return }
             canWrite = access?.permissions?.push == true
+        }
+        .sheet(isPresented: $showingDispatch) {
+            NavigationStack {
+                WorkflowDispatchView(api: api, repo: repo) { ref in
+                    dispatchedBranch = ref
+                    currentBranchOnly = true
+                    failedOnly = false
+                    load(reset: true)
+                }
+            }
         }
         .onChange(of: currentBranchOnly) { _ in load(reset: true) }
         .onChange(of: failedOnly) { _ in load(reset: true) }
@@ -128,8 +149,89 @@ struct WorkflowRunsView: View {
     private var allSelected: Bool { !selectableIDs.isEmpty && selectableIDs.isSubset(of: selection.selected) }
     private func load(reset: Bool = false) {
         if reset { selection.reset(); deletionTarget = nil }
-        let requestedBranch = (currentBranchOnly || !headSHA.isEmpty) ? branch : "", requestedFailedOnly = failedOnly
+        let requestedBranch = (currentBranchOnly || !headSHA.isEmpty) ? displayedBranch : "", requestedFailedOnly = failedOnly
         store.load(reset: reset, api: api) { try await api.workflowRuns(repo, branch: requestedBranch, page: $0, failedOnly: requestedFailedOnly, headSHA: headSHA) }
+    }
+}
+
+struct WorkflowDispatchView: View {
+    @ObservedObject var api: GitHub
+    let repo: String
+    let accepted: (String) -> Void
+    @StateObject private var state = WorkflowDispatchState()
+    @State private var confirmation: WorkflowDispatchTarget?
+    @Environment(\.dismiss) private var dismiss
+    private var ready: Bool {
+        state.workflows.contains { $0.id == state.workflowID && $0.state == "active" } &&
+        state.branches.contains { $0.name == state.ref } && api.isCurrentSession && !state.attempted
+    }
+    var body: some View {
+        List {
+            Section {
+                SoftGroupRows {
+                    SoftGroupRow("repo") { LabeledContent("仓库", value: repo).textSelection(.enabled) }
+                    SoftGroupRow("workflow") {
+                        Picker("工作流", selection: $state.workflowID) {
+                            Text("请选择工作流").tag(nil as Int?)
+                            ForEach(state.workflows) { workflow in
+                                Text(workflow.name + " · " + workflow.path + (workflow.state == "active" ? "" : "（已停用）"))
+                                    .tag(Optional(workflow.id))
+                            }
+                        }.accessibilityIdentifier("workflow-dispatch-workflow")
+                    }
+                    if state.loadingWorkflows { SoftGroupRow("loading-workflows") { ProgressView("加载工作流…") } }
+                    if state.moreWorkflows {
+                        SoftGroupRow("more-workflows") {
+                            Button(state.workflows.isEmpty ? "加载工作流" : "加载更多工作流") {
+                                Task { await state.loadWorkflows(repo, api: api) }
+                            }.disabled(state.loadingWorkflows)
+                        }
+                    } else if state.workflows.isEmpty { SoftGroupRow("no-workflows") { Text("仓库没有可用工作流。") } }
+                    SoftGroupRow("ref") {
+                        Picker("分支", selection: $state.ref) {
+                            Text("请选择已有分支").tag("")
+                            ForEach(state.branches) { Text($0.name).tag($0.name) }
+                        }.accessibilityIdentifier("workflow-dispatch-branch")
+                    }
+                    if state.loadingBranches { SoftGroupRow("loading-branches") { ProgressView("加载分支…") } }
+                    if state.moreBranches {
+                        SoftGroupRow("more-branches") {
+                            Button(state.branches.isEmpty ? "加载分支" : "加载更多分支") {
+                                Task { await state.loadBranches(repo, api: api) }
+                            }.disabled(state.loadingBranches)
+                        }
+                    } else if state.branches.isEmpty { SoftGroupRow("no-branches") { Text("没有可选择的已有分支。") } }
+                }
+            } footer: {
+                Text("仅使用工作流默认输入。GitHub 列表不提供手动触发能力或 inputs 信息；未配置 workflow_dispatch、必填参数没有默认值等情况将由 GitHub 拒绝，不会视为启动成功。")
+            }.disabled(state.attempted || !api.isCurrentSession)
+            Section {
+                SoftGroupRows {
+                    SoftGroupRow("dispatch") {
+                        Button("确认运行…") { confirmation = state.target(repo, api: api) }
+                            .disabled(!ready || state.busy).accessibilityIdentifier("workflow-dispatch-confirm")
+                    }
+                    if state.busy { SoftGroupRow("busy") { ProgressView("正在请求启动…") } }
+                    if !state.result.isEmpty { SoftGroupRow("result") { Text(state.result).textSelection(.enabled) } }
+                    if !state.error.isEmpty { SoftGroupRow("error") { Text(state.error).foregroundStyle(.secondary).textSelection(.enabled) } }
+                    if !api.isCurrentSession { SoftGroupRow("account") { Text("账号已切换，请关闭并重新打开此页面。") } }
+                }
+            }
+        }.navigationTitle("运行工作流").adaptiveWorkspaceLayout()
+        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(state.busy) } }
+        .interactiveDismissDisabled(state.busy)
+        .task {
+            await state.loadWorkflows(repo, api: api)
+            await state.loadBranches(repo, api: api)
+        }
+        .confirmationDialog("确认启动工作流？", isPresented: Binding(
+            get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }),
+            titleVisibility: .visible, presenting: confirmation) { target in
+            Button("启动") { Task { await state.submit(target, api: api, accepted: accepted) } }
+            Button("取消", role: .cancel) {}
+        } message: { target in
+            Text("仓库：\(target.repo)\n工作流：\(target.workflow.name)\n文件：\(target.workflow.path)\n分支 / ref：\(target.ref)\n仅使用默认输入。此操作将在 GitHub 上创建一次运行。")
+        }
     }
 }
 
