@@ -36,7 +36,13 @@ struct LocalProjectView: View {
     }
     var body: some View {
         projectSheets.confirmationDialog(syncTitle, isPresented: syncPresented, titleVisibility: .visible) {
-            Button("确认") { guard let action = syncing else { return }; syncing = nil; sync(action) }
+            if syncing == "push" {
+                Button("仅推送") { syncing = nil; sync("push") }
+                Button("推送后运行工作流…") { syncing = nil; sync("push", runWorkflow: true) }
+            } else {
+                Button("确认") { guard let action = syncing else { return }; syncing = nil; sync(action) }
+            }
+            Button("取消", role: .cancel) { syncing = nil }
         } message: { Text(syncMessage) }
     }
     private var syncTitle: String {
@@ -49,7 +55,7 @@ struct LocalProjectView: View {
     private var syncMessage: String {
         let remote = state.snapshot?.history.remote ?? ""
         let branch = state.snapshot?.status.branch ?? ""
-        return "账号：\(api.login)\n\(remote)\n分支：\(branch)"
+        return "账号：\(api.login)\n\(remote)\n分支：\(branch)" + (syncing == "push" ? "\n仅推送不会由 App 启动工作流；仓库配置的 push 或 PR 自动检查仍可能运行。" : "")
     }
     private var projectList: some View {
         List {
@@ -106,6 +112,12 @@ struct LocalProjectView: View {
             case .commit: commitForm
             case .deb(let path): LocalProjectDebEditor(api: api, project: project, internalRoot: store.internalRoot, path: path) { imported([path]) }
             case .delete(let path): LocalProjectEditor(project: project, internalRoot: store.internalRoot, path: path, deleting: true) { imported([path]) }
+            case .workflow(let repo, let branch):
+                NavigationStack {
+                    WorkflowDispatchView(api: api, repo: repo, initialBranch: branch) { ref in
+                        note = "GitHub 已接受工作流启动请求，分支：" + ref + "。请到 Actions 查看运行结果。"
+                    }
+                }.appSheetCornerRadius()
             }
         }
     }
@@ -385,10 +397,12 @@ struct LocalProjectView: View {
             note="本地提交已创建，可单独推送。"; return try await snapshot()
         } }
     }
-    private func sync(_ action:String) {
+    private func sync(_ action:String, runWorkflow: Bool = false) {
         guard valid,!busy,let current=state.snapshot else{return}
         let token=CredentialStore.read(account:accountID)
-        Task { await state.check(force:true,valid:{valid}) {
+        Task {
+            var workflow: LocalProjectSheet?
+            await state.check(force:true,valid:{valid}) {
             note = ""
             if action == "push" { build = nil }
             if action == "pull" { pullSummary = nil; pullFilesExpanded = false }
@@ -398,9 +412,13 @@ struct LocalProjectView: View {
             if action == "pull" { pullSummary = reply.pullSummary }
             if action == "push", let repository = try? RepositoryInput.parse(current.history.remote) {
                 build = (repo: repository, branch: current.status.branch, sha: current.status.head)
+                if runWorkflow { workflow = .workflow(repo: repository, branch: current.status.branch) }
             }
             note=action == "recover" ? "恢复完成，文件和历史已重新检查。" : (action == "push" ? "推送完成。" : "拉取完成。");return try await snapshot()
-        } }
+            }
+            guard valid, !Task.isCancelled, state.fresh, state.error.isEmpty, !state.busy else { return }
+            if let workflow { sheet = workflow }
+        }
     }
 }
 

@@ -35,6 +35,15 @@ class BrowserRollbackTests(unittest.TestCase):
         # RepoPocketApp.swift is not compared byte-for-byte: the directory-nav
         # freeze fix intentionally changes BrowserView's destination form. Its
         # release-removal and menu contracts are asserted below instead.
+        # Upstream preview alone moves out of the AnyView row into a stable route.
+        self.assertEqual(BROWSER.count('    @State private var showingUpstreamSync = false\n'), 1)
+        self.assertEqual(BROWSER.count('Button("上游同步") { showingUpstreamSync = true }'), 1)
+        upstream_route = '''        .navigationDestination(isPresented: $showingUpstreamSync) {
+            UpstreamSyncView(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, repository: repositoryInfo)
+        }
+'''
+        self.assertEqual(BROWSER.count(upstream_route), 1)
+        self.assertNotIn('NavigationLink { UpstreamSyncView(', BROWSER)
         self.assertNotIn('RepositoryRelease', APP)
         for token in ('RepositoryRelease', 'repositoryReleasePage', 'repositoryLatestRelease', 'releases.load', 'releases.reset'):
             for file in (ROOT/'RepoPocket').glob('*.swift'):
@@ -60,6 +69,12 @@ class BrowserRollbackTests(unittest.TestCase):
         # account/host/error guards. Normalize only those exact additions before
         # comparing the complete historic write/download implementation.
         normalized = api_new[:added_start].replace(approved, historic)
+        # Only the new remote-branch delete method is excluded; its permission,
+        # protected/default/current branch and acknowledgement tests are separate.
+        deletion_start = normalized.index('    func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {')
+        deletion_end = normalized.index('    func fetchWorkspace(', deletion_start)
+        self.assertEqual(normalized[deletion_start:deletion_end].count('    func '), 1)
+        normalized = normalized[:deletion_start] + normalized[deletion_end:]
         # Normalize the removed manual cache reset and the exact bounded error
         # read only; every other historic transport byte remains protected.
         self.assertNotIn('    func clearMemoryCaches()', normalized)

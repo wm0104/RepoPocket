@@ -13,6 +13,22 @@ ROOT = native_fixtures.ROOT
 
 
 class LocalBranchContracts(unittest.TestCase):
+    def test_create_confirmation_is_a_plain_alert_button_and_reports_result(self):
+        view = (ROOT / 'RepoPocket/LocalGitBranchManagement.swift').read_text()
+        alert = view.split('.alert("从当前 HEAD 新建并切换"', 1)[1].split('} message:', 1)[0]
+        # iOS 16's alert bridge must receive an unwrapped Button, not ModifiedContent.
+        confirm = next(line for line in alert.splitlines() if 'Button("新建并切换")' in line)
+        self.assertNotIn('.disabled(', confirm)
+        self.assertIn('已创建并切换到本地分支', view)
+        self.assertIn('SoftGroupRow("result")', view)
+
+    def test_local_delete_is_explicit_and_not_offered_for_current_or_remote_tracking(self):
+        view = (ROOT / 'RepoPocket/LocalGitBranchManagement.swift').read_text()
+        self.assertIn('.contextMenu', view)
+        self.assertIn('!branch.current && !branch.remote', view)
+        self.assertIn('start("deleteBranch"', view)
+        self.assertIn('仅删除本地分支', view)
+
     def test_branch_and_upstream_writes_use_file_provider_write_coordination(self):
         source = (ROOT / 'RepoPocket/LocalGitEngine.swift').read_text()
         policy = source.split('coordinate(root, writing: ', 1)[1].split('.contains(operation)', 1)[0]

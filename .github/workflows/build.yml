@@ -59,6 +59,8 @@ jobs:
 
       - name: Test local branch creation, safe checkout and first push
         run: python3 Tests/test_local_branches.py
+      - name: Test guarded local and remote branch deletion
+        run: python3 Tests/test_branch_deletion.py
       - name: Test workflow dispatch requests and confirmation lifecycle
         run: python3 Tests/test_workflow_dispatch.py
       - name: Test upstream activity baselines and branch selection

@@ -954,6 +954,28 @@ static NSDictionary *RPSwitchBranch(git_repository *repo, NSDictionary *q, RPGit
     return @{@"head":RPOID(git_reference_target(target))};
 }
 
+static NSDictionary *RPDeleteBranch(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    NSDictionary *status=RPStatus(repo,c); RPExpected(status,q); RPBranchState(repo,status);
+    NSString *targetRef=RPString(q,@"targetRef");
+    RPRequire([targetRef hasPrefix:@"refs/heads/"],@"只能删除本地分支；不会删除远端跟踪引用或 GitHub 分支。");
+    RPBranch([targetRef substringFromIndex:11]);
+    git_reference *head=RPHead(repo,c); git_transaction *tx=RPLockHead(repo,head,c);
+    RPRequire(strcmp(targetRef.UTF8String,git_reference_name(head))!=0,@"不能删除当前分支，请先切换到其他分支。");
+    RPLockBranch(tx,repo,targetRef,c);
+    git_reference *target=NULL; RPCheck(git_reference_lookup(&target,repo,targetRef.UTF8String),@"目标分支已删除，请刷新列表。"); KEEP(target,git_reference_free);
+    RPRequire(git_reference_type(target)==GIT_REFERENCE_DIRECT &&
+        [RPOID(git_reference_target(target)) isEqual:RPString(q,@"expectedTargetHead")],@"目标分支已变化，请刷新列表并重新确认。");
+    RPRequire(git_branch_is_checked_out(target)==0,@"分支正在其他工作区使用，不能删除。");
+    RPRequire(git_oid_equal(git_reference_target(head),git_reference_target(target)) ||
+        git_graph_descendant_of(repo,git_reference_target(head),git_reference_target(target))==1,
+        @"此分支包含尚未合并到当前分支的提交，已停止删除；请先合并并确认保留提交。");
+    NSDictionary *fresh=RPStatus(repo,c); RPExpected(fresh,q); RPBranchState(repo,fresh);
+    RPRequire(!RPIsCancelled(q[@"requestID"]),@"删除已取消，分支、文件和暂存区保持不变。");
+    RPCheck(git_transaction_remove(tx,targetRef.UTF8String),@"删除本地分支失败。");
+    RPCheck(git_transaction_commit(tx),@"删除本地分支未完成，请刷新核实；文件和暂存区未修改。");
+    return @{@"head":status[@"head"]};
+}
+
 static NSDictionary *RPCreate(NSString *op, NSMutableDictionary *q, RPGitResources *c) {
     NSString *remoteURL = RPString(q,@"remote"), *branch = RPString(q,@"branch");
     RPRequire(RPAllowedRemote(remoteURL), @"仅支持 GitHub HTTPS 仓库地址。"); RPBranch(branch);
@@ -1022,7 +1044,7 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
             if ([op isEqual:@"clone"] || [op isEqual:@"associate"]) result = RPCreate(op,q,c);
             else {
                 git_repository *repo = RPOpen(q, c);
-                if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"] || [op isEqual:@"createBranch"] || [op isEqual:@"switchBranch"]) RPScanBudget(repo,requestID,c);
+                if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"] || [op isEqual:@"createBranch"] || [op isEqual:@"switchBranch"] || [op isEqual:@"deleteBranch"]) RPScanBudget(repo,requestID,c);
                 if ([op isEqual:@"status"] || [op isEqual:@"inspect"]) result = RPStatus(repo, c);
                 else if ([op isEqual:@"diff"]) result = RPDiff(repo, q, c);
                 else if ([op isEqual:@"pullDiff"]) result = RPPullDiff(repo, q, c);
@@ -1030,6 +1052,7 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
                 else if ([op isEqual:@"branches"]) result = RPBranches(repo,q,c);
                 else if ([op isEqual:@"createBranch"]) result = RPCreateBranch(repo,q,c);
                 else if ([op isEqual:@"switchBranch"]) result = RPSwitchBranch(repo,q,c);
+                else if ([op isEqual:@"deleteBranch"]) result = RPDeleteBranch(repo,q,c);
                 else if ([op isEqual:@"history"]) result = RPHistory(repo,c);
                 else if ([op isEqual:@"commitDetail"]) result = RPCommitDetail(repo,q,c);
                 else if ([op isEqual:@"fetch"]) { RPFetch(repo,q,c); result = RPHistory(repo,c); }

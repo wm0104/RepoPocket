@@ -7,17 +7,6 @@ on:
         type: choice
         options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions]
         default: all
-  push:
-    branches: [main, 'codex/**']
-    paths:
-      - RepoPocket/**
-      - SharedInbox/**
-      - ShareExtension/**
-      - Vendor/**
-      - project.yml
-      - StyleUITests/**
-      - Scripts/**
-      - .github/workflows/ui-check.yml
   pull_request:
     branches: [main]
     paths:

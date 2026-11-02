@@ -129,7 +129,30 @@ MUTATE
    api.push=true
    _ = try await api.communityMutate("owner/repo",action:.merge(7,String(repeating:"b",count:40)))
    precondition(api.body["sha"] as? String==String(repeating:"b",count:40) && api.method=="PUT")
-   _ = try await api.communityMutate("owner/repo",action:.cancelRun(10));precondition(api.pushChecks==3)
+    let beforeCancel=Fixture.count()
+    var cancellation=WorkflowCancellationState()
+    precondition(cancellation.begin() && !cancellation.begin(), "Repeated taps must not send another cancellation")
+    Fixture.status=202
+    _ = try await api.communityMutate("owner/repo",action:.cancelRun(10));precondition(api.pushChecks==3)
+    cancellation.accepted()
+    precondition(cancellation.waiting && cancellation.message.contains("已接受取消请求"))
+    cancellation.observe(status:"in_progress",conclusion:nil)
+    precondition(cancellation.waiting && !cancellation.begin(), "Acceptance is not completion")
+    cancellation.observe(status:"completed",conclusion:"cancelled")
+    precondition(!cancellation.waiting && cancellation.message=="运行已取消。")
+    precondition(Fixture.count()==beforeCancel+1)
+    for unexpected in [200,204,409] {
+      Fixture.status=unexpected
+      do {_ = try await api.communityMutate("owner/repo",action:.cancelRun(10));preconditionFailure("Cancel requires 202")}catch{}
+    }
+    var unknown=WorkflowCancellationState();precondition(unknown.begin())
+    unknown.uncertain("连接中断")
+    precondition(unknown.waiting && unknown.message.contains("尚未确认"))
+    unknown.observe(status:"completed",conclusion:"success")
+    precondition(!unknown.waiting && unknown.message.contains("成功") && !unknown.message.contains("已取消"))
+    var delayed=WorkflowCancellationState();precondition(delayed.begin());delayed.accepted();delayed.stopWaiting()
+    precondition(!delayed.waiting && !delayed.begin() && delayed.message.contains("刷新"))
+    Fixture.status=200
    _ = try await api.communityMutate("owner/repo",action:.state(7,"closed"));precondition(api.body["state"] as? String=="closed")
    let beforeDelete=Fixture.count();api.push=false
    do {_ = try await api.communityMutate("owner/repo",action:.deleteRun(10));preconditionFailure()}catch{}
@@ -177,5 +200,27 @@ MUTATE
             exe=str(Path(folder)/'test')
             subprocess.run(['swiftc','-parse-as-library',str(p),'-o',exe],check=True)
             subprocess.run([exe],check=True,timeout=30)
+
+class WorkflowCancellationWiringTests(unittest.TestCase):
+    def test_cancel_request_waits_for_terminal_state_without_repeated_post(self):
+        view = (ROOT/'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8').split('struct WorkflowRunView: View {',1)[1].split('struct WorkflowJobView:',1)[0]
+        self.assertIn('@State private var cancellation = WorkflowCancellationState()', view)
+        self.assertIn('guard cancellation.begin() else { return }', view)
+        self.assertIn('cancellation.accepted()', view)
+        self.assertIn('cancellation.observe(status: value.status, conclusion: value.conclusion)', view)
+        self.assertIn('cancellation.requested', view)
+        self.assertIn('cancellation.message', view)
+        self.assertIn('else { cancellation = WorkflowCancellationState(); message =', view)
+        self.assertIn('scenePhase == .active', view)
+        self.assertIn('Task.sleep(nanoseconds: 5_000_000_000)', view)
+        self.assertIn('try Task.checkCancellation()', view)
+        self.assertIn('api.isCurrentSession', view)
+        self.assertNotIn('force-cancel', view)
+
+    def test_transport_requires_github_cancel_acceptance(self):
+        source = (ROOT/'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
+        mutation = source.split('    func communityMutate(',1)[1].split('    func communityStarDates(',1)[0]
+        self.assertIn('if case .cancelRun = action, (response.1 as? HTTPURLResponse)?.statusCode != 202', mutation)
+
 
 if __name__=='__main__':unittest.main()

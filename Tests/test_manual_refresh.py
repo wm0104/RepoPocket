@@ -8,8 +8,17 @@ for source in Path(REPO_ROOT, 'RepoPocket').glob('*.swift'):
     s=source.read_text()
     for forbidden in ['willEnterForegroundNotification', 'didBecomeActiveNotification']:
         assert forbidden not in s, source
-    # Foreground stays inert for workspace scans: only the app root observes it, for update checks.
-    assert ('scenePhase' in s) == (source.name == 'RepoPocketApp.swift'), source
+    # Workspace scans remain inert; only root update checks and the visible
+    # workflow's bounded cancellation acknowledgement poll observe lifecycle.
+    assert ('scenePhase' in s) == (source.name in ('RepoPocketApp.swift', 'WorkflowViews.swift')), source
+    if source.name == 'WorkflowViews.swift':
+        assert s.count('scenePhase') == 4
+        assert '@Environment(\\.scenePhase) private var scenePhase' in s
+        polling = s.split('.task(id: cancellation.waiting && scenePhase == .active) {', 1)[1].split('        .task {', 1)[0]
+        assert 'guard cancellation.waiting, scenePhase == .active' in polling
+        assert 'for _ in 0..<60' in polling and 'Task.sleep(nanoseconds: 5_000_000_000)' in polling
+        assert 'try Task.checkCancellation()' in polling and 'await refreshRunStatus()' in polling
+        assert 'scan()' not in polling and 'communityMutation(' not in polling
 foreground=a.split('.onChange(of: scenePhase)', 1)[1].split('.task { await NetworkWarmup', 1)[0]
 assert foreground.count('appEntryCheck(api: api)') == 1
 for inert in ('scan()', 'refresh', 'load('):

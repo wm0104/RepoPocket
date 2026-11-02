@@ -280,6 +280,12 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
              'ReleasePublishPlan.swift', 'ReleaseTransfers.swift']:
     current = source(file)
     if file == 'GitHub.swift':
+        # Remote branch deletion has focused native safety/transport fixtures;
+        # exclude only that newly added method, never its historic neighbors.
+        deletion_start = current.index('    func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {')
+        deletion_end = current.index('    func fetchWorkspace(', deletion_start)
+        assert current[deletion_start:deletion_end].count('    func ') == 1
+        current = current[:deletion_start] + current[deletion_end:]
         # Current-account social writes are isolated and covered by native request/state fixtures.
         social_marker = '// Current-account profile writes have their own endpoint and acknowledgement checks.\n'
         assert current.count(social_marker) == 1

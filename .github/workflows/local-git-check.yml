@@ -1,8 +1,6 @@
 name: Local Git checks
 on:
   workflow_dispatch:
-  push:
-    branches: [main, 'codex/**']
   pull_request:
     branches: [main]
 concurrency:
@@ -30,6 +28,8 @@ jobs:
         run: python3 Tests/test_local_git_native.py
       - name: Execute original folder and edit protection tests
         run: python3 Tests/test_local_git_store.py
+      - name: Execute guarded local and remote branch deletion tests
+        run: python3 Tests/test_branch_deletion.py
       - name: Execute local page state tests
         run: python3 Tests/test_local_git_ui.py
       - name: Build native Git for iPhone

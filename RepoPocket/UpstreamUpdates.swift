@@ -119,7 +119,7 @@ struct UpstreamUpdatesSection: View {
                 if store.watches.isEmpty {
                     SoftGroupRow("empty") { Text("跟踪已设置的上游，也可以添加指定仓库。首次检查只记录基线，之后显示新提交和新分支。").font(.caption).foregroundStyle(.secondary) }
                 }
-                SoftGroupRow("add") { Button("添加跟踪仓库") { adding = true }.disabled(store.loading) }
+                SoftGroupRow("add") { Button("添加跟踪仓库") { adding = true }.disabled(store.loading).accessibilityIdentifier("upstream-watch-add") }
             }
         }
         .task { await store.refresh(api: api) }
@@ -161,26 +161,34 @@ private struct UpstreamWatchAddView: View {
     @State private var repository = ""
     @State private var branch = ""
     @State private var failure = ""
-    private var canonical: String? { try? RepositoryInput.parse(repository) }
+    @State private var branchRepository: String?
+    @FocusState private var editingRepository: Bool
     var body: some View {
-        Form {
+        let canonical = try? RepositoryInput.parse(repository)
+        return Form {
             Section {
                 SoftGroupRows {
                     SoftGroupRow("repository") {
-                        TextField("仓库名称或链接", text: $repository).textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .onChange(of: repository) { _ in branch = "" }
+                        TextField("仓库名称或链接", text: Binding(get: { repository }, set: {
+                            guard repository != $0 else { return }
+                            repository = $0; branch = ""
+                        })).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .focused($editingRepository).accessibilityIdentifier("upstream-watch-repository")
                     }
                     SoftGroupRow("branch") {
-                        NavigationLink {
-                            LocalGitBranchPicker(api: api, repo: canonical ?? "", current: branch) { branch = $0 }
+                        Button {
+                            editingRepository = false
+                            branchRepository = canonical
                         } label: { LabeledContent("分支", value: branch.isEmpty ? "请选择" : branch) }
                             .disabled(canonical == nil)
+                            .accessibilityIdentifier("upstream-watch-branch")
                     }
                     SoftGroupRow("save") {
                         Button("开始跟踪") {
                             do { add(try UpstreamWatchRules.watch(repository: repository, branch: branch)); dismiss() }
                             catch { failure = error.localizedDescription }
                         }.disabled(branch.isEmpty || canonical == nil || !api.isCurrentSession)
+                            .accessibilityIdentifier("upstream-watch-save")
                     }
                     if !failure.isEmpty { SoftGroupRow("error") { Text(failure).foregroundStyle(.secondary) } }
                 }
@@ -189,7 +197,17 @@ private struct UpstreamWatchAddView: View {
                 Text("只在打开 App 或下拉刷新时检查，不是后台实时推送；不会自动合并、创建分支或修改远端代码。").font(.caption).softGroupedRow(top: true, bottom: true)
             }
         }.navigationTitle("跟踪仓库").adaptiveWorkspaceLayout()
-            .toolbar { Button("关闭") { dismiss() } }
+            .toolbar { Button("关闭") { dismiss() }.accessibilityIdentifier("upstream-watch-close") }
+            .sheet(isPresented: Binding(get: { branchRepository != nil }, set: { if !$0 { branchRepository = nil } })) {
+                if let selectedRepository = branchRepository {
+                    NavigationStack {
+                        LocalGitBranchPicker(api: api, repo: selectedRepository, current: branch) {
+                            guard api.isCurrentSession, canonical == selectedRepository else { return }
+                            branch = $0
+                        }.toolbar { Button("关闭") { branchRepository = nil } }
+                    }.appSheetCornerRadius()
+                }
+            }
     }
 }
 

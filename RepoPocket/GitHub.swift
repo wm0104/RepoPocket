@@ -539,6 +539,29 @@ final class GitHub: ObservableObject {
         }
         _ = try await data(Self.repoPath(repo) + "/git/refs", method: "POST", object: ["ref": "refs/heads/" + name, "sha": expectedHead])
     }
+    func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard DesktopRules.validBranch(name), name != current, expectedHead.count == 40,
+              expectedHead.allSatisfy({ $0.isHexDigit }) else { throw AppError(text: "不能删除当前分支，或分支信息已失效，请刷新后重试。") }
+        let info = try await repository(repo)
+        guard info.permissions?.push == true else { throw AppError(text: "此账号没有已确认的仓库推送权限，不能删除远端分支。") }
+        guard let defaultBranch = info.default_branch, !defaultBranch.isEmpty, name != defaultBranch else {
+            throw AppError(text: "不能删除默认分支，或尚未确认仓库的默认分支。")
+        }
+        let target = try await decoded(DesktopBranch.self, Self.repoPath(repo) + "/branches/" + Self.component(name))
+        guard target.name == name, target.protected == false else { throw AppError(text: "此分支受保护或保护状态未知，不能删除。") }
+        guard target.commit?.sha == expectedHead else { throw AppError(text: "分支已新增提交或发生变化，请刷新列表后重新确认；未执行删除。") }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        // GitHub DELETE has no expected-SHA precondition; this check is not an atomic compare-and-delete.
+        let r = try request(url(Self.repoPath(repo) + "/git/refs/heads/" + Self.filePath(name)), method: "DELETE")
+        let result: (Data, URLResponse)
+        do { result = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy()) }
+        catch { throw AppError(text: "删除请求结果未知，请刷新分支列表核实，勿直接重试。\n" + error.localizedDescription) }
+        try check(result.0, result.1, operation: "删除 GitHub 远端分支")
+        guard (result.1 as? HTTPURLResponse)?.statusCode == 204 else {
+            throw AppError(text: "未收到 GitHub 删除成功确认（204），请刷新核实。")
+        }
+    }
     func fetchWorkspace(_ repo: String, branch: String, revision: String = "") async throws -> (WorkspaceBinding, URL) {
         let repo = try RepositoryInput.parse(repo)
         let branch = try await resolvedBranch(repo, branch: branch)
@@ -852,6 +875,9 @@ final class GitHub: ObservableObject {
         if case .deleteRun = action { r.httpBody = nil }
         let response = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
         try check(response.0, response.1, operation: "仓库协作操作")
+        if case .cancelRun = action, (response.1 as? HTTPURLResponse)?.statusCode != 202 {
+            throw AppError(text: "未收到 GitHub 的取消受理确认，请刷新运行状态核实。")
+        }
         if case .deleteRun = action, (response.1 as? HTTPURLResponse)?.statusCode != 204 {
             throw AppError(text: "未收到删除成功确认，请刷新运行列表核实，避免重复操作。")
         }

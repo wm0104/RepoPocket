@@ -122,6 +122,10 @@ struct BranchPickerView: View {
     @State private var name = ""
     @State private var head = ""
     @State private var confirm = false
+    @State private var defaultBranch = ""
+    @State private var deleting: DesktopBranch?
+    @State private var deletion: Task<Void, Never>?
+    @State private var deletionMessage = ""
     var body: some View {
         NavigationStack {
             Form {
@@ -130,7 +134,14 @@ struct BranchPickerView: View {
                     ForEach(branches) { b in
                         Button { select(b.name); dismiss() } label: {
                             HStack { Text(b.name); if b.name == current { Image(systemName: "checkmark") } }
-                        }.disabled(busy).softGroupedRow(bottom: b.id == branches.last?.id && !more)
+                        }.disabled(busy)
+                        .contextMenu {
+                            if canWrite && api.isCurrentSession {
+                                Button(role: .destructive) { deletionMessage = ""; deleting = b } label: { Label("删除 GitHub 远端分支", systemImage: "trash") }
+                                    .disabled(!canDelete(b))
+                            }
+                        }
+                        .softGroupedRow(bottom: b.id == branches.last?.id && !more)
                     }
                     if more { Button("加载更多分支") { Task { await load() } }.disabled(busy).softGroupedRow(bottom: true) }
                 }
@@ -141,13 +152,23 @@ struct BranchPickerView: View {
                     Button("创建并切换") { confirm = true }.disabled(busy || head.isEmpty || !DesktopRules.validBranch(name)).softGroupedRow(bottom: true)
                 }
                 }
+                if !deletionMessage.isEmpty {
+                    Section { SoftGroupRows { SoftGroupRow("deletion-result") { Text(deletionMessage).font(.footnote).textSelection(.enabled) } } }
+                }
                 if busy { Section { ProgressView().softGroupedRow(top: true, bottom: true) } }
             }
             .navigationTitle("分支").adaptiveWorkspaceLayout()
             .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
-            .task { await load(); await captureHead() }
+            .task { await load(); await captureHead(); await captureDefaultBranch() }
+            .onDisappear { deletion?.cancel() }
             .confirmationDialog("从 \(current) @ \(head.prefix(7)) 创建 \(name)？", isPresented: $confirm, titleVisibility: .visible) {
                 Button("确认创建远端分支") { Task { await create() } }
+            }
+            .confirmationDialog("删除 GitHub 远端分支？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { target in
+                Button("删除远端分支", role: .destructive) { deletion = Task { await remove(target) } }
+                Button("取消", role: .cancel) { deleting = nil }
+            } message: { target in
+                Text(repo + "\n" + target.name + " @ " + String((target.commit?.sha ?? "").prefix(7)) + "\n这会删除 GitHub 上的分支，不是本地跟踪记录。请先确认该分支的提交已保留或合并；本地文件不会删除。")
             }
         }
     }
@@ -169,5 +190,30 @@ struct BranchPickerView: View {
             try await api.createBranch(repo, name: name, from: current, expectedHead: head)
             select(name); dismiss(); api.message = "已创建远端分支：" + name
         } catch { if !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription }; await captureHead() }
+    }
+    private func canDelete(_ b: DesktopBranch) -> Bool {
+        canWrite && api.isCurrentSession && !busy && b.name != current && !defaultBranch.isEmpty &&
+            b.name != defaultBranch && b.protected == false && b.commit?.sha.isEmpty == false
+    }
+    private func captureDefaultBranch() async {
+        guard canWrite else { return }
+        busy = true; defer { busy = false }
+        do {
+            let info = try await api.repository(repo)
+            guard api.isCurrentSession else { return }
+            defaultBranch = info.default_branch ?? ""
+        } catch { if api.isCurrentSession && !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
+    }
+    private func remove(_ target: DesktopBranch) async {
+        guard canDelete(target), let expectedHead = target.commit?.sha else {
+            deletionMessage = "分支状态或账号已变化，请重新打开分支列表后确认。"; return
+        }
+        deleting = nil; deletionMessage = ""; busy = true; defer { busy = false }
+        do {
+            try await api.deleteBranch(repo, name: target.name, expectedHead: expectedHead, current: current)
+            guard api.isCurrentSession else { return }
+            branches.removeAll { $0.name == target.name }
+            deletionMessage = "已删除 GitHub 远端分支：" + repo + " / " + target.name
+        } catch { if api.isCurrentSession && !RefreshFailure.isCancellation(error) { deletionMessage = error.localizedDescription } }
     }
 }

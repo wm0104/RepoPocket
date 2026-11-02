@@ -6,13 +6,15 @@ struct ReadingLink: Identifiable {
     var id: String { url.absoluteString }
 }
 
-/// Every github.com link opens a native screen; only other hosts keep the in-app web page.
+/// Supported GitHub content stays native; account and unsupported pages use the system browser.
 struct ReadingLinkDestination: View {
     let url: URL
     let api: GitHub?
     let onClose: () -> Void
     var body: some View {
-        if let api, GitHubLinkRules.isGitHub(url) {
+        if GitHubLinkRules.isGitHub(url), GitHubLinkRules.target(url) == nil {
+            SystemBrowserPage(url: url, onClose: onClose)
+        } else if let api, GitHubLinkRules.isGitHub(url) {
             NavigationStack {
                 NativeLinkView(url: url, api: api, onClose: onClose)
                     .toolbar {
@@ -42,8 +44,7 @@ private struct NativeLinkView: View {
             } else if let target = GitHubLinkRules.target(url, branches: branches ?? []) {
                 destination(target)
             } else {
-                // Nothing native to resolve (github.com root, unsafe link): last resort stays web.
-                ContainedWebPage(url: url, onClose: onClose).ignoresSafeArea()
+                SystemBrowserPage(url: url, onClose: onClose)
             }
         }
         .task { await loadBranches() }
@@ -99,7 +100,7 @@ private struct NativeLinkFileView: View {
     var body: some View {
         Group {
             if web {
-                ContainedWebPage(url: url, onClose: { web = false }).ignoresSafeArea()
+                SystemBrowserPage(url: url, onClose: { web = false })
             } else if let entry {
                 FileView(api: api, repo: repo, entry: entry, branch: ref)
             } else if error.isEmpty {
@@ -130,6 +131,30 @@ private struct NativeLinkFileView: View {
     }
 }
 
+private struct SystemBrowserPage: View {
+    let url: URL
+    let onClose: () -> Void
+    @State private var failed = false
+    var body: some View {
+        VStack(spacing: 16) {
+            if failed {
+                Text("无法打开浏览器，请重试。")
+                Button("重试") { open() }
+            } else { ProgressView("正在打开浏览器…") }
+            Button("关闭", action: onClose)
+        }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task { open() }
+    }
+    private func open() {
+        failed = false
+        // Bypass markdown's openURL handler instead of presenting this destination again.
+        UIApplication.shared.open(url, options: [:]) { opened in
+            if opened { onClose() }
+            else { failed = true }
+        }
+    }
+}
+
 struct ContainedWebPage: UIViewControllerRepresentable {
     let url: URL
     let onClose: () -> Void
@@ -154,8 +179,7 @@ struct ContainedWebPage: UIViewControllerRepresentable {
 }
 
 
-/// Any URL opened inside the app: GitHub links resolve to native screens, other hosts use
-/// the contained web page. Never hands the link to Safari.
+/// Shares content/browser routing with links opened from rendered markdown.
 struct InAppLinkButton<Label: View>: View {
     let url: URL
     let api: GitHub?

@@ -157,6 +157,7 @@ struct WorkflowRunsView: View {
 struct WorkflowDispatchView: View {
     @ObservedObject var api: GitHub
     let repo: String
+    var initialBranch: String = ""
     let accepted: (String) -> Void
     @StateObject private var state = WorkflowDispatchState()
     @State private var confirmation: WorkflowDispatchTarget?
@@ -190,6 +191,9 @@ struct WorkflowDispatchView: View {
                     SoftGroupRow("ref") {
                         Picker("分支", selection: $state.ref) {
                             Text("请选择已有分支").tag("")
+                            if !initialBranch.isEmpty && !state.branches.contains(where: { $0.name == initialBranch }) {
+                                Text(initialBranch + "（待核对，请加载分支）").tag(initialBranch)
+                            }
                             ForEach(state.branches) { Text($0.name).tag($0.name) }
                         }.accessibilityIdentifier("workflow-dispatch-branch")
                     }
@@ -221,6 +225,7 @@ struct WorkflowDispatchView: View {
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(state.busy) } }
         .interactiveDismissDisabled(state.busy)
         .task {
+            if state.ref.isEmpty { state.ref = initialBranch }
             await state.loadWorkflows(repo, api: api)
             await state.loadBranches(repo, api: api)
         }
@@ -244,12 +249,15 @@ struct WorkflowRunView: View {
     @State private var action: CommunityMutation?
     @State private var busy = false
     @State private var message = ""
+    @State private var cancellation = WorkflowCancellationState()
     @State private var confirmingDeletion = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var freshRun: WorkflowRun?
     @State private var statusRevision = 0
     @State private var artifactCount: Int?
     @State private var statusError = ""
+    @State private var statusRequest = UUID()
     private var displayedRun: WorkflowRun { freshRun ?? run }
     var body: some View {
         List {
@@ -280,12 +288,14 @@ struct WorkflowRunView: View {
             if canWrite {
                 Section("运行管理") {
                     SoftGroupRows {
-                        SoftGroupRow("rerun") { Button("重新运行此工作流") { action = .rerun(run.id) }.disabled(busy) }
+                        SoftGroupRow("rerun") { Button("重新运行此工作流") { action = .rerun(run.id) }.disabled(busy || cancellation.waiting) }
                         if displayedRun.status != "completed" {
-                            SoftGroupRow("cancel") { Button("取消正在进行的运行", role: .destructive) { action = .cancelRun(run.id) }.disabled(busy) }
+                            SoftGroupRow("cancel") { Button(cancellation.requested ? "已请求取消" : "取消正在进行的运行", role: .destructive) { action = .cancelRun(run.id) }.disabled(busy || cancellation.requested) }
                         }
                         SoftGroupRow("delete") { Button("删除此次运行", role: .destructive) { confirmingDeletion = true }.disabled(busy || displayedRun.status != "completed") }
                         if busy { SoftGroupRow("busy") { ProgressView("提交操作…") } }
+                        if cancellation.waiting { SoftGroupRow("cancelling") { ProgressView("等待 GitHub 结束运行…") } }
+                        if !cancellation.message.isEmpty { SoftGroupRow("cancellation-result") { Text(cancellation.message).font(.caption) } }
                         if !message.isEmpty { SoftGroupRow("result") { Text(message).font(.caption) } }
                     }
                 }
@@ -293,17 +303,24 @@ struct WorkflowRunView: View {
         }.navigationTitle("运行 #\(run.run_number)").adaptiveWorkspaceLayout().navigationBarTitleDisplayMode(.inline)
         .toolbar { Button("刷新") { load(reset: true); statusRevision += 1 }.disabled(store.busy || busy) }
         .task(id: statusRevision) {
-            statusError = ""
-            do {
-                let bytes = try await api.communityRead(GitHub.repoPath(repo) + "/actions/runs/\(run.id)")
-                let value = try JSONDecoder().decode(WorkflowRun.self, from: bytes)
-                try Task.checkCancellation(); guard api.isCurrentSession else { return }; freshRun = value
-            } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { statusError = "刷新状态失败：" + error.localizedDescription } }
+            await refreshRunStatus()
             do {
                 let bytes = try await api.communityRead(GitHub.repoPath(repo) + "/actions/runs/\(run.id)/artifacts", query: [.init(name: "per_page", value: "1")])
                 let value = try JSONDecoder().decode(WorkflowArtifacts.self, from: bytes)
                 try Task.checkCancellation(); guard api.isCurrentSession else { return }; artifactCount = value.total_count
             } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { artifactCount = nil } }
+        }
+        .task(id: cancellation.waiting && scenePhase == .active) {
+            guard cancellation.waiting, scenePhase == .active else { return }
+            for _ in 0..<60 {
+                do { try await Task.sleep(nanoseconds: 5_000_000_000); try Task.checkCancellation() }
+                catch { return }
+                guard api.isCurrentSession else { return }
+                await refreshRunStatus()
+                guard !Task.isCancelled, api.isCurrentSession else { return }
+                if !cancellation.waiting { load(reset: true); statusRevision += 1; return }
+            }
+            cancellation.stopWaiting()
         }
         .task {
             if !store.loaded { load() }
@@ -322,8 +339,22 @@ struct WorkflowRunView: View {
         }
     }
     private func load(reset: Bool = false) { store.load(reset: reset, api: api) { try await api.workflowJobs(repo, run: run.id, page: $0) } }
+    private func refreshRunStatus() async {
+        let request = UUID(); statusRequest = request; statusError = ""
+        do {
+            let bytes = try await api.communityRead(GitHub.repoPath(repo) + "/actions/runs/\(run.id)")
+            let value = try JSONDecoder().decode(WorkflowRun.self, from: bytes)
+            try Task.checkCancellation(); guard api.isCurrentSession, statusRequest == request else { return }
+            freshRun = value
+            cancellation.observe(status: value.status, conclusion: value.conclusion)
+        } catch {
+            if api.isCurrentSession, statusRequest == request, !RefreshFailure.isCancellation(error) { statusError = "刷新状态失败：" + error.localizedDescription }
+        }
+    }
     private func perform(_ action: CommunityMutation) async {
-        guard !busy else { return }; busy = true; message = ""; defer { busy = false }
+        guard !busy else { return }
+        if case .cancelRun = action { guard cancellation.begin() else { return } }
+        busy = true; message = ""; defer { busy = false }
         do {
             _ = try await api.communityMutate(repo, action: action)
             guard api.isCurrentSession else { return }
@@ -331,8 +362,17 @@ struct WorkflowRunView: View {
                 NotificationCenter.default.post(name: .workflowRunDeleted, object: nil,
                     userInfo: ["repo": repo, "run": run.id, "generation": AccountStore.generation])
                 dismiss()
-            } else { message = "GitHub 已接受操作，请刷新核实新状态。"; statusRevision += 1; load(reset: true) }
-        } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { message = error.localizedDescription } }
+            } else {
+                if case .cancelRun = action { cancellation.accepted() }
+                else { cancellation = WorkflowCancellationState(); message = "GitHub 已接受操作，请刷新核实新状态。" }
+                statusRevision += 1; load(reset: true)
+            }
+        } catch {
+            if api.isCurrentSession, !RefreshFailure.isCancellation(error) {
+                if case .cancelRun = action { cancellation.uncertain(error.localizedDescription) }
+                else { message = error.localizedDescription }
+            }
+        }
     }
 }
 

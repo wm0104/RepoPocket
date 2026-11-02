@@ -260,6 +260,7 @@ struct BrowserView: View {
     @State private var creatingRelease = false
     private var canWrite: Bool { RepositoryWriteRules.canWrite(push: repositoryInfo?.permissions?.push, sessionMatches: api.isCurrentSession) }
     @State private var showBranches = false
+    @State private var showingUpstreamSync = false
     @State private var showingRepositoryOwner = false
     @State private var repositoryDescriptionTarget: RepositoryDescriptionTarget?
     @State private var repositoryDeletionTarget: RepositoryDeletionTarget?
@@ -328,7 +329,8 @@ struct BrowserView: View {
                             NavigationLink { HistoryView(api: api, repo: repo, branch: activeBranch) } label: { RepositoryFeatureLabel(title: "提交", symbol: "clock.arrow.circlepath", color: .gray) }
                         }
                         SoftGroupRow("upstream-sync") {
-                            NavigationLink { UpstreamSyncView(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, repository: repositoryInfo) } label: { Text("上游同步") }
+                            Button("上游同步") { showingUpstreamSync = true }
+                                .accessibilityIdentifier("repository-upstream-sync")
                         }
                     }
                 }
@@ -425,6 +427,9 @@ struct BrowserView: View {
         .repositoryCopyNotice(copyFeedback)
         .downloadCompletionNotice($downloadedZIP)
         .repositoryForkConfirmation(forkMenu, api: api)
+        .navigationDestination(isPresented: $showingUpstreamSync) {
+            UpstreamSyncView(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, repository: repositoryInfo)
+        }
         .navigationDestination(isPresented: $showingRepositoryOwner) {
             if let repositoryInfo {
                 let owner = RepositoryPresentationRules.owner(login: repositoryInfo.owner?.login, fullName: repositoryInfo.full_name)

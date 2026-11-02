@@ -10,10 +10,12 @@ struct LocalGitBranchManagement: View {
     @State private var branches: LocalGitBranches?
     @State private var busy = false
     @State private var failure = ""
+    @State private var result = ""
     @State private var newName = ""
     @State private var creating = false
     @State private var confirmingSwitch = false
     @State private var target: LocalGitBranch?
+    @State private var deleting: LocalGitBranch?
     @State private var operation: Task<Void, Never>?
     private var valid: Bool { generation == AccountStore.generation && isValid() }
 
@@ -32,6 +34,9 @@ struct LocalGitBranchManagement: View {
                     if busy { SoftGroupRow("loading") { ProgressView("正在处理分支…") } }
                     if !failure.isEmpty {
                         SoftGroupRow("failure") { Text(failure).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    if !result.isEmpty {
+                        SoftGroupRow("result") { Text(result).font(.caption).textSelection(.enabled) }
                     }
                     SoftGroupRow("refresh") { Button("重新检查分支") { operation = Task { await load() } }.disabled(busy || !valid) }
                 }
@@ -63,15 +68,30 @@ struct LocalGitBranchManagement: View {
         .alert("从当前 HEAD 新建并切换", isPresented: $creating) {
             TextField("新分支名称", text: $newName).textInputAutocapitalization(.never).autocorrectionDisabled()
             Button("取消", role: .cancel) {}
-            Button("新建并切换") { start("createBranch", arguments: ["name": newName]) }.disabled(newName.isEmpty)
+            Button("新建并切换") {
+                guard !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    failure = "请输入新分支名称。"; result = ""; return
+                }
+                start("createBranch", arguments: ["name": newName], success: "已创建并切换到本地分支：" + newName)
+            }
         } message: { Text("不会提交、移动或清理你的文件，也不会改动已有暂存。") }
         .alert("切换分支？", isPresented: $confirmingSwitch) {
             Button("取消", role: .cancel) {}
             Button("切换") {
-                if let target { start("switchBranch", arguments: ["targetRef": target.reference, "expectedTargetHead": target.head]) }
+                if let target { start("switchBranch", arguments: ["targetRef": target.reference, "expectedTargetHead": target.head], success: "已切换到本地分支：" + target.name) }
             }
         } message: {
             Text((target?.name ?? "") + "\n切换已有分支要求工作目录与暂存区干净；选择远端跟踪分支会创建同名本地分支。不会自动暂存、丢弃或强制切换。")
+        }
+        .confirmationDialog("删除本地分支？", isPresented: Binding(
+            get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { branch in
+            Button("删除本地分支", role: .destructive) {
+                deleting = nil
+                start("deleteBranch", arguments: ["targetRef": branch.reference, "expectedTargetHead": branch.head], success: "已删除本地分支：" + branch.name)
+            }
+            Button("取消", role: .cancel) { deleting = nil }
+        } message: { branch in
+            Text("\(branch.name)\n仅删除本地分支，不删除 GitHub 远端分支或项目文件。含有未合并提交的分支会拒绝删除，没有强制删除选项。")
         }
     }
 
@@ -86,6 +106,11 @@ struct LocalGitBranchManagement: View {
                 if branch.current { Image(systemName: "checkmark").accessibilityLabel("当前分支") }
             }
         }.disabled(busy || branch.current || !valid)
+        .contextMenu {
+            if !branch.current && !branch.remote {
+                Button("删除本地分支", role: .destructive) { deleting = branch }.disabled(busy || !valid)
+            }
+        }
     }
     private func readBranches() async throws -> LocalGitBranches {
         guard valid else { throw CancellationError() }
@@ -94,15 +119,15 @@ struct LocalGitBranchManagement: View {
     }
     private func load() async {
         guard !busy, valid else { return }
-        busy = true; failure = ""; defer { busy = false }
+        busy = true; failure = ""; result = ""; defer { busy = false }
         do {
             let result = try await readBranches(); try Task.checkCancellation()
             guard valid else { return }; branches = result
         } catch { if valid, !RefreshFailure.isCancellation(error) { failure = error.localizedDescription; branches = nil } }
     }
-    private func start(_ action: String, arguments: [String: Any]) {
+    private func start(_ action: String, arguments: [String: Any], success: String) {
         guard !busy, valid, let current = branches else { return }
-        busy = true; failure = ""
+        busy = true; failure = ""; result = ""
         operation = Task {
             defer { busy = false }
             do {
@@ -112,7 +137,9 @@ struct LocalGitBranchManagement: View {
                 let _: LocalGitReply = try await LocalGitEngine.shared.run(action, project: project, metadata: metadata,
                     internalRoot: internalRoot, arguments: request, generation: generation)
                 try Task.checkCancellation(); guard valid else { return }
-                branches = try await readBranches()
+                let updated = try await readBranches()
+                try Task.checkCancellation(); guard valid else { return }
+                branches = updated; result = success
             } catch {
                 if valid, !RefreshFailure.isCancellation(error) { failure = error.localizedDescription }
                 branches = nil

@@ -1,8 +1,8 @@
 import SwiftUI
 
 enum LocalProjectSheet: Identifiable {
-    case commit, diff(String), deb(String), delete(String)
-    var id: String { switch self { case .commit: return "commit"; case .diff(let path): return "diff:" + path; case .deb(let path): return "deb:" + path; case .delete(let path): return "delete:" + path } }
+    case commit, diff(String), deb(String), delete(String), workflow(repo: String, branch: String)
+    var id: String { switch self { case .commit: return "commit"; case .diff(let path): return "diff:" + path; case .deb(let path): return "deb:" + path; case .delete(let path): return "delete:" + path; case .workflow(let repo, let branch): return "workflow:" + repo + ":" + branch } }
 }
 struct LocalGitCommitDetail: Decodable {
     let sha: String
@@ -28,7 +28,7 @@ struct LocalProjectCommitView: View {
             if let detail {
                 Section("本地提交") {
                     SoftGroupRows {
-                        SoftGroupRow("message") { Text(detail.message).textSelection(.enabled) }
+                        SoftGroupRow("message") { Text(detail.message.trimmingCharacters(in: .newlines)).textSelection(.enabled) }
                         SoftGroupRow("author") { Text(detail.author + " · " + LocalGitDate.string(detail.time)).font(.caption).foregroundStyle(.secondary) }
                         SoftGroupRow("sha") { Text(detail.sha).font(.caption.monospaced()).textSelection(.enabled) }
                         if detail.merge { SoftGroupRow("merge") { Text("合并提交：与第一个父提交比较。").font(.caption).foregroundStyle(.secondary) } }

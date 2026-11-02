@@ -10,7 +10,9 @@ struct UserConnectionsStylePreview: View {
     var body: some View {
         Group {
             if let api {
-                if ProcessInfo.processInfo.arguments.contains("-repository-file-search-preview") {
+                if ProcessInfo.processInfo.arguments.contains("-upstream-sync-style-preview") {
+                    NavigationStack { BrowserView(api: api, repo: "fixture-owner/sample", path: "", branch: "main") }
+                } else if ProcessInfo.processInfo.arguments.contains("-repository-file-search-preview") {
                     NavigationStack { RepositoryCodeDestination(api: api, repo: "fixture-owner/sample", branch: "feature/search") }
                 } else if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
                     NavigationStack {
@@ -34,6 +36,12 @@ struct UserConnectionsStylePreview: View {
             guard api == nil, error.isEmpty else { return }
             do {
                 let id = "401"
+                if ProcessInfo.processInfo.arguments.contains("-upstream-watch-style-preview") || ProcessInfo.processInfo.arguments.contains("-upstream-sync-style-preview") {
+                    for key in UserDefaults.standard.dictionaryRepresentation().keys
+                        where key.hasPrefix("RepoPocket.upstream") && key.contains(id) {
+                        UserDefaults.standard.removeObject(forKey: key)
+                    }
+                }
                 try CredentialStore.save("fixture-connections", account: id)
                 try AccountStore.record(.init(id: id, login: "fixture-owner", avatarURL: nil))
                 AccountStore.activate(id)
@@ -61,6 +69,23 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if ProcessInfo.processInfo.arguments.contains("-upstream-watch-style-preview") || ProcessInfo.processInfo.arguments.contains("-upstream-sync-style-preview") {
+            let metadata = #"{"id":504,"name":"sample","full_name":"fixture-owner/sample","html_url":"https://github.com/fixture-owner/sample","default_branch":"main","fork":true,"parent":{"full_name":"fixture-upstream/origin","default_branch":"develop"},"source":{"full_name":"fixture-network/root","default_branch":"trunk"},"permissions":{"push":false}}"#
+            let routes = [
+                "/repos/fixture-owner/sample": metadata,
+                "/repos/fixture-upstream/origin/branches": #"[{"name":"develop","commit":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},{"name":"z-last","commit":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}]"#,
+                "/repos/fixture-owner/sample/compare/main...fixture-upstream:develop": #"{"status":"ahead","ahead_by":1,"behind_by":0,"total_commits":1,"commits":[],"files":[{"filename":"README.md","additions":1,"deletions":0}]}"#
+            ]
+            if let payload = routes[path] {
+                let failure = path.contains("/compare/") && ProcessInfo.processInfo.arguments.contains("-upstream-preview-failure")
+                let accepted = request.url?.host == "api.github.com" && request.httpMethod == "GET"
+                    && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections" && !failure
+                client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: accepted ? 200 : 403,
+                    httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: Data((accepted ? payload : #"{"message":"Fixture preview denied"}"#).utf8))
+                client?.urlProtocolDidFinishLoading(self); return
+            }
+        }
         if ProcessInfo.processInfo.arguments.contains("-repository-file-search-preview") {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let allowed = request.url?.host == "api.github.com" && request.httpMethod == "GET"

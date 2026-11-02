@@ -23,6 +23,20 @@ def production_method(source, signature):
 
 
 class WorkflowDispatchTests(unittest.TestCase):
+    def test_push_choice_opens_selection_only_after_success_and_keeps_current_branch(self):
+        view = (ROOT / 'RepoPocket/LocalProjectView.swift').read_text()
+        self.assertIn('Button("仅推送")', view)
+        self.assertIn('Button("推送后运行工作流…")', view)
+        sync = production_method(view, '    private func sync(')
+        self.assertLess(sync.index('try await LocalGitEngine.shared.run'), sync.index('.workflow('))
+        self.assertIn('state.error.isEmpty', sync)
+        self.assertIn('state.fresh', sync, 'Cancelled snapshot reads must not open a workflow sheet')
+        self.assertIn('current.status.branch', sync)
+        self.assertNotIn('dispatchWorkflow(', sync, 'Selection still requires an explicit confirmation')
+        dispatch = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text().split('struct WorkflowDispatchView:', 1)[1].split('struct WorkflowRunView:', 1)[0]
+        self.assertIn('initialBranch', dispatch)
+        self.assertIn('state.ref = initialBranch', dispatch)
+
     def test_entry_selection_confirmation_and_refresh(self):
         view = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text()
         dispatch = view.split('struct WorkflowDispatchView: View {', 1)[1].split('struct WorkflowRunView:', 1)[0]

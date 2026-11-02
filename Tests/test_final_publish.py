@@ -50,8 +50,19 @@ class FinalPublishTests(unittest.TestCase):
         for path in ROOT.joinpath('RepoPocket').glob('*.swift'):
             text = path.read_text()
             self.assertNotIn('willEnterForegroundNotification', text)
-            # Only the app root observes the foreground, and only to probe for updates.
-            self.assertEqual('scenePhase' in text, path.name == 'RepoPocketApp.swift', path.name)
+            # Root update checks and the foreground-only cancellation receipt poll
+            # are the only lifecycle observers; no workspace scanning on resume.
+            self.assertEqual('scenePhase' in text, path.name in ('RepoPocketApp.swift', 'WorkflowViews.swift'), path.name)
+            if path.name == 'WorkflowViews.swift':
+                self.assertEqual(text.count('scenePhase'), 4)
+                self.assertIn('@Environment(\\.scenePhase) private var scenePhase', text)
+                polling = text.split('.task(id: cancellation.waiting && scenePhase == .active) {', 1)[1].split('        .task {', 1)[0]
+                for token in ('guard cancellation.waiting, scenePhase == .active', 'for _ in 0..<60',
+                              'Task.sleep(nanoseconds: 5_000_000_000)', 'try Task.checkCancellation()',
+                              'guard api.isCurrentSession', 'await refreshRunStatus()', 'cancellation.stopWaiting()'):
+                    self.assertIn(token, polling)
+                self.assertNotIn('scan()', polling)
+                self.assertNotIn('communityMutation(', polling)
         entry = app.split('.onChange(of: scenePhase)', 1)[1].split('.task { await NetworkWarmup', 1)[0]
         self.assertEqual(entry.count('appEntryCheck(api: api)'), 1)
         self.assertNotIn('scan()', entry)

@@ -17,6 +17,15 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertNotIn('  pull_request:', self.source)
         self.assertIn('  workflow_dispatch:', self.source)
 
+    def test_checks_run_only_for_pull_requests_or_manual_dispatch(self):
+        import re
+        for name in ('local-git-check.yml', 'ui-check.yml'):
+            with self.subTest(workflow=name):
+                source = (REPO_ROOT / '.github/workflows' / name).read_text()
+                triggers = source.split('\non:\n', 1)[1].split('\nconcurrency:', 1)[0]
+                events = set(re.findall(r'^  ([a-z_]+):', triggers, re.MULTILINE))
+                self.assertEqual(events, {'pull_request', 'workflow_dispatch'})
+
     def test_read_only_permissions_and_apple_runner(self):
         self.assertIn('permissions:\n  contents: read', self.source)
         self.assertIn('runs-on: macos-15', self.source)
