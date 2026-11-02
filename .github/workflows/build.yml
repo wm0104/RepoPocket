@@ -1,5 +1,5 @@
 name: Build IPA
-run-name: 更新：复制链接与原生页面
+run-name: 增加手机代码编辑、仓库搜索与构建跟踪
 on:
   workflow_dispatch:
     inputs:
@@ -52,6 +52,8 @@ jobs:
         run: python3 Tests/test_local_file_presentation.py
       - name: Test language-aware code and automatic text reading
         run: python3 Tests/test_source_code.py
+      - name: Test mobile editor, directory search and exact pushed builds
+        run: python3 Tests/test_mobile_editor.py
 
       - name: Copy link entry points
         run: python3 Tests/test_copy_link_menu.py
@@ -81,6 +83,8 @@ jobs:
         run: python3 Tests/test_workflow_selection.py
       - name: Test README rendering, badge document and raw format fallback
         run: python3 Tests/test_readme_rendering.py
+      - name: Test file-page Markdown HTML rendering and local fallback
+        run: python3 Tests/test_markdown_file_render.py
       - name: Test original baseline historic commit and disk download regressions
         run: python3 Tests/test_workspace_baseline.py
       - name: Test production local checkbox and strict commit eligibility
@@ -109,6 +113,8 @@ jobs:
         run: python3 Tests/test_app_update.py
       - name: Test production update notice lifecycle mocks
         run: python3 Tests/test_update_notice.py
+      - name: Test app-entry update notification, 15-minute window and settings version row
+        run: python3 Tests/test_update_notification.py
       - name: Test dynamic update group boundaries and production Swift corner geometry
         run: python3 Tests/test_update_groups.py
       - name: Test production GitHub repository links and shared input contracts
@@ -185,16 +191,16 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.7"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.8"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.1.7"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.1.8"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.1.7"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.1.7"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.1.8"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.1.8"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
           codesign --display --entitlements :- "$EXT"

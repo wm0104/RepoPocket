@@ -6,20 +6,6 @@ import ZIPFoundation
     @Published var checking = false
     @Published var message = ""
     @Published var release: AppUpdateRelease?
-    @Published private(set) var startupRelease: AppUpdateRelease?
-    func dismissStartupUpdate() { startupRelease = nil }
-    /// Dismissing the startup card by button, close, or swipe remembers the version so the
-    /// same release is not offered again on every launch. Manual checks still show it.
-    func skipAndDismissStartupRelease(accountID: String) {
-        if let version = startupRelease?.tag_name {
-            UserDefaults.standard.set(version, forKey: AppUpdateRules.skippedKey(accountID))
-        }
-        dismissStartupUpdate()
-    }
-    private var startupPromptOffered: Bool {
-        get { AppUpdateSessionRules.startupPromptOffered }
-        set { AppUpdateSessionRules.startupPromptOffered = newValue }
-    }
     @Published var downloaded: URL?
     @Published var downloadCompletion: URL?
     @Published var downloading = false
@@ -34,6 +20,12 @@ import ZIPFoundation
     private var autoRules = AppUpdateSessionRules()
     private let accountGeneration = AccountStore.generation
     var hasUpdate: Bool { release != nil }
+    /// Called on launch and whenever the app returns to the foreground. Each entry may attempt
+    /// once; the per-account timestamp keeps the network check to one per `cooldown`.
+    func appEntryCheck(api: GitHub) async {
+        if !AppUpdateSessionRules.isUpdateProbe(installedVersion().0) { autoRules.beginEntry() }
+        await automaticCheck(api: api)
+    }
     func automaticCheck(api: GitHub) async {
         guard api.canCheckOfficialUpdate, api.isCurrentSession, !checking, !downloading else { return }
         let key = "RepoPocket.update.lastCheck." + api.accountID
@@ -97,20 +89,12 @@ import ZIPFoundation
             if try AppUpdateRules.isNewer(value, local: local, localBuild: build) {
                 release = value
                 message = ""
-                if automatic, !startupPromptOffered {
-                    startupPromptOffered = true
-                    let skipped = UserDefaults.standard.string(forKey: AppUpdateRules.skippedKey(api.accountID))
-                    if AppUpdateRules.shouldOfferStartupPrompt(version: value.tag_name, skipped: skipped) {
-                        startupRelease = value
-                    }
-                }
             } else {
-                release = nil; startupRelease = nil
+                release = nil
                 if !automatic { showTransient("已是最新版本", duration: UpdateNoticeRules.latestNanoseconds) }
             }
         } catch { if generation == token, accountGeneration == AccountStore.generation, !automatic { showTransient(AppUpdateRules.conciseCheckError(error)) } }
     }
-    func ignore() { generation = UUID(); release = nil; startupRelease = nil; showTransient("本次不更新。") }
     func cancelDownload() {
         downloadCompletion = nil
         generation = UUID(); clearNotice()
@@ -199,6 +183,10 @@ struct AppUpdateSection: View {
             HStack {
                 Text("应用更新")
                 Spacer()
+                // The available version sits on the right; the 设置 tab dot is the notification.
+                if let release = checker.release {
+                    Text(release.availableVersionText).font(.subheadline).foregroundColor(.secondary)
+                }
                 Menu {
                     InAppLinkButton(url: URL(string: "https://github.com/wm0104/RepoPocket/releases")!, api: nil) { Text("官方发行版页") }
                     if let release = checker.release, let ipa = release.ipaURL {

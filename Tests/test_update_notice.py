@@ -20,37 +20,34 @@ class NoticeTests(unittest.TestCase):
         self.assertIn('guard self.generation == token else { throw CancellationError() }', download)
         self.assertIn('defer { if self.generation == token', download)
 
-    def test_startup_card_ui_and_safety(self):
+    def test_update_notification_ui_and_safety(self):
         app = (REPO_ROOT / 'RepoPocket/RepoPocketApp.swift').read_text()
-        card = (REPO_ROOT / 'RepoPocket/StartupUpdateCard.swift').read_text()
-        for token in ['.sheet(isPresented: $startupSheetVisible', '.task(id: startupSheetQueued)',
-                      '.onReceive(updateChecker.$startupRelease)', 'StartupUpdateCard(api: api',
-                      'DownloadStore.shared.picker == nil', 'api.message.isEmpty',
-                      'selectedTab = 4']:
-            self.assertIn(token, app)
-        for token in ['ScrollView {', 'Text(verbatim: notes)', 'prefix(16_384)',
-                      'VStack(spacing: 6)', 'minHeight: 46', 'minHeight: 44',
-                      '.presentationDetents', '.height(300)', '.presentationDragIndicator(.visible)',
-                      '跳转TrollStore安装需启用 URL Scheme', 'TrollStore 安装', '暂不更新',
-                      '关闭更新提示', 'checker.skipAndDismissStartupRelease(accountID: api.accountID)',
-                      'TrollStoreInstaller.open(ipaURL: ipa)',
-                      'session == AccountStore.generation', 'checker.release?.ipaURL == ipa',
-                      'requestID == id', '前往应用更新']:
-            self.assertIn(token, card)
-        self.assertNotIn('SHA256', card)
-        self.assertNotIn('.animation(', card)
-        self.assertNotIn('Timer', card)
-        self.assertNotIn('exit(', card)
+        badge = (REPO_ROOT / 'RepoPocket/UpdateTabBadge.swift').read_text()
+        # The startup card is gone: automatic checks only light the 设置 tab dot.
+        self.assertFalse((REPO_ROOT / 'RepoPocket/StartupUpdateCard.swift').exists())
+        for gone in ['startupSheetVisible', 'startupSheetQueued', 'StartupUpdateCard',
+                     'startupRelease', 'queueStartupSheet', 'selectedTab = 4']:
+            self.assertNotIn(gone, app)
+            self.assertNotIn(gone, feature)
+        self.assertIn('UpdateTabBadge(tabIndex: 3, isVisible: updateChecker.hasUpdate)', app)
+        self.assertIn('appEntryCheck(api: api)', app)
+        # A subtle 10pt dot with a bar-coloured ring, never a number or a custom image.
+        for token in ['width: 10, height: 10', 'layer.cornerRadius = 5', 'cornerRadius = 7',
+                      'backgroundColor = .systemRed', 'backgroundColor = .systemBackground',
+                      'isUserInteractionEnabled = false']:
+            self.assertIn(token, badge)
+        self.assertNotIn('.badge(', app)
+        self.assertNotIn('Image(', badge)
+        self.assertNotIn('.animation(', badge)
+        self.assertNotIn('Timer', badge)
+        # The verdict comes from the release the checker already holds.
+        self.assertIn('var hasUpdate: Bool { release != nil }', feature)
+        row = feature.split('Text("应用更新")', 1)[1].split('Menu {', 1)[0]
+        self.assertIn('Text(release.availableVersionText)', row)
         self.assertNotIn('UIApplication.shared.open', feature.split('    func download() {', 1)[0])
-        self.assertLess(card.index('ScrollView {'), card.index('// The footer does not scroll'))
-        # RC regression: reading an un-injected @EnvironmentObject traps on the first update.
-        self.assertNotIn('@EnvironmentObject private var downloads', app)
         # The startup path must not evaluate other observable objects while SwiftUI runs body.
         self.assertNotIn('private var startupUpdateReady', app)
-        queue = app.split('.onReceive(updateChecker.$startupRelease)', 1)[1].split('.sheet(isPresented: $startupSheetVisible', 1)[0]
-        for foreign in ['accountPresentation.showing', 'DownloadStore.shared.picker', 'api.message.isEmpty']:
-            self.assertNotIn(foreign, queue)
-        self.assertIn('DownloadStore.shared.picker == nil', app.split('private func queueStartupSheet', 1)[1])
+        self.assertNotIn('@EnvironmentObject private var downloads', app)
 
     def test_environment_objects_resolve(self):
         import re
@@ -175,61 +172,46 @@ struct AppError: Error, LocalizedError { let text: String; var errorDescription:
     timed.leavePage(); clock.fire(); await Task.yield()
     precondition(timed.message.isEmpty && timed.release != nil)
     print("PASS deterministic production clock: latest 2s, failure 6s, new release untimed, leave-generation protection")
+    precondition(AppUpdateSessionRules.cooldown == 15 * 60)
     let automatic = UpdateChecker(installedVersion: { ("1.0.1", "5") })
-    AppUpdateSessionRules.startupPromptOffered = false
     let autoAPI = GitHub("new"); autoAPI.accountID = "auto-fixture-" + UUID().uuidString
-    await automatic.automaticCheck(api: autoAPI)
-    await automatic.automaticCheck(api: autoAPI)
-    precondition(autoAPI.calls == 1 && automatic.release != nil && automatic.message.isEmpty)
+    let autoKey = "RepoPocket.update.lastCheck." + autoAPI.accountID
+    await automatic.appEntryCheck(api: autoAPI)
+    await automatic.appEntryCheck(api: autoAPI)
+    // Launch and foreground share one attempt per entry and one 15-minute per-account window.
+    precondition(autoAPI.calls == 1 && automatic.release != nil && automatic.hasUpdate && automatic.message.isEmpty)
+    precondition(UserDefaults.standard.object(forKey: autoKey) as? Date != nil)
     automatic.leavePage(); automatic.enterPage()
-    precondition(automatic.release != nil)
+    // Opening and leaving Settings keeps the dot: the release is remembered.
+    precondition(automatic.hasUpdate)
+    await automatic.appEntryCheck(api: autoAPI)
+    precondition(autoAPI.calls == 1) // Still inside the 15-minute window.
+    UserDefaults.standard.set(Date().addingTimeInterval(-16 * 60), forKey: autoKey)
+    await automatic.appEntryCheck(api: autoAPI)
+    precondition(autoAPI.calls == 2 && automatic.release != nil && automatic.hasUpdate)
     await automatic.check(api: GitHub("automatic failure"), automatic: true)
     precondition(automatic.release != nil && automatic.message.isEmpty)
     await automatic.check(api: autoAPI)
-    precondition(autoAPI.calls == 2) // Explicit manual check bypasses auto cooldown.
-    precondition(automatic.startupRelease != nil)
-    automatic.dismissStartupUpdate()
-    precondition(automatic.startupRelease == nil && automatic.release != nil)
-    await automatic.check(api: autoAPI, automatic: true)
-    precondition(automatic.startupRelease == nil) // Dismissed prompt stays dismissed this session.
+    precondition(autoAPI.calls == 3) // Explicit manual check bypasses auto cooldown.
+    precondition(automatic.hasUpdate)
     let probeAPI = GitHub("new"); probeAPI.accountID = "probe-" + UUID().uuidString
     let probeKey = "RepoPocket.update.lastCheck." + probeAPI.accountID
     let lastDate = Date(); UserDefaults.standard.set(lastDate, forKey: probeKey)
-    AppUpdateSessionRules.startupPromptOffered = false
     let probe = UpdateChecker(installedVersion: { ("1.0.3-rc.1", "3") })
-    await probe.automaticCheck(api: probeAPI); await probe.automaticCheck(api: probeAPI)
-    precondition(probeAPI.calls == 1 && probe.startupRelease != nil)
+    await probe.appEntryCheck(api: probeAPI); await probe.appEntryCheck(api: probeAPI)
+    precondition(probeAPI.calls == 1 && probe.hasUpdate)
+    // The probe neither inherits nor resets the official app's per-account window.
     precondition(UserDefaults.standard.object(forKey: probeKey) as? Date == lastDate)
-    probe.dismissStartupUpdate()
-    await probe.automaticCheck(api: probeAPI)
-    precondition(probe.startupRelease == nil && probeAPI.calls == 1)
-    AppUpdateSessionRules.startupPromptOffered = false
-    let nextLaunch = UpdateChecker(installedVersion: { ("1.0.3-rc.1", "3") })
-    await nextLaunch.automaticCheck(api: probeAPI)
-    precondition(probeAPI.calls == 2 && nextLaunch.startupRelease != nil)
-    // Dismissing the card remembers the version: the next cold launch stays quiet.
-    let skippedTag = nextLaunch.startupRelease?.tag_name
-    nextLaunch.skipAndDismissStartupRelease(accountID: probeAPI.accountID)
-    precondition(UserDefaults.standard.string(forKey: AppUpdateRules.skippedKey(probeAPI.accountID)) == skippedTag)
-    AppUpdateSessionRules.startupPromptOffered = false
-    let quietLaunch = UpdateChecker(installedVersion: { ("1.0.3-rc.1", "3") })
-    await quietLaunch.automaticCheck(api: probeAPI)
-    precondition(probeAPI.calls == 3 && quietLaunch.startupRelease == nil && quietLaunch.release != nil)
-    UserDefaults.standard.removeObject(forKey: AppUpdateRules.skippedKey(probeAPI.accountID))
-    AppUpdateSessionRules.startupPromptOffered = false
-    let promptedAgain = UpdateChecker(installedVersion: { ("1.0.3-rc.1", "3") })
-    await promptedAgain.automaticCheck(api: probeAPI)
-    precondition(probeAPI.calls == 4 && promptedAgain.startupRelease != nil)
     let officialAPI = GitHub("new"); officialAPI.accountID = probeAPI.accountID
     let official = UpdateChecker(installedVersion: { ("1.0.4", "3") })
-    await official.automaticCheck(api: officialAPI)
-    precondition(officialAPI.calls == 0 && official.startupRelease == nil)
+    await official.appEntryCheck(api: officialAPI)
+    precondition(officialAPI.calls == 0 && official.release == nil && !official.hasUpdate)
     let noUpdateAPI = GitHub("latest"); noUpdateAPI.accountID = "latest-" + UUID().uuidString
     let noUpdate = UpdateChecker(installedVersion: { ("1.0.4", "3") })
-    await noUpdate.automaticCheck(api: noUpdateAPI)
-    precondition(noUpdate.release == nil && noUpdate.startupRelease == nil && noUpdate.message.isEmpty)
-    precondition(manual.startupRelease == nil && timed.startupRelease == nil)
-    print("PASS startup prompt, no auto-install, dismiss once, RC cold-launch cache bypass, official six-hour cache preserved, no latest/manual popup")
+    await noUpdate.appEntryCheck(api: noUpdateAPI)
+    precondition(noUpdate.release == nil && !noUpdate.hasUpdate && noUpdate.message.isEmpty)
+    precondition(manual.release == nil && timed.hasUpdate)
+    print("PASS app entry check, 15-minute window, silent automatic failure, RC probe bypass, no startup card state")
     let switched = UpdateChecker()
     let lateAPI = GitHub("new", delay: 100_000_000)
     let switchedTask = Task { await switched.check(api: lateAPI) }

@@ -1,4 +1,4 @@
-"""Export native UI regression screenshots from Xcode 15."""
+"""Export native UI regression screenshots from xcresult bundles."""
 import json
 from pathlib import Path
 import subprocess
@@ -32,6 +32,9 @@ actions.update({'workflow-runs-normal', 'workflow-runs-selection', 'workflow-run
 file_feedback = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-editor'}
 download_lifecycle = file_feedback | {'local-file-sheet-dismissed', 'release-compact-attachments', 'release-inline-progress'}
 file_edit = {'remote-file-editor-cancelled', 'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'}
+file_edit.update({'mobile-editor-saved-preview', 'source-native-file-search', 'repository-file-folder-search', 'repository-search-opened-code'})
+diagnostics = {'account-switch-failure', 'account-control-failure'}
+diagnostics.update({'mobile-editor-create-menu', 'source-native-find-start'})
 if scope == 'profiles':
     expected = profiles
 elif scope == 'workflow-selection':
@@ -44,6 +47,9 @@ elif scope == 'download-lifecycle':
     expected = download_lifecycle
 elif scope == 'file-edit':
     expected = file_edit
+elif scope == 'review-regressions':
+    expected = {'account-session-after-switch', 'local-deb-editor', 'profile-public-contacts',
+                'profile-contacts-retry', 'readme-badges'}
 elif scope == 'all':
     expected.update(profiles)
     expected.update(actions)
@@ -58,7 +64,7 @@ while pending:
     if reference in seen:
         continue
     seen.add(reference)
-    command = ['xcrun', 'xcresulttool', 'get', '--path', bundle, '--format', 'json']
+    command = ['xcrun', 'xcresulttool', 'get', 'object', '--legacy', '--path', bundle, '--format', 'json']
     if reference:
         command += ['--id', reference]
     tree = json.loads(subprocess.check_output(command))
@@ -74,10 +80,11 @@ while pending:
                     pending.append(ref)
             name = item.get('name', {}).get('_value', '')
             payload = item.get('payloadRef', {}).get('id', {}).get('_value')
-            if payload and name in expected:
-                subprocess.run(['xcrun', 'xcresulttool', 'export', '--type', 'file', '--path', bundle,
+            if payload and name in expected | diagnostics:
+                subprocess.run(['xcrun', 'xcresulttool', 'export', 'object', '--legacy', '--type', 'file', '--path', bundle,
                                 '--id', payload, '--output-path', str(destination / (name + '.png'))], check=True)
-                exported.add(name)
+                if name in expected:
+                    exported.add(name)
             stack.extend(item.values())
 
 if exported != expected:

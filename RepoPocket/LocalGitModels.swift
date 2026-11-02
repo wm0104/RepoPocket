@@ -121,7 +121,7 @@ enum LocalGitRules {
     }
     static func child(_ value: String) throws -> String {
         guard !value.isEmpty, value != ".", value != "..", value.lowercased() != ".git",
-              !value.contains("/"), !value.contains("\\"), !value.contains("\0") else { throw LocalGitError(text: "请输入不含路径分隔符的新文件夹名称。") }
+              !value.contains("/"), !value.contains("\\"), !value.contains("\0") else { throw LocalGitError(text: "请输入不含路径分隔符的文件或文件夹名称。") }
         return value
     }
 }

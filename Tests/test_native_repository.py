@@ -27,13 +27,15 @@ final class Fixture: URLProtocol {
 @MainActor final class GitHub {
  let session:URLSession
  var active=true; var push=false; var pushChecks=0; var payload=Data(); var queries:[URLQueryItem]=[]
+ var payloads:[String:Data]=[:]; var paths:[String]=[]; var branches:[String]=[]
  var body:[String:Any]=[:]; var method="";var files:[String]=[];var invalidContent=false
  init(){let config=URLSessionConfiguration.ephemeral;config.protocolClasses=[Fixture.self];session=URLSession(configuration:config)}
  var isCurrentSession:Bool {active}
  func ensureActiveAccount() throws {guard active else {throw CancellationError()}}
  func requireWriteAccess(_ repo:String) async throws {pushChecks+=1;guard push else {throw AppError(text:"denied")}}
- static func component(_ s:String)->String {s.addingPercentEncoding(withAllowedCharacters:.alphanumerics)!}
+ static func component(_ s:String)->String {s.addingPercentEncoding(withAllowedCharacters:.alphanumerics.union(CharacterSet(charactersIn:"-._~")))!}
  static func repoPath(_ repo:String)throws->String {"/repos/" + (try RepositoryInput.parse(repo))}
+FILE_PATH
  func url(_ path:String)throws->URL {URL(string:"https://api.github.com"+path)!}
  func request(_ url:URL,method:String,body:Data)throws->URLRequest {
    try ensureActiveAccount();self.method=method;self.body=(try JSONSerialization.jsonObject(with:body)) as! [String:Any]
@@ -42,19 +44,22 @@ final class Fixture: URLProtocol {
  func check(_ data:Data,_ response:URLResponse,operation:String)throws {
    try ensureActiveAccount();guard let h=response as? HTTPURLResponse,(200..<300).contains(h.statusCode) else {throw AppError(text:"server denied")}
  }
- func communityRead(_ path:String,query:[URLQueryItem]=[])async throws->Data {try ensureActiveAccount();queries=query;return payload}
- func resolvedBranch(_ repo:String,branch:String)async throws->String {"main"}
- func workspaceHead(_ repo:String,branch:String)async throws->String {String(repeating:"a",count:40)}
+ func communityRead(_ path:String,query:[URLQueryItem]=[])async throws->Data {try ensureActiveAccount();queries=query;paths.append(path);return payloads[path] ?? payload}
+ func resolvedBranch(_ repo:String,branch:String)async throws->String {branch.isEmpty ? "main" : branch}
+ func workspaceHead(_ repo:String,branch:String)async throws->String {branches.append(branch);return String(repeating:"a",count:40)}
  func file(_ repo:String,path:String,branch:String)async throws->Entry {
    precondition(branch==String(repeating:"a",count:40));files.append(path)
    return Entry(name:path,path:path,type:"file",sha:"x",size:4,download_url:nil,content:Data(invalidContent ? [0,1,2,3] : Array("a\nb\n".utf8)).base64EncodedString(),encoding:"base64")
  }
 MUTATE
 }
-'''.replace('MUTATE', mutate)
+'''.replace('MUTATE', mutate).replace('FILE_PATH', api[api.index('    static func filePath('):api.index('    private func url(')])
         for name in ['RepositoryInput.swift','CommunityModels.swift','NativeRepositoryModels.swift','NativeRepositoryAPI.swift','OfficialUpdateRedirectPolicy.swift']:
             source += '\n' + ((models+'\n') if name=='RepositoryInput.swift' else '') + (ROOT/'RepoPocket'/name).read_text()
         source += (ROOT/'RepoPocket/RepositoryReadmeSection.swift').read_text().split('struct RepositoryReadmeSection')[0].replace('import SwiftUI','import Foundation')
+        remote = (ROOT/'RepoPocket/WorkspaceRemote.swift').read_text()
+        source += remote[remote.index('struct GitObject:'):remote.index('extension LocalStore')]
+        source += '\nextension GitHub {' + (ROOT/'RepoPocket/RepositoryFileSearch.swift').read_text().split('extension GitHub {', 1)[1]
         source += r'''
 @main struct Run {
  @MainActor static func main() async throws {
@@ -97,6 +102,25 @@ MUTATE
    precondition(api.queries.contains { $0.name=="page" && $0.value=="2" })
    _ = try await api.workflowRuns("owner/repo",branch:"",page:1)
    precondition(!api.queries.contains { $0.name=="status" || $0.name=="branch" })
+   _ = try await api.workflowRuns("owner/repo",branch:"feature/fix",page:1,headSHA:String(repeating:"b",count:40))
+   precondition(api.queries.contains { $0.name=="head_sha" && $0.value==String(repeating:"b",count:40) })
+   precondition(api.queries.contains { $0.name=="branch" && $0.value=="feature/fix" })
+   do { _ = try await api.workflowRuns("owner/repo",branch:"main",page:1,headSHA:"latest");preconditionFailure("invalid SHA accepted") } catch {}
+   let sha=String(repeating:"b",count:40)
+   api.payload=Data(("{\"workflow_runs\":[{\"id\":1,\"run_number\":1,\"head_sha\":\""+sha+"\",\"head_branch\":\"feature/fix\",\"status\":\"queued\",\"created_at\":\"2026-10-15T00:00:00Z\"},{\"id\":2,\"run_number\":2,\"head_sha\":\"other\",\"head_branch\":\"feature/fix\",\"status\":\"queued\",\"created_at\":\"2026-10-15T00:00:00Z\"}]}").utf8)
+   let pinned=try await api.workflowRuns("owner/repo",branch:"feature/fix",page:1,headSHA:sha)
+   precondition(pinned.map(\.id)==[1])
+   let commitPath="/repos/owner/repo/git/commits/"+String(repeating:"a",count:40)
+   let treePath="/repos/owner/repo/git/trees/tree-sha"
+   api.payloads[commitPath]=Data(#"{"sha":"head","tree":{"sha":"tree-sha"}}"#.utf8)
+   api.payloads[treePath]=Data(#"{"tree":[{"path":"源代码","mode":"040000","type":"tree","sha":"d"},{"path":"源代码/test.swift","mode":"100644","type":"blob","sha":"f","size":4},{"path":"linked","mode":"120000","type":"blob","sha":"l"},{"path":"module","mode":"160000","type":"commit","sha":"m"}],"truncated":false}"#.utf8)
+   let entries=try await api.repositoryEntries("owner/repo",branch:"feature/search")
+   precondition(api.branches.last=="feature/search" && entries.map(\.type)==["dir","file"])
+   precondition(entries[1].path=="源代码/test.swift" && entries[1].sha=="f")
+   precondition(api.queries.contains { $0.name=="recursive" && $0.value=="1" })
+   api.payloads[treePath]=Data(#"{"tree":[],"truncated":true}"#.utf8)
+   do { _=try await api.repositoryEntries("owner/repo",branch:"feature/search");preconditionFailure("partial tree accepted") } catch {}
+   api.payloads=[:]
    _ = try await api.communityMutate("owner/repo",action:.comment(7),text:"reply")
    precondition(api.pushChecks==0 && api.method=="POST" && api.body["body"] as? String=="reply")
    let before=Fixture.count()

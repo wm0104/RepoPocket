@@ -225,7 +225,7 @@ enum UpstreamSyncRules {
 
     /// One compare request; nothing is written here.
     func loadPreview(api: GitHub, repo: String, branch: String) async {
-        guard !loading else { return }
+        guard !busy, !loading else { return }
         let target: UpstreamSyncRules.Target
         do { target = try UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch) }
         catch { compare = nil; self.error = error.localizedDescription; return }
@@ -234,20 +234,21 @@ enum UpstreamSyncRules {
         do {
             let result = try await api.upstreamCompare(repo: repo, base: branch, upstream: target)
             try Task.checkCancellation()
-            guard api.isCurrentSession else { return }
+            guard api.isCurrentSession,
+                  (try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch)) == target else { return }
             compare = result
-            upstreamRepository = target.repository
-            upstreamBranch = target.branch
             stage = .preview; receipt = nil; pending = nil; mergeSHA = ""; appliedSHA = ""
             UserDefaults.standard.set(UpstreamSyncRules.encodeMemory(repository: target.repository, branch: target.branch),
                                       forKey: UpstreamSyncRules.memoryKey(account: api.accountID, repository: repo))
         } catch {
-            guard api.isCurrentSession, !RefreshFailure.isCancellation(error) else { return }
+            guard api.isCurrentSession, !RefreshFailure.isCancellation(error),
+                  (try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch)) == target else { return }
             self.error = Self.failureText(error)
         }
     }
 
-    func propose(branch: String) -> Bool {
+    func propose() -> Bool {
+        guard !busy, !loading, stage == .preview, (compare?.ahead_by ?? 0) > 0 else { return false }
         guard let target = try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch) else {
             error = "请先填写有效的上游仓库与分支，并预览差异。"; return false
         }
@@ -260,7 +261,7 @@ enum UpstreamSyncRules {
     }
 
     func merge(api: GitHub, repo: String, branch: String, receipt proposed: Receipt) async {
-        guard !busy else { return }
+        guard !busy, !loading else { return }
         guard let target = try? UpstreamSyncRules.target(repository: proposed.upstream, branch: proposed.upstreamBranch) else {
             error = "上游仓库或分支无效，未执行任何写入。"; return
         }
@@ -294,7 +295,7 @@ enum UpstreamSyncRules {
     }
 
     func apply(api: GitHub, repo: String, branch: String) async {
-        guard !busy, stage == .merged, UpstreamSyncRules.validSHA(mergeSHA) else { return }
+        guard !busy, !loading, stage == .merged, UpstreamSyncRules.validSHA(mergeSHA) else { return }
         busy = true; error = ""
         defer { busy = false }
         do {
@@ -356,7 +357,7 @@ struct UpstreamSyncView: View {
         }
     }
     private var canMerge: Bool {
-        canWrite && !state.busy && state.stage == .preview && (state.compare?.ahead_by ?? 0) > 0
+        canWrite && !state.busy && !state.loading && state.stage == .preview && (state.compare?.ahead_by ?? 0) > 0
     }
     private var mergeTitle: String {
         guard let pending = state.pending else { return "在临时分支合并上游？" }
@@ -446,6 +447,7 @@ struct UpstreamSyncView: View {
                     }
                 }
             }
+            .disabled(state.busy || state.loading)
         } header: {
             Text("上游来源")
         } footer: {
@@ -473,34 +475,37 @@ struct UpstreamSyncView: View {
                             Text("没有需要合并的上游提交。").foregroundStyle(.secondary)
                         }
                     }
-                }
-                ForEach(commits) { commit in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text(short(commit.sha)).font(.caption).monospacedDigit()
-                            .foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(title(commit.commit.message)).lineLimit(2)
-                            Text((commit.commit.author?.name ?? "未知作者") + " · "
-                                 + CommitDatePresentation.local(commit.commit.author?.date ?? ""))
+                    for commit in commits {
+                        SoftGroupRow("commit-" + commit.id) {
+                            HStack(alignment: .top, spacing: 10) {
+                                Text(short(commit.sha)).font(.caption).monospacedDigit()
+                                    .foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(title(commit.commit.message)).lineLimit(2)
+                                    Text((commit.commit.author?.name ?? "未知作者") + " · "
+                                         + CommitDatePresentation.local(commit.commit.author?.date ?? ""))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    for file in files {
+                        SoftGroupRow("file-" + file.id) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(file.filename).font(.callout)
+                                Text("+\(file.additions ?? 0) / −\(file.deletions ?? 0)")
+                                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                        }
+                    }
+                    if !files.isEmpty {
+                        SoftGroupRow("files-note") {
+                            Text((compare.files?.count ?? 0) > files.count
+                                 ? "变更文件超过 \(UpstreamSyncRules.fileLimit) 个，仅显示前 \(UpstreamSyncRules.fileLimit) 个；GitHub 最多返回 3,000 个文件。"
+                                 : "文件统计由 GitHub 比较接口返回；二进制文件不会给出文本差异。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                    }.softGroupedRow(top: commit.id == commits.first?.id,
-                                     bottom: files.isEmpty && commit.id == commits.last?.id)
-                }
-                if !files.isEmpty {
-                    ForEach(files) { file in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(file.filename).font(.callout)
-                            Text("+\(file.additions ?? 0) / −\(file.deletions ?? 0)")
-                                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                        }.softGroupedRow(top: commits.isEmpty && file.id == files.first?.id,
-                                         bottom: file.id == files.last?.id)
                     }
-                    Text((compare.files?.count ?? 0) > files.count
-                         ? "变更文件超过 \(UpstreamSyncRules.fileLimit) 个，仅显示前 \(UpstreamSyncRules.fileLimit) 个；GitHub 最多返回 3,000 个文件。"
-                         : "文件统计由 GitHub 比较接口返回；二进制文件不会给出文本差异。")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .softGroupedRow(top: false, bottom: true)
                 }
             }
         }
@@ -511,7 +516,7 @@ struct UpstreamSyncView: View {
             SoftGroupRows {
                 SoftGroupRow("merge") {
                     Button("创建备份标签与临时分支并合并") {
-                        if state.propose(branch: branch) { confirmingMerge = true }
+                        if state.propose() { confirmingMerge = true }
                     }
                     .disabled(!canMerge)
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -541,8 +546,10 @@ struct UpstreamSyncView: View {
     @ViewBuilder private var resultSection: some View {
         if state.stage != .preview || state.receipt != nil {
             Section("同步结果") {
-                if state.busy { ProgressView("正在等待 GitHub…").softGroupedRow(top: true) }
                 SoftGroupRows {
+                    if state.busy {
+                        SoftGroupRow("busy") { ProgressView("正在等待 GitHub…") }
+                    }
                     if let receipt = state.receipt {
                         SoftGroupRow("backup-tag") { LabeledContent("备份标签", value: receipt.backupTag) }
                         SoftGroupRow("temp-branch") { LabeledContent("临时分支", value: receipt.tempBranch) }
@@ -554,7 +561,7 @@ struct UpstreamSyncView: View {
                         SoftGroupRow("merge-done") { Text("合并成功，目标分支尚未改变。") }
                         SoftGroupRow("apply") {
                             Button("应用到目标分支") { confirmingApply = true }
-                                .disabled(state.busy || !canWrite)
+                                .disabled(state.busy || state.loading || !canWrite)
                                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         }
                     }

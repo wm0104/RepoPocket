@@ -27,7 +27,7 @@ class FinalPublishTests(unittest.TestCase):
         self.assertNotIn('let label = UILabel()', picker)
         for token in ['Menu("工作区…")', 'if !selected.isEmpty', 'Text("暂无变更")', '复制实际工作目录路径', '发布为发行版']:
             self.assertIn(token, workspace)
-        self.assertIn('await updateChecker.automaticCheck(api: api)', app)
+        self.assertIn('await updateChecker.appEntryCheck(api: api)', app)
         self.assertNotIn('.badge(updateChecker.hasUpdate', app)
         self.assertNotIn('Circle().fill(Color.red)', updates)
         self.assertIn('Text("应用更新")', updates)
@@ -39,8 +39,12 @@ class FinalPublishTests(unittest.TestCase):
         self.assertIn('AppUpdateSessionRules.version', app)
         for path in ROOT.joinpath('RepoPocket').glob('*.swift'):
             text = path.read_text()
-            self.assertNotIn('scenePhase', text)
             self.assertNotIn('willEnterForegroundNotification', text)
+            # Only the app root observes the foreground, and only to probe for updates.
+            self.assertEqual('scenePhase' in text, path.name == 'RepoPocketApp.swift', path.name)
+        entry = app.split('.onChange(of: scenePhase)', 1)[1].split('.task { await NetworkWarmup', 1)[0]
+        self.assertEqual(entry.count('appEntryCheck(api: api)'), 1)
+        self.assertNotIn('scan()', entry)
         self.assertIn('private let build: () -> AnyView', ui)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'production fixtures execute on macOS CI')
@@ -71,11 +75,11 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
   let now = Date(timeIntervalSince1970:100_000)
   var cold = AppUpdateSessionRules(); precondition(cold.claim(now:now,last:nil))
   precondition(!cold.claim(now:now.addingTimeInterval(100_000),last:nil))
-  var recent = AppUpdateSessionRules(); precondition(!recent.claim(now:now,last:now.addingTimeInterval(-21_599)))
-  var due = AppUpdateSessionRules(); precondition(due.claim(now:now,last:now.addingTimeInterval(-21_600)))
+  var recent = AppUpdateSessionRules(); precondition(!recent.claim(now:now,last:now.addingTimeInterval(-899)))
+  var due = AppUpdateSessionRules(); precondition(due.claim(now:now,last:now.addingTimeInterval(-900)))
   var future = AppUpdateSessionRules(); precondition(!future.claim(now:now,last:now.addingTimeInterval(1)))
   precondition(AppUpdateSessionRules.version("1.0.1",build:"5") == "1.0.1")
-  print("PASS production phase, fixed draft retry, cancel/finalization failure, identity/size, nonempty/budget/names, session once, six-hour edge and version format")
+  print("PASS production phase, fixed draft retry, cancel/finalization failure, identity/size, nonempty/budget/names, session once, 15-minute edge and version format")
  }
 }
 '''

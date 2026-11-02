@@ -314,6 +314,11 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         start = current.index('    // Read-only gateway')
         end = current.index('    func searchUsers(', start)
         gateway = current[start:end]
+        # File-page GFM rendering is a read-only render call with its own fixtures.
+        render_start = gateway.index('    /// Server-side GFM rendering for file pages.')
+        render_end = gateway.index('    // Native collaboration transport:', render_start)
+        assert 'url("/markdown")' in gateway[render_start:render_end]
+        gateway = gateway[:render_start] + gateway[render_end:]
         read_gateway = gateway.split('    // Native collaboration transport:')[0]
         assert 'try await data(path, query: query)' in read_gateway and 'method:' not in read_gateway
         current = current[:start] + current[end:]

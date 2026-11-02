@@ -106,49 +106,40 @@ struct FileReadingView: View {
     let repo: String
     let branch: String
     var api: GitHub? = nil
+    @State private var markdown = true
     @State private var renderedHTML: String?
     @State private var htmlAttempted = false
-    @State private var htmlHeight: CGFloat = 0
     @State private var readingLink: ReadingLink?
     private var isMarkdown: Bool { ["md", "markdown", "mdown"].contains((path as NSString).pathExtension.lowercased()) }
+    private var baseURL: URL? { CommunityRules.readingBase(repo, branch: branch, file: path, raw: false) }
+    private var mediaBaseURL: URL? { CommunityRules.readingBase(repo, branch: branch, file: path, raw: true) }
     var body: some View {
         VStack(spacing: 0) {
-          if !isMarkdown { SourceCodeView(text: text, filename: path) }
+          if isMarkdown { Toggle("Markdown 排版", isOn: $markdown).padding(.horizontal).padding(.vertical, 8) }
+          if !isMarkdown || !markdown { SourceCodeView(text: text, filename: path) }
           else if let renderedHTML {
-            ScrollView {
-              ReadmeHTMLView(html: renderedHTML,
-                             baseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: false),
-                             mediaBaseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: true),
-                             height: $htmlHeight,
-                             onFailure: { _ in self.renderedHTML = nil },
-                             openLink: { url in
-                               guard let safe = CommunityRules.webURL(url.absoluteString) else { return }
-                               readingLink = ReadingLink(url: safe)
-                             })
-                .padding(.horizontal, 16)
-                .frame(height: max(htmlHeight, 1))
-            }
+            // GitHub's renderer keeps native HTML such as centered headers and remote images.
+            ReadmeHTMLView(html: renderedHTML, baseURL: baseURL, mediaBaseURL: mediaBaseURL, scrolling: true,
+                           height: .constant(0), onFailure: { _ in self.renderedHTML = nil }) { readingLink = ReadingLink(url: $0) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
           }
           else if !htmlAttempted { ProgressView("排版中…").frame(maxWidth: .infinity, minHeight: 160) }
           else { ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                    CommunityMarkdown(text: text, baseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: false),
-                        imageBaseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: true), api: api)
+                    CommunityMarkdown(text: text, baseURL: baseURL, imageBaseURL: mediaBaseURL, api: api)
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
           } }
         }.navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
-        // Multi-language READMEs use native HTML that MarkdownUI shows literally; GitHub's own
-        // renderer keeps it. Fall back to the local renderer when signed out or offline.
-        .task(id: text) {
-            guard isMarkdown, api?.isCurrentSession == true, renderedHTML == nil else { return }
-            let fragment = try? await FileMarkdownRenderer.html(text, repo: repo)
-            guard !Task.isCancelled else { return }
-            htmlAttempted = true
-            guard let fragment, !fragment.isEmpty else { return }
-            // Bare fragment: ReadmeHTMLView wraps it in the shared document shell itself.
-            renderedHTML = fragment
-        }
-        .onChange(of: text) { _ in renderedHTML = nil; htmlAttempted = false }
         .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
+        .task(id: [text, repo, branch, path, String(markdown), api?.accountID ?? ""]) {
+            // Server-rendered HTML first; offline, signed out or on failure the local
+            // MarkdownUI rendering below stays readable.
+            renderedHTML = nil; htmlAttempted = false
+            defer { if !Task.isCancelled { htmlAttempted = true } }
+            guard isMarkdown, markdown, let api, api.isCurrentSession,
+                  let html = try? await api.renderedMarkdownHTML(text, repo: repo) else { return }
+            guard !Task.isCancelled, api.isCurrentSession, !html.isEmpty else { return }
+            renderedHTML = html
+        }
     }
 }

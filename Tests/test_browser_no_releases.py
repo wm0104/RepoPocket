@@ -98,6 +98,12 @@ class BrowserRollbackTests(unittest.TestCase):
         gateway = normalized[gateway_start:gateway_end]
         self.assertIn('let bytes = try await data(path, query: query)', gateway)
         self.assertIn('try Task.checkCancellation()', gateway)
+        # File-page GFM rendering is a read-only render call (POST /markdown, no repository
+        # write); its own contract lives in Tests/test_markdown_file_render.py.
+        render_start = gateway.index('    /// Server-side GFM rendering for file pages.')
+        render_end = gateway.index('    // Native collaboration transport:', render_start)
+        self.assertIn('url("/markdown")', gateway[render_start:render_end])
+        gateway = gateway[:render_start] + gateway[render_end:]
         self.assertNotIn('method:', gateway.split('    // Native collaboration transport:')[0])
         normalized = normalized[:gateway_start] + normalized[gateway_end:]
         # Explicit fork-status fix: new lookup and accepted-POST bookkeeping are

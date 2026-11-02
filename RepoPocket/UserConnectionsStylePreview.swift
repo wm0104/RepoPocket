@@ -10,7 +10,9 @@ struct UserConnectionsStylePreview: View {
     var body: some View {
         Group {
             if let api {
-                if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
+                if ProcessInfo.processInfo.arguments.contains("-repository-file-search-preview") {
+                    NavigationStack { RepositoryCodeDestination(api: api, repo: "fixture-owner/sample", branch: "feature/search") }
+                } else if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
                     NavigationStack {
                         FileView(api: api, repo: "fixture-owner/sample", entry: ConnectionsPreviewProtocol.editorEntry, branch: "main", canWrite: true)
                     }
@@ -59,6 +61,34 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if ProcessInfo.processInfo.arguments.contains("-repository-file-search-preview") {
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let allowed = request.url?.host == "api.github.com" && request.httpMethod == "GET"
+                && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"
+            let head = String(repeating: "a", count: 40)
+            let file: [String: Any] = ["name": "editor.py", "path": "Sources/Feature/editor.py", "type": "file", "sha": "file-sha",
+                                      "size": Self.editorSource.utf8.count, "content": Data(Self.editorSource.utf8).base64EncodedString(), "encoding": "base64"]
+            var code = 403, payload: Any = ["message": "Unexpected branch search fixture request"]
+            if allowed {
+                if path == "/repos/fixture-owner/sample", query.isEmpty { code = 200; payload = try! JSONSerialization.jsonObject(with: Data(Self.repository.utf8)) }
+                else if path == "/repos/fixture-owner/sample/git/ref/heads/feature/search", query.isEmpty { code = 200; payload = ["object": ["sha": head]] }
+                else if path == "/repos/fixture-owner/sample/git/commits/" + head, query.isEmpty { code = 200; payload = ["sha": head, "tree": ["sha": "tree-sha"]] }
+                else if path == "/repos/fixture-owner/sample/git/trees/tree-sha", query.count == 1, query.first?.name == "recursive", query.first?.value == "1" {
+                    code = 200; payload = ["truncated": false, "tree": [
+                        ["path": "Sources", "mode": "040000", "type": "tree", "sha": "sources-sha"],
+                        ["path": "Sources/Feature", "mode": "040000", "type": "tree", "sha": "feature-sha"],
+                        ["path": "Sources/Feature/editor.py", "mode": "100644", "type": "blob", "sha": "file-sha", "size": Self.editorSource.utf8.count]
+                    ]]
+                } else if query.count == 1, query.first?.name == "ref", query.first?.value == "feature/search" {
+                    if path == "/repos/fixture-owner/sample/contents" { code = 200; payload = [["name": "Sources", "path": "Sources", "type": "dir", "sha": "sources-sha"]] }
+                    else if path == "/repos/fixture-owner/sample/contents/Sources/Feature" { code = 200; payload = [file] }
+                    else if path == "/repos/fixture-owner/sample/contents/Sources/Feature/editor.py" { code = 200; payload = file }
+                }
+            }
+            let bytes = try! JSONSerialization.data(withJSONObject: payload)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: bytes); client?.urlProtocolDidFinishLoading(self); return
+        }
         if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let allowed = request.url?.host == "api.github.com" && request.httpMethod == "GET"

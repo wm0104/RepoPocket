@@ -43,6 +43,11 @@ struct AppUpdateRelease: Decodable {
         return AppUpdateSessionRules.version(displayVersion, build: String(build))
     }
     var displayVersion: String { String(tag_name.split(separator: "+", maxSplits: 1)[0]) }
+    /// Settings row value, e.g. `1.1.7 可更新`, dropping the leading `v` from the release tag.
+    var availableVersionText: String {
+        let version = displayVersion.hasPrefix("v") || displayVersion.hasPrefix("V") ? String(displayVersion.dropFirst()) : displayVersion
+        return version + " 可更新"
+    }
     var ipaURL: URL? {
         let matches = assets.filter { $0.name == "RepoPocket.ipa" || $0.name == "RepoPocket-\(tag_name.hasPrefix("v") ? String(tag_name.dropFirst()) : tag_name).ipa" }
         guard matches.count == 1 else { return nil }
@@ -52,12 +57,6 @@ struct AppUpdateRelease: Decodable {
     }
 }
 enum AppUpdateRules {
-    static func skippedKey(_ accountID: String) -> String { "RepoPocket.update.skipped." + accountID }
-    /// A version the user already dismissed stays quiet until a newer release appears.
-    static func shouldOfferStartupPrompt(version: String, skipped: String?) -> Bool {
-        guard let skipped, !skipped.isEmpty else { return true }
-        return skipped != version
-    }
     static func conciseCheckError(_ error: Error) -> String {
         let reason = error.localizedDescription
         if reason.contains("速率") || reason.contains("过于频繁") { return "请求过于频繁，请稍后再试" }

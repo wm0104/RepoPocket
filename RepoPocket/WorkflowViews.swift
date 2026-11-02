@@ -16,6 +16,7 @@ struct WorkflowRunsView: View {
     @ObservedObject var api: GitHub
     let repo: String
     let branch: String
+    var headSHA = ""
     @StateObject private var store = CommunityPageStore<WorkflowRun>()
     @StateObject private var selection = WorkflowRunSelection()
     @State private var currentBranchOnly = false
@@ -26,7 +27,11 @@ struct WorkflowRunsView: View {
         List {
             Section {
                 SoftGroupRows {
-                    SoftGroupRow("branch") { Toggle("仅当前分支", isOn: $currentBranchOnly).disabled(branch.isEmpty) }
+                    if headSHA.isEmpty {
+                        SoftGroupRow("branch") { Toggle("仅当前分支", isOn: $currentBranchOnly).disabled(branch.isEmpty) }
+                    } else {
+                        SoftGroupRow("commit") { Text(branch + " · " + String(headSHA.prefix(7))).font(.caption).textSelection(.enabled) }
+                    }
                     SoftGroupRow("failed") { Toggle("仅看失败记录", isOn: $failedOnly) }
                 }
             }.disabled(selection.busy)
@@ -51,7 +56,9 @@ struct WorkflowRunsView: View {
                             }
                         }
                     }
-                    if store.loaded && store.items.isEmpty { SoftGroupRow("empty") { Text("暂无运行记录") } }
+                    if store.loaded && store.items.isEmpty {
+                        SoftGroupRow("empty") { Text(headSHA.isEmpty ? "暂无运行记录" : "尚未发现本次提交的运行。GitHub 可能仍在排队，也可能未配置此分支的 push 工作流，请稍后刷新；不会自动触发或显示其他提交。") }
+                    }
                 }
             }
             if selection.busy || !selection.result.isEmpty || !selection.failures.isEmpty {
@@ -121,8 +128,8 @@ struct WorkflowRunsView: View {
     private var allSelected: Bool { !selectableIDs.isEmpty && selectableIDs.isSubset(of: selection.selected) }
     private func load(reset: Bool = false) {
         if reset { selection.reset(); deletionTarget = nil }
-        let requestedBranch = currentBranchOnly ? branch : "", requestedFailedOnly = failedOnly
-        store.load(reset: reset, api: api) { try await api.workflowRuns(repo, branch: requestedBranch, page: $0, failedOnly: requestedFailedOnly) }
+        let requestedBranch = (currentBranchOnly || !headSHA.isEmpty) ? branch : "", requestedFailedOnly = failedOnly
+        store.load(reset: reset, api: api) { try await api.workflowRuns(repo, branch: requestedBranch, page: $0, failedOnly: requestedFailedOnly, headSHA: headSHA) }
     }
 }
 

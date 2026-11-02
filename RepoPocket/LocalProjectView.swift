@@ -17,6 +17,7 @@ struct LocalProjectView: View {
     @State private var pendingCommit = false
     @State private var syncing: String?
     @State private var note = ""
+    @State private var build: (repo: String, branch: String, sha: String)?
     @State private var pullSummary: LocalGitPullSummary?
     @State private var pullFilesExpanded = false
     @AppStorage("localGit.authorName") private var authorName = ""
@@ -274,6 +275,12 @@ struct LocalProjectView: View {
                 if let reason = commitBlockedReason { SoftGroupRow("reason") { Text(reason).font(.caption).foregroundStyle(.secondary) } }
                 SoftGroupRow("pull") { Button("拉取远端（仅快进）") { syncing = "pull" }.disabled(busy || !state.fresh || snapshot.history.remote.isEmpty) }
                 SoftGroupRow("push") { Button("推送本地提交") { syncing = "push" }.disabled(busy || !state.fresh || snapshot.history.remote.isEmpty) }
+                if let build, valid {
+                    SoftGroupRow("build") {
+                        NavigationLink("查看本次构建") { WorkflowRunsView(api: api, repo: build.repo, branch: build.branch, headSHA: build.sha) }
+                            .disabled(busy)
+                    }
+                }
             }
         }
     }
@@ -358,11 +365,15 @@ struct LocalProjectView: View {
         let token=CredentialStore.read(account:accountID)
         Task { await state.check(force:true,valid:{valid}) {
             note = ""
+            if action == "push" { build = nil }
             if action == "pull" { pullSummary = nil; pullFilesExpanded = false }
             let reply:LocalGitReply = try await LocalGitEngine.shared.run(action,project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
                 arguments:["expectedHead":current.status.head,"expectedRef":current.status.reference,"expectedRemote":current.history.remote,"token":token],generation:generation)
             try Task.checkCancellation(); guard valid else { throw CancellationError() }
             if action == "pull" { pullSummary = reply.pullSummary }
+            if action == "push", let repository = try? RepositoryInput.parse(current.history.remote) {
+                build = (repo: repository, branch: current.status.branch, sha: current.status.head)
+            }
             note=action == "recover" ? "恢复完成，文件和历史已重新检查。" : (action == "push" ? "推送完成。" : "拉取完成。");return try await snapshot()
         } }
     }

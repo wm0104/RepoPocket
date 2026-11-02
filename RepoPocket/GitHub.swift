@@ -808,6 +808,24 @@ final class GitHub: ObservableObject {
         guard bytes.count <= 8 * 1024 * 1024 else { throw AppError(text: "响应过大，请在 GitHub 查看。") }
         return bytes
     }
+    /// Server-side GFM rendering for file pages. Native HTML such as `<div align="center">` and
+    /// `<img>` only survives GitHub's own renderer, so a read-only POST /markdown is preferred
+    /// over the local MarkdownUI fallback. No extra permission is required.
+    func renderedMarkdownHTML(_ source: String, repo: String) async throws -> String {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let canonical = try RepositoryInput.parse(repo)
+        let body = try JSONSerialization.data(withJSONObject: [
+            "text": String(decoding: source.utf8.prefix(CommunityRules.markdownByteLimit), as: UTF8.self),
+            "mode": "gfm",
+            "context": canonical
+        ])
+        var r = try request(url("/markdown"), method: "POST", body: body)
+        // A slow render must not hold the reading page; the page falls back to local Markdown.
+        r.timeoutInterval = 20
+        let (bytes, response) = try await session.data(for: r, delegate: GitHubAPIRedirectPolicy())
+        try check(bytes, response, operation: "渲染 Markdown"); try Task.checkCancellation()
+        return try ReadmeDocumentRules.renderedHTML(bytes)
+    }
     func communityReadmeHTML(_ repo: String, branch: String) async throws -> String {
         try ensureActiveAccount(); try Task.checkCancellation()
         var r = try request(url(Self.repoPath(repo) + "/readme", query: [.init(name: "ref", value: branch)]))

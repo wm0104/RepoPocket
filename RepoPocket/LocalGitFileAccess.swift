@@ -55,6 +55,23 @@ enum LocalGitFileAccess {
             if let permissions = attributes[.posixPermissions] { try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: coordinated.path) }
         }
     }
+    static func create(root: URL, directory: String, name: String, folder: Bool) throws {
+        let child = try LocalGitRules.child(name)
+        let parent = directory.isEmpty ? root : try path(root: root, relative: directory)
+        let expected = try identity(parent)
+        try coordinate(parent, writing: true) { coordinated in
+            let current = directory.isEmpty ? root : try path(root: root, relative: directory)
+            guard coordinated.standardizedFileURL == parent.standardizedFileURL, try identity(current) == expected else {
+                throw LocalGitError(text: "目标文件夹已变化，请刷新后重试。")
+            }
+            let target = current.appendingPathComponent(child)
+            guard (try? FileManager.default.attributesOfItem(atPath: target.path)) == nil else {
+                throw LocalGitError(text: "已有同名文件或文件夹，未覆盖。")
+            }
+            if folder { try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false) }
+            else { try Data().write(to: target, options: .withoutOverwriting) }
+        }
+    }
     static func replaceBinary(root: URL, path: String, source: URL, expected: String) throws {
         let target = try self.path(root: root, relative: path)
         let info = try FileManager.default.attributesOfItem(atPath: source.path)

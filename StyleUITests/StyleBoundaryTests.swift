@@ -127,9 +127,9 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertEqual(contact.value as? String, "https://mastodon.example.invalid/@author")
         keepScreenshot(app, name: "profile-public-contacts")
         tapContact(contact)
-        let done = app.buttons.matching(NSPredicate(format: "label IN {'Done', '完成'}")).firstMatch
+        let done = app.buttons.matching(NSPredicate(format: "identifier == 'Close' OR label IN {'Done', '完成', 'Close', '关闭'}")).firstMatch
         guard done.waitForExistence(timeout: 10) else {
-            XCTFail("Without an associated app, keep the author page inside Safari: " + app.debugDescription); return
+            XCTFail("The in-app browser must expose its native close button: " + app.debugDescription); return
         }
         XCTAssertFalse(app.buttons["reading-link-close"].exists, "Use Safari's existing Done button without a second close bar")
         done.tap()
@@ -267,6 +267,49 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(deb.waitForExistence(timeout: 10)); deb.tap()
         XCTAssertTrue(app.textFields["Version"].waitForExistence(timeout: 15), "Tapping DEB still opens the established editor")
     }
+    func testMobileEditorCreatesSavesAndGuardsUnsavedChanges() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-local-git-style-preview"]; app.launch()
+        let browse = app.buttons["浏览与编辑项目文件"]
+        XCTAssertTrue(browse.waitForExistence(timeout: 40)); reveal(browse, in: app); browse.tap()
+        keepScreenshot(app, name: "mobile-editor-create-menu")
+        // The toolbar Menu's AX wrapper has no hit point; use its visible button center.
+        app.buttons["新建文件或文件夹"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["新建文件"].waitForExistence(timeout: 5)); app.buttons["新建文件"].tap()
+        let name = "mobile-editor-" + String(UUID().uuidString.prefix(8)) + ".swift"
+        let field = app.alerts.textFields["名称"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); dismissKeyboardIntroduction(app); field.typeText(name)
+        app.alerts.buttons["创建"].tap()
+        let file = app.buttons["local-project-file-" + name]
+        XCTAssertTrue(file.waitForExistence(timeout: 15)); reveal(file, in: app); file.tap()
+        let code = app.textViews["代码正文"]
+        XCTAssertTrue(code.waitForExistence(timeout: 10)); app.buttons["编辑"].tap(); code.tap(); dismissKeyboardIntroduction(app)
+        code.typeText("    let value = 1\n")
+        let saved = code.value as? String
+        XCTAssertEqual(saved, "    let value = 1\n    ")
+        let undo = app.buttons["撤销"], redo = app.buttons["重做"]
+        XCTAssertTrue(undo.isEnabled); undo.tap()
+        XCTAssertNotEqual(code.value as? String, saved)
+        XCTAssertTrue(redo.isEnabled); redo.tap()
+        XCTAssertEqual(code.value as? String, saved)
+        app.navigationBars[name].buttons["保存"].tap()
+        XCTAssertTrue(code.waitForExistence(timeout: 10), "Saving must leave the editor open")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == false"), object: app.navigationBars[name].buttons["保存"])], timeout: 10), .completed)
+        code.tap(); code.typeText("// unsaved")
+        app.navigationBars[name].buttons["关闭"].tap()
+        XCTAssertTrue(app.buttons["继续编辑"].waitForExistence(timeout: 5)); app.buttons["继续编辑"].tap()
+        XCTAssertTrue(code.exists)
+        app.navigationBars[name].buttons["关闭"].tap(); app.buttons["放弃修改"].tap()
+        XCTAssertTrue(file.waitForExistence(timeout: 10)); file.tap()
+        XCTAssertTrue(code.waitForExistence(timeout: 10)); XCTAssertEqual(code.value as? String, saved)
+        keepScreenshot(app, name: "mobile-editor-saved-preview")
+        app.buttons["关闭"].tap()
+        XCTAssertTrue(file.waitForExistence(timeout: 10)); file.press(forDuration: 1)
+        app.buttons["删除此文件"].tap()
+        XCTAssertTrue(app.buttons["确认删除此文件"].waitForExistence(timeout: 10)); app.buttons["确认删除此文件"].tap()
+    }
+
     func testLocalFileSheetStaysClosedAfterInteractiveDismissal() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -603,14 +646,17 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(token.waitForExistence(timeout: 5))
         token.tap(); token.typeText("fixture-charlie")
         app.buttons["验证并安全保存"].tap()
+        let authorization = app.alerts["GitHub 授权成功"]
+        XCTAssertTrue(authorization.waitForExistence(timeout: 10))
+        XCTAssertTrue(authorization.staticTexts["授权成功，账号 @fixture-charlie 已保存。"].exists)
+        authorization.buttons["好"].tap()
         let active = app.staticTexts["fixture-active-account"]
         let completed = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == '303' AND hittable == true"), object: active)], timeout: 20) == .completed
         if !completed {
-            app.navigationBars.buttons["账号管理"].tap()
             keepScreenshot(app, name: switchFirst ? "account-switch-failure" : "account-control-failure")
         }
         XCTAssertTrue(completed,
-                      "The current account session must verify and save the new account after switching")
+                      "The current account session must verify and save the new account: " + app.debugDescription)
         if switchFirst { keepScreenshot(app, name: "account-session-after-switch") }
     }
     func testLocalChangeDeletionUsesGuardedConfirmationAndCanCancel() {
@@ -916,6 +962,45 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(restoredFocus.isEmpty, "Cancelling confirmation must not reopen the keyboard; restored focus: \(restoredFocus)")
     }
 
+    func testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-repository-file-search-preview"]; app.launch()
+        let searchButton = app.buttons["搜索文件和文件夹"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 15)); searchButton.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10)); search.tap(); dismissKeyboardIntroduction(app); search.typeText("Feature")
+        let folder = app.buttons["repository-search-entry-Sources/Feature"]
+        let file = app.buttons["repository-search-entry-Sources/Feature/editor.py"]
+        XCTAssertTrue(folder.waitForExistence(timeout: 15)); XCTAssertTrue(file.exists)
+        keepScreenshot(app, name: "repository-file-folder-search")
+        folder.tap()
+        XCTAssertTrue(app.navigationBars["Feature"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["editor.py"].waitForExistence(timeout: 10))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(file.waitForExistence(timeout: 10)); file.tap()
+        XCTAssertTrue(app.textViews["代码正文"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["搜索当前文件"].exists)
+        keepScreenshot(app, name: "repository-search-opened-code")
+    }
+
+    func testReadOnlySourceOffersNativeCurrentFileSearch() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-source-style-preview"]; app.launch()
+        let code = app.textViews["代码正文"]
+        XCTAssertTrue(code.waitForExistence(timeout: 10))
+        let original = code.value as? String
+        app.buttons["搜索当前文件"].tap()
+        dismissKeyboardIntroduction(app)
+        keepScreenshot(app, name: "source-native-find-start")
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5), "Native find must be visible inside the phone viewport")
+        XCTAssertTrue(search.isHittable); search.tap(); search.typeText("TAIL_MARKER")
+        XCTAssertEqual(code.value as? String, original, "Read-only search must not mutate the document")
+        keepScreenshot(app, name: "source-native-file-search")
+    }
+
     func testSourcePreviewAndEditorHorizontalScrolling() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -960,6 +1045,16 @@ final class StyleBoundaryTests: XCTestCase {
             XCTAssertLessThanOrEqual(Int(report["offset"] ?? "999") ?? 999, 0)
             XCTAssertEqual(report["gutterX"], gutterX)
             if mode == "preview" { app.buttons["切换到编辑"].tap() }
+        }
+    }
+
+    private func dismissKeyboardIntroduction(_ app: XCUIApplication) {
+        let button = app.buttons["Continue"]
+        if button.waitForExistence(timeout: 3) {
+            // The keyboard's onboarding window can invalidate an element-targeted tap.
+            let frame = button.frame
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: button)], timeout: 5), .completed)
         }
     }
 
