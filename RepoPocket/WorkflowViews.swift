@@ -276,6 +276,7 @@ struct WorkflowRunView: View {
                     SoftGroupRow("details") {
                         Button { UIRules.withoutAnimation { detailsExpanded.toggle() } } label: {
                             HStack { Text("运行详情"); Spacer(); Image(systemName: detailsExpanded ? "chevron.up" : "chevron.down").font(.caption).foregroundStyle(.secondary) }
+                                .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
                         }.buttonStyle(.plain).accessibilityValue(detailsExpanded ? "已展开" : "已折叠")
                             .accessibilityIdentifier("workflow-run-details")
                     }

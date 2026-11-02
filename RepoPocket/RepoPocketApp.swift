@@ -103,6 +103,7 @@ struct RepositoriesView: View {
     @EnvironmentObject private var accountPresentation: AccountPresentation
     @State private var attempted = false
     @StateObject private var personalIssues = CommunityPageStore<CollaborationItem>()
+    @StateObject private var upstreamUpdates = UpstreamUpdatesStore()
     @State private var repos: [Repository] = []
     @State private var starred: [Repository] = []
     @State private var showOpen = false
@@ -114,6 +115,7 @@ struct RepositoriesView: View {
     @State private var newName = ""
     @State private var isPrivate = true
     @State private var showCreate = false
+    @State private var showUpstreamWatch = false
     var body: some View {
         NavigationStack {
             List {
@@ -137,7 +139,8 @@ struct RepositoriesView: View {
                     }
                 } else {
                     RepositoryHomeLinksSection(api: api, owned: repos, starred: starred, loaded: loaded)
-                    UpstreamUpdatesSection(api: api).id(api.accountID + ":" + AccountStore.generation.uuidString)
+                    UpstreamUpdatesSection(api: api, store: upstreamUpdates) { showUpstreamWatch = true }
+                        .id(api.accountID + ":" + AccountStore.generation.uuidString)
                     UserConnectionsSection(api: api)
                     PersonalIssuesSection(api: api, store: personalIssues)
                 }
@@ -195,6 +198,14 @@ struct RepositoriesView: View {
                     }.navigationTitle("新建仓库").adaptiveWorkspaceLayout().toolbar { Button("关闭") { showCreate = false } }
                 }.appSheetCornerRadius()
             }
+        }
+        .sheet(isPresented: $showUpstreamWatch) {
+            NavigationStack {
+                UpstreamWatchAddView(api: api) { watch in
+                    upstreamUpdates.add(watch, api: api)
+                    Task { await upstreamUpdates.refresh(api: api, force: true) }
+                }
+            }.appSheetCornerRadius()
         }
     }
     private func refreshStars() async {

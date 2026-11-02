@@ -558,7 +558,7 @@ struct UpstreamSyncView: View {
                                 HStack {
                                     Text("提交记录（\(commits.count)）"); Spacer()
                                     Image(systemName: commitsExpanded ? "chevron.up" : "chevron.down").font(.caption)
-                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityIdentifier("upstream-commits-disclosure")
                                 .accessibilityValue(commitsExpanded ? "已展开" : "已折叠")
                         }
@@ -585,7 +585,7 @@ struct UpstreamSyncView: View {
                                 HStack {
                                     Text("变更文件（\(files.count)）"); Spacer()
                                     Image(systemName: filesExpanded ? "chevron.up" : "chevron.down").font(.caption)
-                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityIdentifier("upstream-files-disclosure")
                                 .accessibilityValue(filesExpanded ? "已展开" : "已折叠")
                         }
@@ -659,7 +659,7 @@ struct UpstreamSyncView: View {
                                 HStack {
                                     Text("同步技术详情"); Spacer()
                                     Image(systemName: receiptExpanded ? "chevron.up" : "chevron.down").font(.caption)
-                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityIdentifier("upstream-receipt-disclosure")
                                 .accessibilityValue(receiptExpanded ? "已展开" : "已折叠")
                         }

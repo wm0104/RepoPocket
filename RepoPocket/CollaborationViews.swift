@@ -29,6 +29,7 @@ struct RepositoryCommunitySection: View {
             SoftGroupRow("more", separatorInset: 62) {
                 Button { UIRules.withoutAnimation { expanded.toggle() } } label: {
                     HStack { RepositoryFeatureLabel(title: "更多", symbol: "ellipsis", color: .gray); Spacer(); Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption).foregroundStyle(.secondary) }
+                        .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityValue(expanded ? "已展开" : "已折叠").accessibilityIdentifier("repository-more")
             }
             if expanded {

@@ -35,6 +35,17 @@ file_edit = {'remote-file-editor-cancelled', 'source-preview-left', 'source-prev
 file_edit.update({'mobile-editor-saved-preview', 'source-native-file-search', 'repository-file-folder-search', 'repository-search-opened-code'})
 diagnostics = {'account-switch-failure', 'account-control-failure'}
 diagnostics.update({'mobile-editor-create-menu', 'source-native-find-start'})
+maintenance = {'local-project-compact', 'local-project-information', 'local-branch-create-confirmation',
+               'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
+               'local-commit-patch', 'local-history-after-folding', 'local-import-destination',
+               'local-import-picker', 'local-whole-folder-import', 'local-folder-selection',
+               'upstream-watch-link-input-responsive', 'upstream-preview-retains-result',
+               'upstream-preview-retains-error', 'workflow-run-details-collapsed',
+               'workflow-run-details-after-rapid-folding', 'repository-more-after-rapid-folding',
+               'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'}
+maintenance.update('upstream-preview-collapsed-' + mode for mode in ('empty', 'single', 'many', 'truncated'))
+maintenance.update(prefix + mode for prefix in ('upstream-commits-expanded-', 'upstream-files-expanded-')
+                   for mode in ('single', 'many', 'truncated'))
 if scope == 'profiles':
     expected = profiles
 elif scope == 'workflow-selection':
@@ -50,12 +61,15 @@ elif scope == 'file-edit':
 elif scope == 'review-regressions':
     expected = {'account-session-after-switch', 'local-deb-editor', 'profile-public-contacts',
                 'profile-contacts-retry', 'readme-badges'}
+elif scope == 'maintenance-regressions':
+    expected = maintenance
 elif scope == 'all':
     expected.update(profiles)
     expected.update(actions)
     expected.update(file_feedback)
     expected.update(download_lifecycle)
     expected.update(file_edit)
+    expected.update(maintenance)
 else:
     raise ValueError('Unknown UI test scope')
 

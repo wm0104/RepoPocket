@@ -8,6 +8,29 @@ from unittest.mock import patch
 
 
 class StyleFailureDiagnosticsTests(unittest.TestCase):
+    def test_maintenance_scope_exports_compact_and_fold_state_screenshots(self):
+        import json, runpy, subprocess
+        script = Path(__file__).resolve().parents[1] / 'Scripts/export_style_attachments.py'
+        names = {'local-project-compact', 'local-project-information', 'local-branch-create-confirmation',
+                 'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
+                 'local-commit-patch', 'local-history-after-folding', 'local-import-destination',
+                 'local-import-picker', 'local-whole-folder-import', 'local-folder-selection',
+                 'upstream-watch-link-input-responsive', 'upstream-preview-retains-result',
+                 'upstream-preview-retains-error', 'workflow-run-details-collapsed',
+                 'workflow-run-details-after-rapid-folding', 'repository-more-after-rapid-folding',
+                 'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'}
+        names |= {'upstream-preview-collapsed-' + mode for mode in ('empty', 'single', 'many', 'truncated')}
+        names |= {prefix + mode for prefix in ('upstream-commits-expanded-', 'upstream-files-expanded-')
+                  for mode in ('single', 'many', 'truncated')}
+        tree = [{'name': {'_value': n}, 'payloadRef': {'id': {'_value': n}}} for n in names]
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'maintenance-regressions']), \
+                patch.object(subprocess, 'check_output', return_value=json.dumps(tree).encode()), \
+                patch.object(subprocess, 'run') as export, redirect_stdout(io.StringIO()):
+            runpy.run_path(str(script), run_name='__main__')
+        paths = {Path(call.args[0][-1]).stem for call in export.call_args_list}
+        self.assertEqual(paths, names)
+
     def test_long_ui_commands_stream_logs_and_keep_pipefail(self):
         script = (Path(__file__).resolve().parents[1] / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8')
         self.assertIn('set -euo pipefail', script)

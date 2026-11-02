@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class UpstreamWatchTests(unittest.TestCase):
     def test_home_entry_and_no_implicit_repository_writes(self):
         app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
-        self.assertIn('UpstreamUpdatesSection(api: api)', app)
+        self.assertIn('UpstreamUpdatesSection(api: api, store: upstreamUpdates)', app)
         path = ROOT/'RepoPocket/UpstreamUpdates.swift'
         self.assertTrue(path.exists())
         source = path.read_text()
@@ -27,9 +27,28 @@ class UpstreamWatchTests(unittest.TestCase):
         self.assertIn('state.upstreamBranch = hint.branch ?? ""', hint)
         self.assertIn('state.compare = nil', hint)
 
+    def test_watch_add_sheet_is_owned_by_the_stable_home_page(self):
+        app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
+        home = app.split('struct RepositoriesView: View {', 1)[1].split('private func refreshStars()', 1)[0]
+        source = (ROOT/'RepoPocket/UpstreamUpdates.swift').read_text()
+        section = source.split('struct UpstreamUpdatesSection: View {', 1)[1].split('struct UpstreamWatchAddView:', 1)[0]
+        self.assertIn('@StateObject private var upstreamUpdates = UpstreamUpdatesStore()', home)
+        self.assertIn('@State private var showUpstreamWatch = false', home)
+        self.assertIn('UpstreamUpdatesSection(api: api, store: upstreamUpdates)', home)
+        self.assertIn('showUpstreamWatch = true', home)
+        self.assertIn('        }\n        .sheet(isPresented: $showUpstreamWatch)', home)
+        self.assertIn('UpstreamWatchAddView(api: api)', home)
+        self.assertIn('upstreamUpdates.add(watch, api: api)', home)
+        self.assertIn('await upstreamUpdates.refresh(api: api, force: true)', home)
+        self.assertIn('@ObservedObject var store: UpstreamUpdatesStore', section)
+        self.assertIn('let add: () -> Void', section)
+        self.assertIn('Button("添加跟踪仓库", action: add)', section)
+        self.assertNotIn('.sheet(', section)
+        self.assertNotIn('@State private var adding', section)
+
     def test_repository_input_invalidates_branch_in_one_update(self):
         feature = (ROOT/'RepoPocket/UpstreamUpdates.swift').read_text()
-        form = feature.split('private struct UpstreamWatchAddView: View {', 1)[1].split('private struct UpstreamUpdatesDetail:', 1)[0]
+        form = feature.split('struct UpstreamWatchAddView: View {', 1)[1].split('private struct UpstreamUpdatesDetail:', 1)[0]
         self.assertIn('text: Binding(get: { repository }, set:', form)
         self.assertNotIn('.onChange(of: repository)', form)
         self.assertIn('repository = $0; branch = ""', form)

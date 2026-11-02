@@ -96,8 +96,8 @@ import SwiftUI
 
 struct UpstreamUpdatesSection: View {
     @ObservedObject var api: GitHub
-    @StateObject private var store = UpstreamUpdatesStore()
-    @State private var adding = false
+    @ObservedObject var store: UpstreamUpdatesStore
+    let add: () -> Void
     var body: some View {
         Section("上游动态") {
             SoftGroupRows {
@@ -119,7 +119,7 @@ struct UpstreamUpdatesSection: View {
                 if store.watches.isEmpty {
                     SoftGroupRow("empty") { Text("跟踪已设置的上游，也可以添加指定仓库。首次检查只记录基线，之后显示新提交和新分支。").font(.caption).foregroundStyle(.secondary) }
                 }
-                SoftGroupRow("add") { Button("添加跟踪仓库") { adding = true }.disabled(store.loading).accessibilityIdentifier("upstream-watch-add") }
+                SoftGroupRow("add") { Button("添加跟踪仓库", action: add).disabled(store.loading).accessibilityIdentifier("upstream-watch-add") }
             }
         }
         .task { await store.refresh(api: api) }
@@ -135,14 +135,6 @@ struct UpstreamUpdatesSection: View {
             guard notification.object as? String == api.accountID else { return }
             Task { await store.refresh(api: api, force: true) }
         }
-        .sheet(isPresented: $adding) {
-            NavigationStack {
-                UpstreamWatchAddView(api: api) { watch in
-                    store.add(watch, api: api)
-                    Task { await store.refresh(api: api, force: true) }
-                }
-            }.appSheetCornerRadius()
-        }
     }
     private func summary(_ watch: UpstreamWatch) -> String {
         if let error = store.failures[watch.id] { return error }
@@ -154,7 +146,7 @@ struct UpstreamUpdatesSection: View {
     }
 }
 
-private struct UpstreamWatchAddView: View {
+struct UpstreamWatchAddView: View {
     @ObservedObject var api: GitHub
     let add: (UpstreamWatch) -> Void
     @Environment(\.dismiss) private var dismiss
