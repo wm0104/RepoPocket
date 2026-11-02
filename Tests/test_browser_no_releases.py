@@ -22,9 +22,11 @@ class BrowserRollbackTests(unittest.TestCase):
                 cache_start = historic.index('    func clearIfIdle()')
                 cache_end = historic.index('    func image(for url:', cache_start)
                 historic = historic[:cache_start] + historic[cache_end:]
-                # Only the newly approved star/fork count destinations differ.
-                begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
-                self.assertEqual(current.split(begin)[0], historic.split(begin)[0])
+                # Explicit avatar refresh has its own production actor/loader harness.
+                self.assertEqual(current.split('actor AvatarPipeline')[0], historic.split('actor AvatarPipeline')[0])
+                self.assertIn('configuration.urlCredentialStorage = nil', current)
+                self.assertIn('RepoPocket.avatarRefreshRequested', current)
+                self.assertIn('.reloadRevalidatingCacheData', current)
                 self.assertEqual(current.split('struct LoadingRows:')[1], historic.split('struct LoadingRows:')[1])
                 self.assertEqual(current.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0], historic.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0])
                 self.assertIn('openOwner: openOwner', current)
@@ -212,7 +214,7 @@ final class GitHub {
 }
 final class BrowserHarness {
  let api: GitHub; let repo: String; let path: String
- var activeBranch = ""; var repositoryInfo: Repository?; var busy = false
+ var activeBranch = ""; var repositoryInfo: Repository?; var busy = false; var refreshing = false
  var selectedBranch = ""; var entries: [Entry] = []; var loaded = false
  init(_ api: GitHub, _ repo: String, _ path: String) { self.api=api; self.repo=repo; self.path=path }
  func enter() async { if !loaded { await load() } }
