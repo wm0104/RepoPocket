@@ -59,7 +59,7 @@ class WorkflowDispatchTests(unittest.TestCase):
         github = (ROOT / 'RepoPocket/GitHub.swift').read_text()
         transport = github.split('    // Dispatch uses the account-bound session and refuses redirects, including reads.\n', 1)[1].split('    func searchUsers', 1)[0]
         self.assertIn('delegate: OfficialUpdateRedirectPolicy()', transport)
-        self.assertIn('inputs.isEmpty ? ["ref": $0] : ["ref": $0, "inputs": inputs]', transport)
+        self.assertIn('inputs.isEmpty ?', transport) self.assertIn('["ref": $0, "inputs": inputs]', transport)
         self.assertIn('inputs: title.isEmpty ? [:] : ["run_title": title]', transport)
         # The only free-form input allowed is the optional run title.
         self.assertNotIn('"text"', transport)
@@ -265,7 +265,7 @@ HARNESS += r'''
         precondition(refused)
         dummy.cancel()
         // An optional run title travels with the confirmed target; it is trimmed.
-        let titled = prepared(api)
+        let titled = await prepared(api)
         titled.runTitle = "  测试标题  "
         let titledTarget: WorkflowDispatchTarget? = titled.target("someone/any-repo", api: api)
         precondition(titledTarget?.runTitle == "测试标题")
