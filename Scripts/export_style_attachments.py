@@ -46,7 +46,11 @@ maintenance = {'local-project-compact', 'local-project-information', 'local-bran
 maintenance.update('upstream-preview-collapsed-' + mode for mode in ('empty', 'single', 'many', 'truncated'))
 maintenance.update(prefix + mode for prefix in ('upstream-commits-expanded-', 'upstream-files-expanded-')
                    for mode in ('single', 'many', 'truncated'))
-if scope == 'profiles':
+branch_merge = {'local-branch-merge-preview', 'remote-branch-merge-preview',
+                'remote-branch-squash-confirm', 'remote-branch-squash-result'}
+if scope == 'branch-merge':
+    expected = branch_merge
+elif scope == 'profiles':
     expected = profiles
 elif scope == 'workflow-selection':
     expected = {'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'}
@@ -64,6 +68,7 @@ elif scope == 'review-regressions':
 elif scope == 'maintenance-regressions':
     expected = maintenance
 elif scope == 'all':
+    expected.update(branch_merge)
     expected.update(profiles)
     expected.update(actions)
     expected.update(file_feedback)

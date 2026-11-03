@@ -15,6 +15,22 @@ class BranchMergeEntryTests(unittest.TestCase):
         self.assertIn('if !branch.current && !branch.remote', menu)
         self.assertNotIn('remoteBranchMerge', menu)
 
+    def test_branch_merge_screenshots_export_with_registered_scope(self):
+        import json
+        import runpy
+        import tempfile
+        from unittest.mock import patch
+        names = {'local-branch-merge-preview', 'remote-branch-merge-preview',
+                 'remote-branch-squash-confirm', 'remote-branch-squash-result'}
+        tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}} for name in names]
+        with tempfile.TemporaryDirectory() as folder:
+            with patch('sys.argv', ['export', 'fixture.xcresult', folder, 'branch-merge']), \
+                 patch('subprocess.check_output', return_value=json.dumps(tree).encode()), \
+                 patch('subprocess.run') as export:
+                runpy.run_path(str(ROOT/'Scripts/export_style_attachments.py'), run_name='__main__')
+        self.assertEqual(export.call_count, len(names))
+        self.assertEqual({Path(call.args[0][-1]).stem for call in export.call_args_list}, names)
+
     def test_remote_merge_is_a_separate_explicit_pr_flow(self):
         menu = (ROOT/'RepoPocket/DesktopViews.swift').read_text().split('struct BranchPickerView: View {',1)[1]
         self.assertIn('Button("合并到其他分支…")', menu)
