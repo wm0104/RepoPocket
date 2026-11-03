@@ -168,7 +168,7 @@ HARNESS += r'''
     @MainActor static func prepared(_ api: GitHub) async -> WorkflowDispatchState {
         let state = WorkflowDispatchState()
         await state.loadWorkflows("someone/any-repo", api: api)
-        precondition(state.workflows.count == 100 && state.moreWorkflows, "工作流数量=\(state.workflows.count), 下一页=\(state.moreWorkflows), 错误=\(state.error)")
+        precondition(state.workflows.count == 100 && state.moreWorkflows, "数量=\(state.workflows.count), 请求数=\(DispatchFixture.requests.count), 会话有效=\(api.isCurrentSession), 加载中=\(state.loadingWorkflows), 错误=\(state.error)")
         await state.loadWorkflows("someone/any-repo", api: api)
         precondition(state.workflows.count == 101 && !state.moreWorkflows)
         await state.loadBranches("someone/any-repo", api: api)
