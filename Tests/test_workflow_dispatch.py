@@ -265,7 +265,7 @@ HARNESS += r'''
         precondition(refused)
         dummy.cancel()
         // An optional run title travels with the confirmed target; it is trimmed.
-        let titled = await WorkflowDispatchState.prepared(api)
+        let titled = prepared(api)
         titled.runTitle = "  测试标题  "
         let titledTarget: WorkflowDispatchTarget? = titled.target("someone/any-repo", api: api)
         precondition(titledTarget?.runTitle == "测试标题")
