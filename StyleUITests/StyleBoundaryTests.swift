@@ -38,9 +38,11 @@ final class StyleBoundaryTests: XCTestCase {
         let preview = app.buttons["branch-merge-preview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 5)); preview.tap()
         let changedFile = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "demo.txt")).firstMatch
-        XCTAssertTrue(changedFile.waitForExistence(timeout: 15), "Read-only preview must include file changes before PR creation")
+        reveal(changedFile, in: app)
+        XCTAssertTrue(changedFile.waitForExistence(timeout: 15), "Read-only preview must include file changes before PR creation: " + app.debugDescription)
         keepScreenshot(app, name: "remote-branch-merge-preview")
         let create = app.buttons["branch-merge-open-pr"]
+        reveal(create, in: app)
         XCTAssertTrue(create.waitForExistence(timeout: 5)); create.tap()
         let refresh = app.buttons["branch-merge-refresh"]
         XCTAssertTrue(refresh.waitForExistence(timeout: 10)); reveal(refresh, in: app); refresh.tap()
