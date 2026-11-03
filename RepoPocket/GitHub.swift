@@ -539,6 +539,34 @@ final class GitHub: ObservableObject {
         }
         _ = try await data(Self.repoPath(repo) + "/git/refs", method: "POST", object: ["ref": "refs/heads/" + name, "sha": expectedHead])
     }
+    /// Local-facing rename becomes create-then-delete on GitHub: commits exist under the
+    /// new ref before the old one disappears, and nothing is force-moved.
+    func renameBranch(_ repo: String, name: String, to newName: String, expectedHead: String, current: String) async throws {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard DesktopRules.validBranch(newName), newName != name,
+              expectedHead.count == 40, expectedHead.allSatisfy({ $0.isHexDigit }) else {
+            throw AppError(text: "新分支名无效或与原名称相同，未做修改。")
+        }
+        let info = try await repository(repo)
+        guard info.permissions?.push == true else { throw AppError(text: "此账号没有已确认的仓库推送权限，不能重命名远端分支。") }
+        guard let defaultBranch = info.default_branch, !defaultBranch.isEmpty, name != defaultBranch else {
+            throw AppError(text: "不能重命名仓库默认分支，请先在 GitHub 更换默认分支。")
+        }
+        let target = try await decoded(DesktopBranch.self, Self.repoPath(repo) + "/branches/" + Self.component(name))
+        guard target.name == name, target.protected == false else { throw AppError(text: "此分支受保护或保护状态未知，不能重命名。") }
+        guard target.commit?.sha == expectedHead else { throw AppError(text: "分支已新增提交或发生变化，请刷新列表后重新确认；未做修改。") }
+        // 404 means the name is free; any other failure still surfaces from the POST below.
+        if (try? await decoded(DesktopBranch.self, Self.repoPath(repo) + "/branches/" + Self.component(newName)))?.name == newName {
+            throw AppError(text: "同名远端分支已存在，未做修改。")
+        }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        _ = try await data(Self.repoPath(repo) + "/git/refs", method: "POST", object: ["ref": "refs/heads/" + newName, "sha": expectedHead])
+        do { try await deleteBranch(repo, name: name, expectedHead: expectedHead, current: current) }
+        catch {
+            if RefreshFailure.isCancellation(error) { throw error }
+            throw AppError(text: "已创建新分支 " + newName + "，但删除旧分支失败；两个分支都保留，请刷新核实后手动处理。\n" + error.localizedDescription)
+        }
+    }
     func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {
         try ensureActiveAccount(); try Task.checkCancellation()
         guard DesktopRules.validBranch(name), name != current, expectedHead.count == 40,

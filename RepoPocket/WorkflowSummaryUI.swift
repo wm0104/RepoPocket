@@ -75,7 +75,7 @@ struct WorkflowRunMetadata: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let api, let actor = run.actor {
-                CommunityAuthorLink(api: api, user: User(id: nil, login: actor.login, avatar_url: nil, name: nil, followers: nil, following: nil))
+                CommunityAuthorLink(api: api, user: User(id: nil, login: actor.login, avatar_url: actor.avatar_url, name: nil, followers: nil, following: nil))
                 Text(WorkflowTime.trigger(run.event)).font(.caption).foregroundStyle(.secondary)
                 WorkflowCreatedText(timestamp: run.created_at).font(.caption).foregroundStyle(.secondary)
             } else { HStack(alignment: .top, spacing: 6) {

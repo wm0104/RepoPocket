@@ -363,6 +363,13 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         helper_start = current.index('    private func uploadGitBlobFile(')
         helper_end = current.index('    func history(', helper_start)
         current = current[:helper_start] + current[helper_end:]
+        # Remote branch rename is create-then-delete over the same documented ref
+        # endpoints; its shapes are covered by test_remote_branch_rename.py.
+        rename_start = current.index('    /// Local-facing rename becomes create-then-delete on GitHub:')
+        rename_end = current.index('\n    }\n', rename_start) + len('\n    }\n')
+        if current[rename_end:rename_end + 1] == '\n': rename_end += 1
+        assert 'func renameBranch(' in current[rename_start:rename_end]
+        current = current[:rename_start] + current[rename_end:]
         old_github = baseline(file)
         # Only the obsolete manual cache-reset hook is removed; retain the
         # byte guard on cache fetching and every unrelated API operation.

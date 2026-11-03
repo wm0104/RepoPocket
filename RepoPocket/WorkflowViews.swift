@@ -12,13 +12,6 @@ struct WorkflowStatusBadge: View {
     var body: some View { Label(value.title, systemImage: value.symbol).foregroundStyle(color).accessibilityLabel("运行状态：" + value.title) }
 }
 
-private struct WorkflowListSpacing: ViewModifier {
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 17.0, *) { content.listSectionSpacing(12) }
-        else { content } // iOS 16 keeps native spacing; no global appearance changes.
-    }
-}
-
 struct WorkflowRunsView: View {
     @ObservedObject var api: GitHub
     let repo: String
@@ -33,6 +26,36 @@ struct WorkflowRunsView: View {
     @State private var showingDispatch = false
     @State private var dispatchedBranch: String?
     private var displayedBranch: String { dispatchedBranch ?? branch }
+    private var runsSection: some View {
+        Section {
+            SoftGroupRows {
+                for run in store.items {
+                    SoftGroupRow(String(run.id)) {
+                        if selection.active {
+                            Button { selection.toggle(run) } label: {
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: selection.selected.contains(run.id) ? "checkmark.square.fill" : "square")
+                                        .font(.title2).foregroundStyle(Color.accentColor).frame(width: 44, height: 44)
+                                    WorkflowRunSummary(run: run)
+                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain).disabled(selection.busy || run.status != "completed")
+                                .accessibilityValue(selection.selected.contains(run.id) ? "已选中" : "未选中")
+                                .accessibilityIdentifier("workflow-run-\(run.id)")
+                        } else {
+                            NavigationLink { WorkflowRunView(api: api, repo: repo, run: run) } label: {
+                                WorkflowRunSummary(run: run)
+                            }.accessibilityIdentifier("workflow-run-\(run.id)")
+                        }
+                    }
+                }
+                if store.loaded && store.items.isEmpty {
+                    SoftGroupRow("empty") { Text(headSHA.isEmpty ? "暂无运行记录" : "尚未发现本次提交的运行。GitHub 可能仍在排队，也可能未配置此分支的 push 工作流，请稍后刷新；不会自动触发或显示其他提交。") }
+                }
+            }
+            // Paging stays in this section; a separate footer section is a large iOS 16 gap.
+            CommunityPageFooter(store: store, next: { load() }, inline: true).disabled(selection.busy)
+        }
+    }
     var body: some View {
         List {
             Section {
@@ -48,32 +71,7 @@ struct WorkflowRunsView: View {
                     SoftGroupRow("failed") { Toggle("仅看失败记录", isOn: $failedOnly) }
                 }
             }.disabled(selection.busy)
-            Section {
-                SoftGroupRows {
-                    for run in store.items {
-                        SoftGroupRow(String(run.id)) {
-                            if selection.active {
-                                Button { selection.toggle(run) } label: {
-                                    HStack(alignment: .top, spacing: 8) {
-                                        Image(systemName: selection.selected.contains(run.id) ? "checkmark.square.fill" : "square")
-                                            .font(.title2).foregroundStyle(Color.accentColor).frame(width: 44, height: 44)
-                                        WorkflowRunSummary(run: run)
-                                    }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                                }.buttonStyle(.plain).disabled(selection.busy || run.status != "completed")
-                                    .accessibilityValue(selection.selected.contains(run.id) ? "已选中" : "未选中")
-                                    .accessibilityIdentifier("workflow-run-\(run.id)")
-                            } else {
-                                NavigationLink { WorkflowRunView(api: api, repo: repo, run: run) } label: {
-                                    WorkflowRunSummary(run: run)
-                                }.accessibilityIdentifier("workflow-run-\(run.id)")
-                            }
-                        }
-                    }
-                    if store.loaded && store.items.isEmpty {
-                        SoftGroupRow("empty") { Text(headSHA.isEmpty ? "暂无运行记录" : "尚未发现本次提交的运行。GitHub 可能仍在排队，也可能未配置此分支的 push 工作流，请稍后刷新；不会自动触发或显示其他提交。") }
-                    }
-                }
-            }
+            runsSection
             if selection.busy || !selection.result.isEmpty || !selection.failures.isEmpty {
                 Section {
                     SoftGroupRows {
@@ -85,8 +83,7 @@ struct WorkflowRunsView: View {
                     }
                 }
             }
-            CommunityPageFooter(store: store, next: { load() }).disabled(selection.busy)
-        }.modifier(WorkflowListSpacing()).navigationTitle("Actions").adaptiveWorkspaceLayout()
+        }.navigationTitle("Actions").adaptiveWorkspaceLayout()
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 if headSHA.isEmpty {
@@ -290,7 +287,7 @@ struct WorkflowRunView: View {
                     if detailsExpanded {
                         SoftGroupRow("actor") {
                             if let actor = displayedRun.actor {
-                                CommunityAuthorLink(api: api, user: User(id: nil, login: actor.login, avatar_url: nil, name: nil, followers: nil, following: nil))
+                                CommunityAuthorLink(api: api, user: User(id: nil, login: actor.login, avatar_url: actor.avatar_url, name: nil, followers: nil, following: nil))
                             } else { Text("未知用户").foregroundStyle(.secondary) }
                         }
                         SoftGroupRow("trigger") { LabeledContent("触发方式", value: WorkflowTime.trigger(displayedRun.event)) }

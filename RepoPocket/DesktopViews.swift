@@ -98,6 +98,36 @@ struct CommitDetailView: View {
         }.listStyle(.insetGrouped).navigationTitle("提交详情").adaptiveWorkspaceLayout()
         .task { if detail == nil { await load() } }
     }
+    private var switcherSection: some View {
+        Section("切换远端浏览分支") {
+            Text("当前：" + current).font(.caption).softGroupedRow(top: true, bottom: branches.isEmpty && !more)
+            ForEach(branches) { b in
+                Button { select(b.name); dismiss() } label: {
+                    HStack { Text(b.name); if b.name == current { Image(systemName: "checkmark") } }
+                }.disabled(busy)
+                .contextMenu {
+                    if canWrite && api.isCurrentSession {
+                        Button { renameName = b.name + "-new"; renaming = b } label: { Label("重命名 GitHub 远端分支", systemImage: "pencil") }
+                            .disabled(busy || b.protected == true || (b.commit?.sha ?? "").isEmpty)
+                        Button(role: .destructive) { deletionMessage = ""; deleting = b } label: { Label("删除 GitHub 远端分支", systemImage: "trash") }
+                            .disabled(!canDelete(b))
+                    }
+                }
+                .softGroupedRow(bottom: b.id == branches.last?.id && !more)
+            }
+            if more { Button("加载更多分支") { Task { await load() } }.disabled(busy).softGroupedRow(bottom: true) }
+        }
+    }
+    @ViewBuilder private var createSection: some View {
+        if canWrite && api.isCurrentSession {
+            Section("从当前分支创建") {
+                TextField("新分支名，例如 feature/mobile", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
+                Text("来源：" + current + " @ " + String(head.prefix(7))).font(.caption).softGroupedRow()
+                Text("只创建新的远端引用，不覆盖已有分支；不切换本地工作区或上传队列的目标。").font(.caption).softGroupedRow()
+                Button("创建并切换") { confirm = true }.disabled(busy || head.isEmpty || !DesktopRules.validBranch(name)).softGroupedRow(bottom: true)
+            }
+        }
+    }
     private func load() async {
         busy = true; defer { busy = false }
         do {
@@ -126,32 +156,13 @@ struct BranchPickerView: View {
     @State private var deleting: DesktopBranch?
     @State private var deletion: Task<Void, Never>?
     @State private var deletionMessage = ""
+    @State private var renaming: DesktopBranch?
+    @State private var renameName = ""
     var body: some View {
         NavigationStack {
             Form {
-                Section("切换远端浏览分支") {
-                    Text("当前：" + current).font(.caption).softGroupedRow(top: true, bottom: branches.isEmpty && !more)
-                    ForEach(branches) { b in
-                        Button { select(b.name); dismiss() } label: {
-                            HStack { Text(b.name); if b.name == current { Image(systemName: "checkmark") } }
-                        }.disabled(busy)
-                        .contextMenu {
-                            if canWrite && api.isCurrentSession {
-                                Button(role: .destructive) { deletionMessage = ""; deleting = b } label: { Label("删除 GitHub 远端分支", systemImage: "trash") }
-                                    .disabled(!canDelete(b))
-                            }
-                        }
-                        .softGroupedRow(bottom: b.id == branches.last?.id && !more)
-                    }
-                    if more { Button("加载更多分支") { Task { await load() } }.disabled(busy).softGroupedRow(bottom: true) }
-                }
-                if canWrite && api.isCurrentSession { Section("从当前分支创建") {
-                    TextField("新分支名，例如 feature/mobile", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
-                    Text("来源：" + current + " @ " + String(head.prefix(7))).font(.caption).softGroupedRow()
-                    Text("只创建新的远端引用，不覆盖已有分支；不切换本地工作区或上传队列的目标。").font(.caption).softGroupedRow()
-                    Button("创建并切换") { confirm = true }.disabled(busy || head.isEmpty || !DesktopRules.validBranch(name)).softGroupedRow(bottom: true)
-                }
-                }
+                switcherSection
+                createSection
                 if !deletionMessage.isEmpty {
                     Section { SoftGroupRows { SoftGroupRow("deletion-result") { Text(deletionMessage).font(.footnote).textSelection(.enabled) } } }
                 }
@@ -163,6 +174,21 @@ struct BranchPickerView: View {
             .onDisappear { deletion?.cancel() }
             .confirmationDialog("从 \(current) @ \(head.prefix(7)) 创建 \(name)？", isPresented: $confirm, titleVisibility: .visible) {
                 Button("确认创建远端分支") { Task { await create() } }
+            }
+            .alert("重命名 GitHub 远端分支", isPresented: Binding(
+                get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { target in
+                TextField("新分支名称", text: $renameName).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button("取消", role: .cancel) { renaming = nil }
+                Button("重命名") {
+                    let name = renameName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    renaming = nil
+                    guard DesktopRules.validBranch(name), name != target.name else {
+                        deletionMessage = "新分支名无效或与原名称相同，未做修改。"; return
+                    }
+                    deletion = Task { await rename(target, to: name) }
+                }
+            } message: { target in
+                Text(repo + "\n" + target.name + " → 新名称\n会在 GitHub 上新建同名分支并删除旧分支，提交不会丢失；默认分支、受保护分支会拒绝。打开中的 Pull Request 可能被关闭，本地 Git 跟踪不会自动改名。")
             }
             .confirmationDialog("删除 GitHub 远端分支？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { target in
                 Button("删除远端分支", role: .destructive) { deletion = Task { await remove(target) } }
@@ -203,6 +229,22 @@ struct BranchPickerView: View {
             guard api.isCurrentSession else { return }
             defaultBranch = info.default_branch ?? ""
         } catch { if api.isCurrentSession && !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
+    }
+    private func rename(_ target: DesktopBranch, to newName: String) async {
+        guard canWrite, api.isCurrentSession, let expectedHead = target.commit?.sha, !busy else {
+            deletionMessage = "分支状态或账号已变化，请重新打开分支列表后确认。"; return
+        }
+        busy = true; deletionMessage = ""
+        defer { busy = false }
+        do {
+            try await api.renameBranch(repo, name: target.name, to: newName, expectedHead: expectedHead, current: current)
+            guard api.isCurrentSession else { return }
+            if current == target.name { select(newName); dismiss(); return }
+            if let index = branches.firstIndex(where: { $0.name == target.name }) {
+                branches[index] = DesktopBranch(name: newName, commit: target.commit, protected: target.protected)
+            }
+            deletionMessage = "已重命名 GitHub 远端分支：" + target.name + " → " + newName
+        } catch { if api.isCurrentSession && !RefreshFailure.isCancellation(error) { deletionMessage = error.localizedDescription } }
     }
     private func remove(_ target: DesktopBranch) async {
         guard canDelete(target), let expectedHead = target.commit?.sha else {

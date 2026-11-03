@@ -104,7 +104,7 @@ struct WorkflowRun: Decodable, Identifiable {
     let updated_at: String?
     let event: String?
     let actor: Actor?
-    struct Actor: Decodable { let login: String }
+    struct Actor: Decodable { let login: String; let avatar_url: String? }
 }
 struct WorkflowJobs: Decodable { let jobs: [WorkflowJob] }
 struct WorkflowArtifacts: Decodable { let artifacts: [WorkflowArtifact]; let total_count: Int? }

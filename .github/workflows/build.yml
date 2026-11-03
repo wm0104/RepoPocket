@@ -56,6 +56,8 @@ jobs:
         run: python3 Tests/test_local_history_pagination.py
       - name: Test local branch rename without remote changes
         run: python3 Tests/test_local_branch_rename.py
+      - name: Test remote branch rename keeps commits
+        run: python3 Tests/test_remote_branch_rename.py
       - name: Test long press file deletion and native ZIP completion
         run: python3 Tests/test_file_feedback.py
       - name: Test frozen file sheet requests and dismissal lifecycle
