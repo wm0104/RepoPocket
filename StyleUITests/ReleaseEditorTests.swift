@@ -48,8 +48,10 @@ final class ReleaseEditorTests: XCTestCase {
         reveal(publish, in: app); waitEnabled(publish, true)
         app.buttons["release-fixture-switch"].tap()
         waitEnabled(publish, false)
-        scrollToTop(app)
-        reveal(publish, in: app); waitEnabled(publish, false)
+        // The editor intentionally disables the whole Form after an account change.
+        // Do not try to scroll that disabled collection as though it were interactive.
+        XCTAssertFalse(app.collectionViews.firstMatch.isEnabled)
+        waitEnabled(publish, false)
         screenshot(app, "release-editor-account-changed")
         XCTAssertFalse(app.alerts["发布此发行版？"].exists)
         assertReadOnly(app)
@@ -107,8 +109,10 @@ final class ReleaseEditorTests: XCTestCase {
     private func attachFromInbox(_ app: XCUIApplication, capture: Bool = false) {
         let choose = app.buttons["从待上传文件选择"]
         // It may be above the current viewport after the disabled-publish assertion.
-        scrollToTop(app); reveal(choose, in: app); choose.tap()
-        XCTAssertTrue(app.navigationBars["待上传文件"].waitForExistence(timeout: 10))
+        scrollToTop(app); reveal(choose, in: app)
+        // Tap the actual leading text, not unused trailing space in a full-width AX cell.
+        choose.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+        XCTAssertTrue(app.navigationBars["待上传文件"].waitForExistence(timeout: 10), app.debugDescription)
         let file = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "release-editor-fixture.txt")).firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 15)); file.tap()
         let selection = app.buttons["选择 1 个文件"]
