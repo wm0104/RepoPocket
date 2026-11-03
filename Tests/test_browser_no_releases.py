@@ -69,11 +69,11 @@ class BrowserRollbackTests(unittest.TestCase):
         # account/host/error guards. Normalize only those exact additions before
         # comparing the complete historic write/download implementation.
         normalized = api_new[:added_start].replace(approved, historic)
-        # Only the new remote-branch delete method is excluded; its permission,
-        # protected/default/current branch and acknowledgement tests are separate.
-        deletion_start = normalized.index('    func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {')
+        # Only the new remote-branch rename and delete methods are excluded; their
+        # permission, protected/default/current branch and acknowledgement tests are separate.
+        deletion_start = normalized.index('    /// Local-facing rename becomes create-then-delete on GitHub:')
         deletion_end = normalized.index('    func fetchWorkspace(', deletion_start)
-        self.assertEqual(normalized[deletion_start:deletion_end].count('    func '), 1)
+        self.assertEqual(normalized[deletion_start:deletion_end].count('    func '), 2)
         normalized = normalized[:deletion_start] + normalized[deletion_end:]
         # Normalize the removed manual cache reset and the exact bounded error
         # read only; every other historic transport byte remains protected.
