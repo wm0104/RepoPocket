@@ -162,8 +162,10 @@ final class ReleaseEditorTests: XCTestCase {
         let frame = scroll.frame.intersection(app.frame)
         let keyboard = app.keyboards.firstMatch
         let bottom = keyboard.exists ? min(frame.maxY, keyboard.frame.minY - 100) : frame.maxY - 20
-        let top = frame.minY + 65
-        // Drag the Form's edge, not inside the independently scrolling TextEditor.
+        let navigation = app.navigationBars.firstMatch
+        let top = max(frame.minY, navigation.exists ? navigation.frame.maxY : frame.minY) + 35
+        // Drag below the navigation bar; dragging at y=65 hits the bar instead of the Form.
+        // Stay on the Form's edge, outside the independently scrolling TextEditor.
         let origin = app.coordinate(withNormalizedOffset: .zero)
         let high = origin.withOffset(CGVector(dx: frame.maxX - 12, dy: top))
         let low = origin.withOffset(CGVector(dx: frame.maxX - 12, dy: max(top + 40, bottom - 30)))
