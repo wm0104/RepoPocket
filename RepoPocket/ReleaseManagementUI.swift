@@ -382,7 +382,8 @@ struct ReleaseEditorView: View {
     let original: ManagedRelease?
     @State private var form: ReleaseForm
     @State private var confirm = false
-    @State private var targetReady = false
+    @StateObject private var targetState = ReleaseBranchState()
+    private var targetReady: Bool { state.valid && targetState.ready }
     let initialBranch: String
     @State private var markerReady = false
     @State private var attachments: [ReleaseAttachment] = []
@@ -405,12 +406,12 @@ struct ReleaseEditorView: View {
             Form {
                 Section {
                     Text(state.repo).softGroupedRow(top: true)
-                    TextField("标题", text: $form.title).softGroupedRow()
-                    TextField("标签（已有或新建）", text: $form.tag).textInputAutocapitalization(.never).softGroupedRow(bottom: true)
+                    TextField("标题", text: $form.title).accessibilityIdentifier("release-title").softGroupedRow()
+                    TextField("标签（已有或新建）", text: $form.tag).textInputAutocapitalization(.never).accessibilityIdentifier("release-tag").softGroupedRow(bottom: true)
                 }
-                if original == nil { ReleaseBranchPicker(api: state.api, repo: state.repo, preferred: initialBranch, selected: $form.branch, ready: $targetReady).disabled(state.busy || plan.draftID != nil) }
+                if original == nil { ReleaseBranchPicker(api: state.api, repo: state.repo, preferred: initialBranch, state: targetState, selected: $form.branch).disabled(state.busy || plan.draftID != nil) }
                 Section {
-                TextEditor(text: $form.body).frame(minHeight: 200).softGroupedRow(top: true)
+                TextEditor(text: $form.body).frame(minHeight: 200).accessibilityIdentifier("release-body").softGroupedRow(top: true)
                 Toggle("保存为草稿", isOn: $form.draft)
                     .onChange(of: form.draft) { draft in if draft && form.marker == .latest { form.marker = .none } }.softGroupedRow()
                 Picker("发行版标记", selection: $form.marker) {
@@ -427,17 +428,23 @@ struct ReleaseEditorView: View {
                     }
                 }
                 Section {
-                Button(actionTitle) { confirm = true }
+                Button(actionTitle) { confirm = true }.accessibilityIdentifier("release-publish")
                     .disabled(state.busy || staging || !markerReady || !form.validMarker || !ReleaseManagementRules.editable(form.body) || (original == nil && (attachments.isEmpty || !targetReady || form.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))).softGroupedRow(top: true, bottom: markerReady || state.busy)
                 if !markerReady && !state.busy { Button("重试读取发行版标记") { loadMarker() }.softGroupedRow(bottom: true) }
                 }
                 Section { releaseStatus(state) }
             }.disabled(!state.valid)
             .navigationTitle(original == nil ? "新建发行版" : "编辑发行版")
-            .toolbar { Button("关闭") { plan.cancel(); state.cancel(); dismiss() } }
+            .toolbar { Button("关闭") { targetState.cancel(); plan.cancel(); state.cancel(); dismiss() } }
             .interactiveDismissDisabled(state.busy)
-            .task { loadMarker() }
-            .onDisappear { plan.cancel(); state.cancel(); if !staging { cleanupAttachments() } }
+            .task {
+                loadMarker()
+                if original == nil, !targetState.ready, !targetState.loading {
+                    targetState.load(api: state.api, repo: state.repo, preferred: form.branch.isEmpty ? initialBranch : form.branch, selected: $form.branch)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in targetState.cancel() }
+            .onDisappear { targetState.cancel(); plan.cancel(); state.cancel(); if !staging { cleanupAttachments() } }
             .sheet(isPresented: $pickingInboxAttachments, onDismiss: {
                 let files = inboxAttachmentSelection; inboxAttachmentSelection = []
                 if !files.isEmpty { stage(.success(files)) }

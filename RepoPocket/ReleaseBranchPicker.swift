@@ -62,9 +62,8 @@ struct ReleaseBranchPicker: View {
     @ObservedObject var api: GitHub
     let repo: String
     let preferred: String
+    @ObservedObject var state: ReleaseBranchState
     @Binding var selected: String
-    @Binding var ready: Bool
-    @StateObject private var state = ReleaseBranchState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded = false
     @State private var searching = false
@@ -82,7 +81,7 @@ struct ReleaseBranchPicker: View {
                 Button { animate { expanded.toggle() } } label: {
                     HStack { Text("目标分支"); Spacer(); Text(selected.isEmpty ? "请选择" : selected).foregroundStyle(.secondary); Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption) }
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-                }.disabled(state.loading).softGroupedRow(top: !state.loading)
+                }.disabled(state.loading).accessibilityIdentifier("release-target-row").softGroupedRow(top: !state.loading)
                 if expanded {
                     Button(searching ? "关闭搜索" : "搜索分支") { searching.toggle(); search = "" }
                         .frame(minHeight: 44).softGroupedRow()
@@ -91,7 +90,7 @@ struct ReleaseBranchPicker: View {
                             .frame(minHeight: 44).softGroupedRow()
                     }
                     ForEach(visible, id: \.self) { name in
-                        Button { selected = name; ready = true; animate { expanded = false; advanced = false } } label: {
+                        Button { selected = name; state.ready = true; animate { expanded = false; advanced = false } } label: {
                             HStack { Text(name); Spacer(); if selected == name { Image(systemName: "checkmark") } }
                                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
                         }.disabled(state.loading).softGroupedRow()
@@ -111,21 +110,18 @@ struct ReleaseBranchPicker: View {
             }
             DisclosureGroup("高级：提交 SHA", isExpanded: $advanced) {
                 TextField("完整提交 SHA", text: $sha).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .frame(minHeight: 44).onChange(of: sha) { _ in state.cancel(); ready = false }
+                    .frame(minHeight: 44).onChange(of: sha) { _ in state.cancel() }
                     .softGroupedRow(top: false, bottom: false)
-                Button("核验并使用提交") { ready = false; state.verify(api: api, repo: repo, sha: sha, selected: $selected) }
+                Button("核验并使用提交") { state.verify(api: api, repo: repo, sha: sha, selected: $selected) }
                     .disabled(state.loading).frame(minHeight: 44).softGroupedRow(top: false, bottom: false)
-                if ready && selected.count == 40 { Text("已核验目标：\(selected)").font(.caption).softGroupedRow(top: false, bottom: false) }
+                if state.ready && selected.count == 40 { Text("已核验目标：\(selected)").font(.caption).softGroupedRow(top: false, bottom: false) }
             }
             .softGroupedRow(top: !state.loading && state.branches.isEmpty && state.error.isEmpty && state.ready)
             Text("已有 Git 标签不受目标分支影响。").font(.caption).foregroundStyle(.secondary)
                 .softGroupedRow(bottom: true)
         }
         .buttonStyle(.borderless)
-        .task { reload() }
-        .onChange(of: state.ready) { ready = $0 }
-        .onChange(of: AccountStore.generation) { _ in state.cancel(); ready = false }
-        .onDisappear { state.cancel(); ready = false }
+        // Row recycling is not a target change. The editor owns loading and invalidation.
     }
-    private func reload() { ready = false; state.load(api: api, repo: repo, preferred: preferred, selected: $selected) }
+    private func reload() { state.load(api: api, repo: repo, preferred: selected.isEmpty ? preferred : selected, selected: $selected) }
 }

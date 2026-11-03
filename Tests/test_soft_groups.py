@@ -141,7 +141,12 @@ assert '.softGroupedRow(top: !state.loading)' in picker_ui
 assert 'softGroupedRow(top: false, bottom: false)' in picker_ui
 assert 'softGroupedRow(bottom: true)' in picker_ui
 assert 'Rectangle().fill(Color(uiColor: .separator))' not in picker_ui
-assert '.onDisappear { state.cancel(); ready = false }' in picker_ui
+# The editor, not recycled Form rows, owns target readiness and cancellation.
+assert '.onDisappear' not in picker_ui
+assert '@ObservedObject var state: ReleaseBranchState' in picker_ui
+editor_ui = source('ReleaseManagementUI.swift').split('struct ReleaseEditorView: View {', 1)[1]
+assert '@StateObject private var targetState = ReleaseBranchState()' in editor_ui
+assert '.onDisappear { targetState.cancel(); plan.cancel(); state.cancel();' in editor_ui
 
 release_entry = upload.split('private var releaseSection: some View {', 1)[1].split('static func inferredTrollVersion', 1)[0]
 assert 'releaseExpanded' not in upload

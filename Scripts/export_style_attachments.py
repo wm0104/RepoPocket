@@ -48,7 +48,12 @@ maintenance.update(prefix + mode for prefix in ('upstream-commits-expanded-', 'u
                    for mode in ('single', 'many', 'truncated'))
 branch_merge = {'local-branch-merge-preview', 'remote-branch-merge-preview',
                 'remote-branch-squash-confirm', 'remote-branch-squash-result'}
-if scope == 'branch-merge':
+release_editor = {'release-editor-filled', 'release-editor-inbox', 'release-editor-attached',
+                  'release-editor-scrolled', 'release-editor-confirmation',
+                  'release-editor-account-changed', 'release-editor-denied'}
+if scope == 'release-editor':
+    expected = release_editor
+elif scope == 'branch-merge':
     expected = branch_merge
 elif scope == 'profiles':
     expected = profiles
@@ -68,6 +73,7 @@ elif scope == 'review-regressions':
 elif scope == 'maintenance-regressions':
     expected = maintenance
 elif scope == 'all':
+    expected.update(release_editor)
     expected.update(branch_merge)
     expected.update(profiles)
     expected.update(actions)

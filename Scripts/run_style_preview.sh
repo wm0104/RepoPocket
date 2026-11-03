@@ -24,7 +24,25 @@ xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl status_bar "$DEVICE" override --time 9:41 --batteryState charged --batteryLevel 100
 # Let Xcode embed Simulator entitlements before signing. An unsigned simulator
 # cannot exercise CredentialStore (errSecMissingEntitlement / -34018).
-xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing 2>&1 | tee style-test-build.log || { tail -100 style-test-build.log; exit 1; }
+SIGNING_ARGUMENTS=()
+case "${RP_STYLE_TEST_SCOPE:-all}" in
+  all|release-editor)
+    # ShareInboxStore.live() needs a real app-group container, not a picker mock.
+    mkdir -p preview-build
+    python3 - <<'PY_INBOX_ENTITLEMENTS'
+from pathlib import Path
+import plistlib
+source = Path('Scripts/Simulator.entitlements')
+with source.open('rb') as stream:
+    entitlements = plistlib.load(stream)
+entitlements['com.apple.security.application-groups'] = ['group.com.wm0104.RepoPocket.shared']
+with Path('preview-build/style-preview.entitlements').open('wb') as stream:
+    plistlib.dump(entitlements, stream)
+PY_INBOX_ENTITLEMENTS
+    SIGNING_ARGUMENTS=("CODE_SIGN_ENTITLEMENTS=$PWD/preview-build/style-preview.entitlements")
+    ;;
+esac
+xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${SIGNING_ARGUMENTS[@]}" build-for-testing 2>&1 | tee style-test-build.log || { tail -100 style-test-build.log; exit 1; }
 codesign --verify preview-build/Build/Products/Debug-iphonesimulator/RepoPocket.app
 xcrun simctl install "$DEVICE" preview-build/Build/Products/Debug-iphonesimulator/RepoPocket.app
 APP_CONTAINER=$(xcrun simctl get_app_container "$DEVICE" com.wm0104.RepoPocket data)
@@ -109,6 +127,7 @@ xcrun simctl io "$DEVICE" recordVideo --codec=h264 screenshots/local-git-interac
 RECORDING_PID=$!
 TEST_STATUS=0
 case "${RP_STYLE_TEST_SCOPE:-all}" in
+  release-editor) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/ReleaseEditorTests) ;;
   branch-merge) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalMergePreviewUsesCurrentBranchAndDoesNotPush
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRemoteMergeRequiresPreviewAndExplicitSquashConfirmation
