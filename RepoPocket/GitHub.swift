@@ -961,7 +961,7 @@ final class GitHub: ObservableObject {
     private func workflowDispatchData(_ repo: String, suffix: String, page: Int? = nil,
                               ref: String? = nil, inputs: [String: String] = [:]) async throws -> Data {
         try ensureActiveAccount(); try Task.checkCancellation()
-        let body = try ref.map { try JSONSerialization.data(withJSONObject: inputs.isEmpty ? ["ref": $0] : ["ref": $0, "inputs": inputs]) }
+        let body = try ref.map { refValue -> Data in     var payload: [String: Any] = ["ref": refValue]     if !inputs.isEmpty {         payload["inputs"] = inputs     }     return try JSONSerialization.data(withJSONObject: payload) }
         let query: [URLQueryItem] = page.map { [.init(name: "per_page", value: "100"), .init(name: "page", value: String($0))] } ?? []
         let r = try request(url(Self.repoPath(repo) + suffix, query: query), method: ref == nil ? "GET" : "POST", body: body)
         let result: (Data, URLResponse)
