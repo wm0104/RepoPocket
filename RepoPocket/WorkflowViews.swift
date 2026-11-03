@@ -12,6 +12,13 @@ struct WorkflowStatusBadge: View {
     var body: some View { Label(value.title, systemImage: value.symbol).foregroundStyle(color).accessibilityLabel("运行状态：" + value.title) }
 }
 
+private struct WorkflowListSpacing: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) { content.listSectionSpacing(12) }
+        else { content } // iOS 16 keeps native spacing; no global appearance changes.
+    }
+}
+
 struct WorkflowRunsView: View {
     @ObservedObject var api: GitHub
     let repo: String
@@ -79,7 +86,7 @@ struct WorkflowRunsView: View {
                 }
             }
             CommunityPageFooter(store: store, next: { load() }).disabled(selection.busy)
-        }.navigationTitle("Actions").adaptiveWorkspaceLayout()
+        }.modifier(WorkflowListSpacing()).navigationTitle("Actions").adaptiveWorkspaceLayout()
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 if headSHA.isEmpty {

@@ -223,4 +223,40 @@ class WorkflowCancellationWiringTests(unittest.TestCase):
         self.assertIn('if case .cancelRun = action, (response.1 as? HTTPURLResponse)?.statusCode != 202', mutation)
 
 
+class WorkflowTitleTests(unittest.TestCase):
+    def test_both_run_surfaces_use_the_commit_title_with_legacy_fallbacks(self):
+        source = (ROOT / 'RepoPocket/WorkflowSummaryUI.swift').read_text()
+        self.assertEqual(source.count('Text(run.title)'), 2)
+        model = (ROOT / 'RepoPocket/NativeRepositoryModels.swift').read_text()
+        self.assertIn('let head_commit: HeadCommit?', model)
+
+    @unittest.skipUnless(shutil.which('swiftc'), 'Swift model execution requires macOS')
+    def test_decoded_head_commit_subject_and_missing_metadata(self):
+        models = (ROOT / 'RepoPocket/NativeRepositoryModels.swift').read_text()
+        run = models[models.index('struct WorkflowRun:'):models.index('struct WorkflowJobs:')]
+        source = 'import Foundation\n' + run + r'''
+func title(_ fields: [String: Any]) throws -> String {
+    var payload: [String: Any] = ["id": 1, "run_number": 1, "head_sha": "abc", "status": "completed", "created_at": "2026-11-03T00:00:00Z"]
+    payload.merge(fields) { _, new in new }
+    return try JSONDecoder().decode(WorkflowRun.self, from: JSONSerialization.data(withJSONObject: payload)).title
+}
+for (fields, expected): ([String: Any], String) in [
+    (["head_commit": ["message": "测试\n\n提交正文"], "display_title": "自定义运行"], "自定义运行"),
+    (["head_commit": ["message": "测试\n\n提交正文"], "display_title": " "], "测试"),
+    (["head_commit": NSNull(), "display_title": "自定义运行", "name": "Build IPA"], "自定义运行"),
+    (["head_commit": ["message": " \n"], "display_title": "", "name": "Build IPA"], "Build IPA"),
+    ([:], "Workflow")
+] {
+    let actual = try title(fields)
+    precondition(actual == expected)
+}
+print("PASS decoded head commit subject and legacy title fallbacks")
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'main.swift'
+            path.write_text(source)
+            subprocess.run(['swiftc', str(path), '-o', directory + '/titles'], check=True)
+            subprocess.run([directory + '/titles'], check=True)
+
+
 if __name__=='__main__':unittest.main()

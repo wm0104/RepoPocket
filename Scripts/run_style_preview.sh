@@ -97,6 +97,8 @@ RECORDING_PID=$!
 TEST_STATUS=0
 case "${RP_STYLE_TEST_SCOPE:-all}" in
   maintenance-regressions) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSharedGroupCornersSurviveRefreshAndBackNavigation
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowLastCardToLoadMoreUsesCompactGap
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testCompactLocalProjectKeepsMetadataAndImportsAccessible
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalBranchCreationHasConfirmationAndRejectsInvalidName
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalHistoryCommitDetailAndFolding

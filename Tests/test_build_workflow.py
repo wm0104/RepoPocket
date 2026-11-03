@@ -6,6 +6,17 @@ import unittest
 
 
 class BuildWorkflowTests(unittest.TestCase):
+    def test_run_name_is_dynamic_not_a_historic_feature_title(self):
+        source = (REPO_ROOT / '.github/workflows/build.yml').read_text()
+        name = next(line for line in source.splitlines() if line.startswith('run-name:'))
+        self.assertIn('github.event.head_commit.message', name)
+        self.assertIn('github.ref_name', name)
+        self.assertNotIn('增加分支与上游动态', name)
+        self.assertIn('inputs.run_title', name)
+        self.assertIn('run_title:', source)
+        self.assertIn('type: string', source)
+        self.assertIn("default: ''", source)
+
     def test_maintenance_ui_scope_covers_compact_and_upstream_regressions(self):
         script = (REPO_ROOT / 'Scripts/run_style_preview.sh').read_text()
         scope = script.split('maintenance-regressions) TEST_ARGUMENTS=(', 1)[1].split(') ;;', 1)[0]

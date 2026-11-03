@@ -1,8 +1,14 @@
 name: Build IPA
-run-name: 增加分支与上游动态，支持运行工作流并修复图片刷新
+# Manual runs can name their purpose; keep an honest branch fallback when omitted.
+run-name: ${{ inputs.run_title || github.event.head_commit.message || format('Build IPA · {0}', github.ref_name) }}
 on:
   workflow_dispatch:
     inputs:
+      run_title:
+        description: Optional title for this workflow run
+        type: string
+        required: false
+        default: ''
       fork_people_only:
         description: Build the alternative fork people view
         type: boolean
@@ -46,6 +52,10 @@ jobs:
         run: python3 Tests/test_local_git_store.py
       - name: Test local project page lifecycle
         run: python3 Tests/test_local_git_ui.py
+      - name: Test exact local history count and bounded pagination
+        run: python3 Tests/test_local_history_pagination.py
+      - name: Test local branch rename without remote changes
+        run: python3 Tests/test_local_branch_rename.py
       - name: Test long press file deletion and native ZIP completion
         run: python3 Tests/test_file_feedback.py
       - name: Test frozen file sheet requests and dismissal lifecycle

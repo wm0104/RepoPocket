@@ -16,6 +16,8 @@ struct LocalGitBranchManagement: View {
     @State private var confirmingSwitch = false
     @State private var target: LocalGitBranch?
     @State private var deleting: LocalGitBranch?
+    @State private var renaming: LocalGitBranch?
+    @State private var renameName = ""
     @State private var operation: Task<Void, Never>?
     private var valid: Bool { generation == AccountStore.generation && isValid() }
 
@@ -93,6 +95,19 @@ struct LocalGitBranchManagement: View {
         } message: { branch in
             Text("\(branch.name)\n仅删除本地分支，不删除 GitHub 远端分支或项目文件。含有未合并提交的分支会拒绝删除，没有强制删除选项。")
         }
+        .alert("重命名本地分支", isPresented: Binding(
+            get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { branch in
+            TextField("新分支名称", text: $renameName).textInputAutocapitalization(.never).autocorrectionDisabled()
+            Button("取消", role: .cancel) { renaming = nil }
+            Button("重命名") {
+                let name = renameName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { failure = "请输入新分支名称。"; result = ""; return }
+                renaming = nil
+                start("renameBranch", arguments: ["targetRef": branch.reference, "expectedTargetHead": branch.head, "name": name], success: "已重命名为本地分支：" + name)
+            }
+        } message: { branch in
+            Text("\(branch.name)\n只改本地分支名称，不会重命名远端分支，也不会移动你的文件和暂存区。跟踪的远端分支和合并目标保持原样。")
+        }
     }
 
     private func branchButton(_ branch: LocalGitBranch) -> some View {
@@ -107,6 +122,9 @@ struct LocalGitBranchManagement: View {
             }
         }.disabled(busy || branch.current || !valid)
         .contextMenu {
+            if !branch.remote {
+                Button("重命名") { renameName = branch.name; renaming = branch }.disabled(busy || !valid)
+            }
             if !branch.current && !branch.remote {
                 Button("删除本地分支", role: .destructive) { deleting = branch }.disabled(busy || !valid)
             }

@@ -2,6 +2,78 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testSharedGroupCornersSurviveRefreshAndBackNavigation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-soft-group-lifecycle-preview"]
+        app.launch()
+        for name in ["仓库", "本地 Git", "设置"] {
+            app.buttons[name].tap()
+            XCTAssertTrue(app.staticTexts["boundary-last"].waitForExistence(timeout: 10))
+            for cycle in 0..<4 {
+                assertGroupCorners(app, identifier: "boundary-first", top: true, bottom: false)
+                assertGroupCorners(app, identifier: "boundary-last", top: false, bottom: true)
+                assertGroupCorners(app, identifier: "boundary-single", top: true, bottom: true)
+                keepScreenshot(app, name: "group-corners-\(name)-\(cycle)")
+                app.buttons["刷新"].tap()
+                app.buttons["boundary-first"].tap()
+                XCTAssertTrue(app.staticTexts["详情内容"].waitForExistence(timeout: 5))
+                app.navigationBars.buttons.element(boundBy: 0).tap()
+                XCTAssertTrue(app.staticTexts["boundary-last"].waitForExistence(timeout: 5))
+            }
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+    }
+
+    private func assertGroupCorners(_ app: XCUIApplication, identifier: String, top: Bool, bottom: Bool) {
+        let cell = app.descendants(matching: .cell).containing(.any, identifier: identifier).firstMatch
+        XCTAssertTrue(cell.exists, identifier)
+        let frame = cell.frame
+        guard let image = app.screenshot().image.cgImage else { return XCTFail("Missing screenshot") }
+        let scale = CGFloat(image.width) / app.frame.width
+        func pixel(_ x: CGFloat, _ y: CGFloat) -> [Int] {
+            guard let crop = image.cropping(to: CGRect(x: x * scale, y: y * scale, width: 1, height: 1)) else { return [] }
+            var bytes = [UInt8](repeating: 0, count: 4)
+            bytes.withUnsafeMutableBytes { buffer in
+                let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                context.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            }
+            return bytes.prefix(3).map(Int.init)
+        }
+        let background = pixel(2, frame.midY)
+        // Locate the actual card edge; native cells can include the list inset in their AX frame.
+        let left = (0..<80).first { pixel(CGFloat($0), frame.midY).allSatisfy { $0 > 250 } }
+        let right = (0..<80).first { pixel(app.frame.width - 1 - CGFloat($0), frame.midY).allSatisfy { $0 > 250 } }
+        guard let left, let right else { return XCTFail("No visible row fill: \(identifier), \(frame)") }
+        for y in [top ? frame.minY + 3 : nil, bottom ? frame.maxY - 4 : nil].compactMap({ $0 }) {
+            for x in [CGFloat(left) + 3, app.frame.width - CGFloat(right) - 4] {
+                let corner = pixel(x, y)
+                XCTAssertEqual(corner.count, 3)
+                XCTAssertLessThanOrEqual(zip(corner, background).map { abs($0 - $1) }.max() ?? 255, 8,
+                    "Square corner after refresh/back: \(identifier), \(frame), corner=\(corner), background=\(background)")
+            }
+        }
+    }
+
+    func testWorkflowLastCardToLoadMoreUsesCompactGap() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-workflow-selection-style-preview", "-workflow-pagination-preview"]
+        app.launch()
+        let next = app.buttons["加载更多"]
+        for _ in 0..<24 {
+            if next.exists && next.isHittable { break }
+            app.swipeUp()
+        }
+        reveal(next, in: app)
+        let last = app.descendants(matching: .cell).containing(.any, identifier: "workflow-run-30").firstMatch
+        let footer = app.descendants(matching: .cell).containing(.button, identifier: "加载更多").firstMatch
+        XCTAssertTrue(last.exists && footer.exists)
+        XCTAssertGreaterThanOrEqual(footer.frame.minY - last.frame.maxY, 0)
+        XCTAssertLessThanOrEqual(footer.frame.minY - last.frame.maxY, 16)
+        keepScreenshot(app, name: "workflow-pagination-compact-gap")
+    }
     func testUpstreamWatchLinkInputKeepsFormResponsiveAndBranchSelectionExplicit() {
         continueAfterFailure = false
         let app = XCUIApplication()

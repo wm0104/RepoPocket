@@ -46,7 +46,7 @@ struct WorkflowRunSummary: View {
     let run: WorkflowRun
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(run.display_title ?? run.name ?? "Workflow").font(.headline)
+            Text(run.title).font(.headline)
             WorkflowStatusBadge(status: run.status, conclusion: run.conclusion).font(.subheadline)
             Text((run.name ?? "Workflow") + " #\(run.run_number) · " + WorkflowTime.trigger(run.event)).font(.caption).foregroundStyle(.secondary)
             Label(run.head_branch ?? "分支未知", systemImage: "arrow.triangle.branch").font(.caption)
@@ -63,7 +63,7 @@ struct WorkflowRunHeading: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(repo + " / " + (run.name ?? "Actions")).font(.caption).foregroundStyle(.secondary)
-            Text(run.display_title ?? run.name ?? "Workflow").font(.title2.bold())
+            Text(run.title).font(.title2.bold())
             Text((run.name ?? "Workflow") + " #\(run.run_number)").font(.title3).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
     }

@@ -31,7 +31,7 @@ struct SoftGroupShape: Shape {
 
 extension View {
     /// Keep the 1.0.4 shape; paint one inset line without native leading fragments.
-    func softGroupedRow(top: Bool = false, bottom: Bool = false, animateBackground: Bool = true, separatorInset: CGFloat = 20) -> some View {
+    func softGroupedRow(top: Bool = false, bottom: Bool = false, animateBackground: Bool = false, separatorInset: CGFloat = 20) -> some View {
         listRowSeparator(.hidden)
             .listRowBackground(
                 // As in 1.0.4, decoration belongs to this row's layout subtree.
@@ -77,7 +77,7 @@ struct SoftGroupRow: Identifiable {
 struct SoftGroupRows: View {
     private let rows: [SoftGroupRow]
     private let animateBackground: Bool
-    init(animateBackground: Bool = true, @SoftGroupRowsBuilder rows: () -> [SoftGroupRow]) {
+    init(animateBackground: Bool = false, @SoftGroupRowsBuilder rows: () -> [SoftGroupRow]) {
         self.animateBackground = animateBackground
         self.rows = rows()
     }

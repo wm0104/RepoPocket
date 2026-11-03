@@ -92,6 +92,11 @@ struct LocalGitCommit: Codable, Identifiable {
 }
 struct LocalGitHistory: Codable {
     let commits: [LocalGitCommit]
+    var totalCount: Int? = nil
+    var offset: Int? = nil
+    var head: String? = nil
+    var reference: String? = nil
+    var shallow: Bool? = nil
     let ahead: Int
     let behind: Int
     let tracking: Bool

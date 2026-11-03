@@ -132,6 +132,13 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
 
 
 class WorkflowSelectionTests(unittest.TestCase):
+    def test_actions_uses_compact_section_spacing_without_global_appearance(self):
+        source = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text()
+        self.assertIn('.modifier(WorkflowListSpacing())', source)
+        self.assertIn('content.listSectionSpacing(12)', source)
+        self.assertIn('if #available(iOS 17.0, *)', source)
+        self.assertNotIn('UICollectionView.appearance()', source)
+
     def test_run_details_fold_only_secondary_metadata_without_animation(self):
         view = (ROOT/'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8').split('struct WorkflowRunView: View {', 1)[1].split('struct WorkflowArtifactsView:', 1)[0]
         self.assertIn('@State private var detailsExpanded = false', view)

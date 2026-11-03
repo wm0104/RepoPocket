@@ -502,24 +502,66 @@ static git_reference *RPSafeUpstream(git_repository *repo,git_reference *head,BO
     if (rc<0) {RPRequire(!required,@"origin 的同名远端分支不可用，请先检查仓库。");return NULL;}
     return upstream;
 }
-static NSDictionary *RPHistory(git_repository *repo, RPGitResources *c) {
-    git_reference *head = RPHead(repo,c), *upstream = RPSafeUpstream(repo,head,NO,c);
+static NSDictionary *RPHistory(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    // Count OIDs to exhaustion, but only materialize metadata for the requested page.
+    NSInteger offset = 0, limit = 30;
+    for (NSString *key in @[@"offset", @"limit"]) {
+        id value = q[key];
+        if (!value) continue;
+        RPRequire([value isKindOfClass:NSNumber.class], @"历史分页参数无效。");
+        double number = [value doubleValue];
+        RPRequire(number >= 0 && number <= NSIntegerMax && number == [value integerValue], @"历史分页参数无效。");
+        if ([key isEqual:@"offset"]) offset = [value integerValue];
+        else limit = [value integerValue];
+    }
+    RPRequire(limit > 0 && limit <= 30, @"每次最多读取 30 条提交记录。");
+    git_reference *head = RPHead(repo,c);
+    NSString *headID = RPOID(git_reference_target(head)), *reference = @(git_reference_name(head));
+    if (q[@"expectedHead"]) RPRequire([headID isEqual:RPString(q,@"expectedHead")], @"本地提交已变化，请下拉刷新历史后重试。");
+    if (q[@"expectedRef"]) RPRequire([reference isEqual:RPString(q,@"expectedRef")], @"当前分支已变化，请下拉刷新历史后重试。");
+    git_reference *upstream = RPSafeUpstream(repo,head,NO,c);
     size_t ahead = 0, behind = 0; BOOL tracked = upstream!=NULL;
+    RPRequire(!RPIsCancelled(q[@"requestID"]), @"历史读取已取消。");
     if (tracked) RPCheck(git_graph_ahead_behind(&ahead,&behind,repo,git_reference_target(head),git_reference_target(upstream)), @"比较本地与远端历史失败。");
+    int shallow = git_repository_is_shallow(repo); RPCheck(shallow, @"读取本地浅克隆状态失败。");
     git_revwalk *walk = NULL; RPCheck(git_revwalk_new(&walk,repo), @"读取本地历史失败。"); KEEP(walk, git_revwalk_free);
     git_revwalk_sorting(walk,GIT_SORT_TOPOLOGICAL | GIT_SORT_TIME); RPCheck(git_revwalk_push(walk,git_reference_target(head)), @"读取历史失败。");
-    NSMutableArray *commits = [NSMutableArray array]; git_oid oid;
-    while (commits.count < 30 && git_revwalk_next(&oid,walk)==0) {
-        git_commit *commit = NULL; RPCheck(git_commit_lookup(&commit,repo,&oid), @"读取提交失败。"); KEEP(commit, git_commit_free);
-        [commits addObject:@{@"sha":RPOID(&oid), @"message":@(git_commit_summary(commit) ?: ""),
-                             @"author":@(git_commit_author(commit)->name ?: ""), @"time":@(git_commit_time(commit))}];
+    NSMutableArray *commits = [NSMutableArray array]; git_oid oid; NSUInteger total = 0;
+    while (YES) {
+        RPRequire(!RPIsCancelled(q[@"requestID"]), @"历史读取已取消。");
+        int rc = git_revwalk_next(&oid,walk);
+        if (rc == GIT_ITEROVER) break;
+        RPCheck(rc, @"本地历史读取不完整，无法确定提交总数；请检查本地仓库后重试。");
+        if (total >= (NSUInteger)offset && commits.count < (NSUInteger)limit) {
+            git_commit *commit = NULL;
+            RPCheck(git_commit_lookup(&commit,repo,&oid), @"读取提交失败。");
+            @try {
+                [commits addObject:@{@"sha":RPOID(&oid), @"message":@(git_commit_summary(commit) ?: ""),
+                                     @"author":@(git_commit_author(commit)->name ?: ""), @"time":@(git_commit_time(commit))}];
+            } @finally { git_commit_free(commit); }
+        }
+        RPRequire(total < NSIntegerMax, @"本地历史过大，无法准确计数。");
+        total++;
+#ifdef RP_GIT_TESTING
+        // Let native fixtures cancel or move HEAD after traversal has actually started.
+        if (total == 30 && [q[@"testPauseHistory"] boolValue]) {
+            NSString *marker = [@(git_repository_path(repo)) stringByAppendingPathComponent:@"repopocket-test-history-paused"];
+            RPRequire([@"paused" writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:nil], @"无法暂停历史测试。");
+            for (int retry = 0; retry < 10000 && access(marker.fileSystemRepresentation,F_OK) == 0 && !RPIsCancelled(q[@"requestID"]); retry++) usleep(1000);
+        }
+#endif
     }
+    RPRequire(!RPIsCancelled(q[@"requestID"]), @"历史读取已取消。");
+    git_reference *current = RPHead(repo,c);
+    RPRequire([headID isEqual:RPOID(git_reference_target(current))] && [reference isEqual:@(git_reference_name(current))],
+              @"本地提交或分支已变化，请下拉刷新历史后重试。");
     NSString *remoteURL = @""; git_remote *remote = NULL;
     if (git_remote_lookup(&remote,repo,"origin")==0) {
         KEEP(remote,git_remote_free);
         if (git_remote_url(remote) && RPAllowedRemote(@(git_remote_url(remote)))) remoteURL = @(git_remote_url(remote));
     }
-    return @{@"commits":commits, @"ahead":@(ahead), @"behind":@(behind), @"tracking":@(tracked), @"remote":remoteURL};
+    return @{@"commits":commits, @"totalCount":@(total), @"offset":@(offset), @"head":headID, @"reference":reference,
+             @"shallow":(shallow != 0) ? @YES : @NO, @"ahead":@(ahead), @"behind":@(behind), @"tracking":@(tracked), @"remote":remoteURL};
 }
 typedef struct {
     size_t deltas, comparisons;
@@ -976,6 +1018,66 @@ static NSDictionary *RPDeleteBranch(git_repository *repo, NSDictionary *q, RPGit
     return @{@"head":status[@"head"]};
 }
 
+static NSDictionary *RPRenameBranch(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    // Local ref rename only: no checkout, no index write, no remote update.
+    NSDictionary *status=RPStatus(repo,c); RPExpected(status,q); RPBranchState(repo,status);
+    NSString *targetRef=RPString(q,@"targetRef");
+    RPRequire([targetRef hasPrefix:@"refs/heads/"],@"只能重命名本地分支；不会重命名远端跟踪引用或 GitHub 分支。");
+    NSString *oldName=[targetRef substringFromIndex:11]; RPBranch(oldName);
+    NSString *newName=RPString(q,@"name"); RPBranch(newName);
+    RPRequire(![oldName isEqualToString:newName],@"新旧分支名称相同，未做修改。");
+    NSString *newRef=[@"refs/heads/" stringByAppendingString:newName];
+    git_reference *head=RPHead(repo,c);
+    RPRequire(strcmp(targetRef.UTF8String,git_reference_name(head))!=0,@"当前分支暂不支持在 App 内重命名，请先切换到其他分支；不会改动 HEAD、文件或暂存区。");
+    git_transaction *tx=RPLockHead(repo,head,c);
+    RPLockBranch(tx,repo,targetRef,c);
+    git_reference *target=NULL; RPCheck(git_reference_lookup(&target,repo,targetRef.UTF8String),@"目标分支已不存在，请刷新列表。"); KEEP(target,git_reference_free);
+    RPRequire(git_reference_type(target)==GIT_REFERENCE_DIRECT &&
+        [RPOID(git_reference_target(target)) isEqual:RPString(q,@"expectedTargetHead")],@"目标分支已变化，请刷新列表并重新确认。");
+    RPRequire(git_branch_is_checked_out(target)==0,@"分支正在其他工作区使用，不能重命名。");
+    RPAbsentBranch(repo,newRef);
+    RPLockBranch(tx,repo,newRef,c);
+    RPAbsentBranch(repo,newRef);
+    NSString *metadata=@(git_repository_path(repo));
+    git_config *config=NULL,*local=NULL;
+    RPCheck(git_repository_config(&config,repo),@"读取分支配置失败。"); KEEP(config,git_config_free);
+    RPCheck(git_config_open_level(&local,config,GIT_CONFIG_LEVEL_LOCAL),@"本地分支配置不可写，未重命名。"); KEEP(local,git_config_free);
+    git_transaction *configTx=NULL; RPCheck(git_config_lock(&configTx,local),@"分支配置被其他工具锁定，未重命名。"); KEEP(configTx,git_transaction_free);
+    RPLeaseCapture(metadata,@"config.lock",YES,c);
+    git_config *snapshot=NULL; RPCheck(git_config_snapshot(&snapshot,local),@"核对分支配置失败。"); KEEP(snapshot,git_config_free);
+    NSString *newPrefix=[@"branch." stringByAppendingString:newName];
+    git_config_iterator *iterator=NULL; RPCheck(git_config_iterator_new(&iterator,snapshot),@"核对分支配置失败。"); KEEP(iterator,git_config_iterator_free);
+    git_config_entry *entry=NULL; BOOL occupied=NO;
+    // Iterator owns each entry; freeing one here double-frees and crashes.
+    while (git_config_next(&entry,iterator)==0) {
+        if ([@(entry->name) hasPrefix:[newPrefix stringByAppendingString:@"."]]) { occupied=YES; break; }
+    }
+    RPRequire(!occupied,@"新分支名称已有本地配置，未重命名；不会覆盖其他分支设置。");
+    NSString *oldPrefix=[@"branch." stringByAppendingString:oldName];
+    const char *remoteValue=NULL,*mergeValue=NULL;
+    BOOL tracked=git_config_get_string(&remoteValue,snapshot,[[oldPrefix stringByAppendingString:@".remote"] UTF8String])==0 &&
+                 git_config_get_string(&mergeValue,snapshot,[[oldPrefix stringByAppendingString:@".merge"] UTF8String])==0;
+    NSDictionary *fresh=RPStatus(repo,c); RPExpected(fresh,q); RPBranchState(repo,fresh);
+    RPRequire(!RPIsCancelled(q[@"requestID"]),@"重命名已取消，分支、文件和暂存区保持不变。");
+    NSString *journal=[metadata stringByAppendingPathComponent:@"repopocket-transaction.json"];
+    NSData *intent=[NSJSONSerialization dataWithJSONObject:@{@"operation":@"renameBranch",@"reference":@(git_reference_name(head)),
+        @"oldRef":targetRef,@"newRef":newRef,@"oldHead":status[@"head"],@"newHead":RPOID(git_reference_target(target))} options:0 error:nil];
+    RPRequire([intent writeToFile:journal options:NSDataWritingAtomic error:nil],@"无法保存重命名恢复信息，未修改分支。");
+    git_signature *signature=NULL; RPCheck(git_signature_now(&signature,"RepoPocket","local@repopocket.invalid"),@"无法创建操作记录。"); KEEP(signature,git_signature_free);
+    RPCheck(git_transaction_set_target(tx,newRef.UTF8String,git_reference_target(target),signature,"RepoPocket rename branch"),@"重命名分支失败。");
+    RPCheck(git_transaction_remove(tx,targetRef.UTF8String),@"重命名分支失败。");
+    RPCheck(git_transaction_commit(tx),@"重命名分支未完成，请刷新核实；文件和暂存区未修改。");
+    if (tracked) {
+        // Keep the tracked remote and merge target; only the local section name moves.
+        RPCheck(git_config_delete_entry(local,[[oldPrefix stringByAppendingString:@".remote"] UTF8String]),@"分支已重命名，但迁移跟踪配置失败，请在原工具检查。");
+        RPCheck(git_config_delete_entry(local,[[oldPrefix stringByAppendingString:@".merge"] UTF8String]),@"分支已重命名，但迁移跟踪配置失败，请在原工具检查。");
+        RPCheck(git_config_set_string(local,[[newPrefix stringByAppendingString:@".remote"] UTF8String],remoteValue),@"分支已重命名，但保存跟踪远端失败。");
+        RPCheck(git_config_set_string(local,[[newPrefix stringByAppendingString:@".merge"] UTF8String],mergeValue),@"分支已重命名，但保存合并目标失败。");
+    }
+    RPCheck(git_transaction_commit(configTx),@"分支已重命名，但本地配置未更新，请重新检查。");
+    unlink(journal.fileSystemRepresentation);
+    return @{@"head":status[@"head"]};
+}
 static NSDictionary *RPCreate(NSString *op, NSMutableDictionary *q, RPGitResources *c) {
     NSString *remoteURL = RPString(q,@"remote"), *branch = RPString(q,@"branch");
     RPRequire(RPAllowedRemote(remoteURL), @"仅支持 GitHub HTTPS 仓库地址。"); RPBranch(branch);
@@ -1044,7 +1146,7 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
             if ([op isEqual:@"clone"] || [op isEqual:@"associate"]) result = RPCreate(op,q,c);
             else {
                 git_repository *repo = RPOpen(q, c);
-                if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"] || [op isEqual:@"createBranch"] || [op isEqual:@"switchBranch"] || [op isEqual:@"deleteBranch"]) RPScanBudget(repo,requestID,c);
+                if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"] || [op isEqual:@"createBranch"] || [op isEqual:@"switchBranch"] || [op isEqual:@"deleteBranch"] || [op isEqual:@"renameBranch"]) RPScanBudget(repo,requestID,c);
                 if ([op isEqual:@"status"] || [op isEqual:@"inspect"]) result = RPStatus(repo, c);
                 else if ([op isEqual:@"diff"]) result = RPDiff(repo, q, c);
                 else if ([op isEqual:@"pullDiff"]) result = RPPullDiff(repo, q, c);
@@ -1053,9 +1155,10 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
                 else if ([op isEqual:@"createBranch"]) result = RPCreateBranch(repo,q,c);
                 else if ([op isEqual:@"switchBranch"]) result = RPSwitchBranch(repo,q,c);
                 else if ([op isEqual:@"deleteBranch"]) result = RPDeleteBranch(repo,q,c);
-                else if ([op isEqual:@"history"]) result = RPHistory(repo,c);
+                else if ([op isEqual:@"renameBranch"]) result = RPRenameBranch(repo,q,c);
+                else if ([op isEqual:@"history"]) result = RPHistory(repo,q,c);
                 else if ([op isEqual:@"commitDetail"]) result = RPCommitDetail(repo,q,c);
-                else if ([op isEqual:@"fetch"]) { RPFetch(repo,q,c); result = RPHistory(repo,c); }
+                else if ([op isEqual:@"fetch"]) { RPFetch(repo,q,c); result = RPHistory(repo,q,c); }
                 else if ([op isEqual:@"pull"]) result = RPPull(repo,q,c);
                 else if ([op isEqual:@"push"]) result = RPPush(repo,q,c);
                 else if ([op isEqual:@"recover"]) result = RPRecover(repo,q,c);
