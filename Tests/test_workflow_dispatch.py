@@ -48,9 +48,9 @@ class WorkflowDispatchTests(unittest.TestCase):
         self.assertIn('? displayedBranch : ""', view)
         for text in ['SoftGroupRows', 'Picker("工作流"', 'Picker("分支"', 'target.repo',
                      'target.workflow.path', 'target.ref', '.confirmationDialog', 'state.submit(target',
-                     'state.loadWorkflows', 'state.loadBranches', '仅使用默认输入']:
+                     'state.loadWorkflows', 'state.loadBranches', '运行名称会作为 run_title']:
             self.assertIn(text, dispatch)
-        self.assertNotIn('TextField(', dispatch)
+        self.assertIn('TextField("运行名称（选填）", text: $state.runTitle)', dispatch)
         self.assertNotIn('softGroupedRow', dispatch, 'Use the original SoftGroupRows component')
         source = (ROOT / 'RepoPocket/WorkflowDispatch.swift').read_text()
         self.assertIn('branches.contains(where: { $0.name == ref })', source)
@@ -59,8 +59,11 @@ class WorkflowDispatchTests(unittest.TestCase):
         github = (ROOT / 'RepoPocket/GitHub.swift').read_text()
         transport = github.split('    // Dispatch uses the account-bound session and refuses redirects, including reads.\n', 1)[1].split('    func searchUsers', 1)[0]
         self.assertIn('delegate: OfficialUpdateRedirectPolicy()', transport)
-        self.assertIn('["ref": $0]', transport)
-        self.assertNotIn('"inputs"', transport)
+        self.assertIn('inputs.isEmpty ? ["ref": $0] : ["ref": $0, "inputs": inputs]', transport)
+        self.assertIn('inputs: title.isEmpty ? [:] : ["run_title": title]', transport)
+        # The only free-form input allowed is the optional run title.
+        self.assertNotIn('"text"', transport)
+        self.assertIn('"run_title": title', transport)
         self.assertNotIn('requireWriteAccess', transport, 'Actions write errors must not report Contents permission')
 
     @unittest.skipUnless(shutil.which('swiftc'), 'swiftc absent: native URLProtocol tests NOT executed')
@@ -261,6 +264,18 @@ HARNESS += r'''
                                   newRequest: URLRequest(url: location)) { refused = $0 == nil }
         precondition(refused)
         dummy.cancel()
+        // An optional run title is sent as the documented run_title input.
+        let named = WorkflowDispatchState()
+        named.workflowID = 101
+        named.ref = "feature/中文"
+        named.runTitle = "  测试标题  "
+        let namedTarget = named.target("someone/any-repo", api: anyAPI)
+        precondition(namedTarget?.runTitle == "测试标题")
+        precondition(namedTarget != nil)
+        let workspace = WorkflowDispatchState()
+        workspace.workflowID = 101
+        workspace.ref = "feature/中文"
+        precondition(workspace.target("someone/any-repo", api: anyAPI)?.runTitle == "")
         print("PASS production dispatch POST shape, paginated selection, permission failures, only-204 acknowledgement, account isolation, duplicate taps and no unknown-send retry; URLProtocol only")
     }
 }

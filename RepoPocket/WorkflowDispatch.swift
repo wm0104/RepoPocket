@@ -14,6 +14,7 @@ struct WorkflowDispatchTarget: Identifiable {
     let repo: String
     let workflow: DispatchWorkflow
     let ref: String
+    var runTitle: String = ""
     let session: WorkflowDispatchSession
 }
 enum WorkflowDispatchRules {
@@ -26,7 +27,7 @@ enum WorkflowDispatchRules {
         case 401: help = "登录凭据已失效，请重新登录当前账号。"
         case 403: help = permissionHelp + "也请检查 Actions 策略和 API 限流。"
         case 404: help = "仓库、工作流或分支不可访问，请刷新列表并检查私有仓库授权。" + permissionHelp
-        case 422: help = "GitHub 拒绝启动：工作流可能未声明 workflow_dispatch、所选分支不支持手动运行，或缺少必填 inputs。本界面仅使用默认输入，不支持填写额外参数；请到 GitHub 配置或运行。"
+        case 422: help = "GitHub 拒绝启动：工作流可能未声明 workflow_dispatch、所选分支不支持手动运行、缺少必填 inputs，或该工作流没有声明 run_title 输入（删掉运行名称再试）。本界面仅使用默认输入，不支持填写额外参数；请到 GitHub 配置或运行。"
         default: help = dispatch ? "未收到 GitHub 的 204 接受确认，结果未知。请先刷新所选分支的 Actions 核实，勿盲目重试。" : "无法加载列表，请稍后手动刷新。"
         }
         throw AppError(text: "HTTP \(status)：\(help)\n\(reason)")
@@ -46,6 +47,7 @@ enum WorkflowDispatchRules {
     @Published private(set) var error = ""
     @Published var workflowID: Int?
     @Published var ref = ""
+    @Published var runTitle = ""
     private var workflowPage = 1
     private var branchPage = 1
     private var session: WorkflowDispatchSession?
@@ -86,13 +88,16 @@ enum WorkflowDispatchRules {
         guard bind(repo, api: api), !busy, !attempted,
               let workflow = workflows.first(where: { $0.id == workflowID && $0.state == "active" }),
               branches.contains(where: { $0.name == ref }) else { return nil }
-        let target = WorkflowDispatchTarget(repo: repo, workflow: workflow, ref: ref, session: api.workflowDispatchSession)
+        let target = WorkflowDispatchTarget(repo: repo, workflow: workflow, ref: ref,
+                                             runTitle: String(runTitle.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120)),
+                                             session: api.workflowDispatchSession)
         confirmation = target.id
         return target
     }
     func submit(_ target: WorkflowDispatchTarget, api: GitHub, accepted: (String) -> Void) async {
         guard bind(target.repo, api: api), target.session == session, confirmation == target.id,
-              !busy, !attempted, workflowID == target.workflow.id, ref == target.ref else { return }
+              !busy, !attempted, workflowID == target.workflow.id, ref == target.ref,
+              runTitle.trimmingCharacters(in: .whitespacesAndNewlines) == target.runTitle else { return }
         // Consume confirmation before the first suspension; never auto-retry an uncertain POST.
         confirmation = nil; busy = true; attempted = true; error = ""; result = ""
         defer { busy = false }

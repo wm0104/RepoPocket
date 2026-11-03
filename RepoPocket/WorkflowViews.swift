@@ -205,6 +205,11 @@ struct WorkflowDispatchView: View {
                             ForEach(state.branches) { Text($0.name).tag($0.name) }
                         }.accessibilityIdentifier("workflow-dispatch-branch")
                     }
+                    SoftGroupRow("run-title") {
+                        TextField("运行名称（选填）", text: $state.runTitle)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityIdentifier("workflow-dispatch-title")
+                    }
                     if state.loadingBranches { SoftGroupRow("loading-branches") { ProgressView("加载分支…") } }
                     if state.moreBranches {
                         SoftGroupRow("more-branches") {
@@ -215,7 +220,7 @@ struct WorkflowDispatchView: View {
                     } else if state.branches.isEmpty { SoftGroupRow("no-branches") { Text("没有可选择的已有分支。") } }
                 }
             } footer: {
-                Text("仅使用工作流默认输入。GitHub 列表不提供手动触发能力或 inputs 信息；未配置 workflow_dispatch、必填参数没有默认值等情况将由 GitHub 拒绝，不会视为启动成功。")
+                Text("运行名称会作为 run_title 输入发送，只对声明了该输入的工作流有效；其他工作流请留空，否则会被 GitHub 拒绝。其余参数使用工作流默认值。")
             }.disabled(state.attempted || !api.isCurrentSession)
             Section {
                 SoftGroupRows {

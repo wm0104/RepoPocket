@@ -959,9 +959,9 @@ final class GitHub: ObservableObject {
     // Dispatch uses the account-bound session and refuses redirects, including reads.
     var workflowDispatchSession: WorkflowDispatchSession { .init(accountID: accountID, generation: accountGeneration) }
     private func workflowDispatchData(_ repo: String, suffix: String, page: Int? = nil,
-                              ref: String? = nil) async throws -> Data {
+                              ref: String? = nil, inputs: [String: String] = [:]) async throws -> Data {
         try ensureActiveAccount(); try Task.checkCancellation()
-        let body = try ref.map { try JSONSerialization.data(withJSONObject: ["ref": $0]) }
+        let body = try ref.map { try JSONSerialization.data(withJSONObject: inputs.isEmpty ? ["ref": $0] : ["ref": $0, "inputs": inputs]) }
         let query: [URLQueryItem] = page.map { [.init(name: "per_page", value: "100"), .init(name: "page", value: String($0))] } ?? []
         let r = try request(url(Self.repoPath(repo) + suffix, query: query), method: ref == nil ? "GET" : "POST", body: body)
         let result: (Data, URLResponse)
@@ -998,7 +998,10 @@ final class GitHub: ObservableObject {
         let branch = try JSONDecoder().decode(DesktopBranch.self, from: await workflowDispatchData(target.repo, suffix: "/branches/" + Self.component(target.ref)))
         guard branch.name == target.ref else { throw AppError(text: "所选分支已变化，请重新加载分支列表。") }
         try ensureActiveAccount(); try Task.checkCancellation()
-        _ = try await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)/dispatches", ref: target.ref)
+        let title = target.runTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only workflows that declare a matching input accept it; GitHub rejects others with 422.
+        _ = try await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)/dispatches",
+                                           ref: target.ref, inputs: title.isEmpty ? [:] : ["run_title": title])
     }
     func searchUsers(_ query: String, page: Int) async throws -> UserSearchResponse {
         let endpoint = RepositorySearchRules.endpoint(kind: .users, query: query, page: page)
