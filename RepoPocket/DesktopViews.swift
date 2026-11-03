@@ -98,36 +98,6 @@ struct CommitDetailView: View {
         }.listStyle(.insetGrouped).navigationTitle("提交详情").adaptiveWorkspaceLayout()
         .task { if detail == nil { await load() } }
     }
-    private var switcherSection: some View {
-        Section("切换远端浏览分支") {
-            Text("当前：" + current).font(.caption).softGroupedRow(top: true, bottom: branches.isEmpty && !more)
-            ForEach(branches) { b in
-                Button { select(b.name); dismiss() } label: {
-                    HStack { Text(b.name); if b.name == current { Image(systemName: "checkmark") } }
-                }.disabled(busy)
-                .contextMenu {
-                    if canWrite && api.isCurrentSession {
-                        Button { renameName = b.name + "-new"; renaming = b } label: { Label("重命名 GitHub 远端分支", systemImage: "pencil") }
-                            .disabled(busy || b.protected == true || (b.commit?.sha ?? "").isEmpty)
-                        Button(role: .destructive) { deletionMessage = ""; deleting = b } label: { Label("删除 GitHub 远端分支", systemImage: "trash") }
-                            .disabled(!canDelete(b))
-                    }
-                }
-                .softGroupedRow(bottom: b.id == branches.last?.id && !more)
-            }
-            if more { Button("加载更多分支") { Task { await load() } }.disabled(busy).softGroupedRow(bottom: true) }
-        }
-    }
-    @ViewBuilder private var createSection: some View {
-        if canWrite && api.isCurrentSession {
-            Section("从当前分支创建") {
-                TextField("新分支名，例如 feature/mobile", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
-                Text("来源：" + current + " @ " + String(head.prefix(7))).font(.caption).softGroupedRow()
-                Text("只创建新的远端引用，不覆盖已有分支；不切换本地工作区或上传队列的目标。").font(.caption).softGroupedRow()
-                Button("创建并切换") { confirm = true }.disabled(busy || head.isEmpty || !DesktopRules.validBranch(name)).softGroupedRow(bottom: true)
-            }
-        }
-    }
     private func load() async {
         busy = true; defer { busy = false }
         do {
@@ -195,6 +165,36 @@ struct BranchPickerView: View {
                 Button("取消", role: .cancel) { deleting = nil }
             } message: { target in
                 Text(repo + "\n" + target.name + " @ " + String((target.commit?.sha ?? "").prefix(7)) + "\n这会删除 GitHub 上的分支，不是本地跟踪记录。请先确认该分支的提交已保留或合并；本地文件不会删除。")
+            }
+        }
+    }
+    private var switcherSection: some View {
+        Section("切换远端浏览分支") {
+            Text("当前：" + current).font(.caption).softGroupedRow(top: true, bottom: branches.isEmpty && !more)
+            ForEach(branches) { b in
+                Button { select(b.name); dismiss() } label: {
+                    HStack { Text(b.name); if b.name == current { Image(systemName: "checkmark") } }
+                }.disabled(busy)
+                .contextMenu {
+                    if canWrite && api.isCurrentSession {
+                        Button { renameName = b.name + "-new"; renaming = b } label: { Label("重命名 GitHub 远端分支", systemImage: "pencil") }
+                            .disabled(busy || b.protected == true || (b.commit?.sha ?? "").isEmpty)
+                        Button(role: .destructive) { deletionMessage = ""; deleting = b } label: { Label("删除 GitHub 远端分支", systemImage: "trash") }
+                            .disabled(!canDelete(b))
+                    }
+                }
+                .softGroupedRow(bottom: b.id == branches.last?.id && !more)
+            }
+            if more { Button("加载更多分支") { Task { await load() } }.disabled(busy).softGroupedRow(bottom: true) }
+        }
+    }
+    @ViewBuilder private var createSection: some View {
+        if canWrite && api.isCurrentSession {
+            Section("从当前分支创建") {
+                TextField("新分支名，例如 feature/mobile", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
+                Text("来源：" + current + " @ " + String(head.prefix(7))).font(.caption).softGroupedRow()
+                Text("只创建新的远端引用，不覆盖已有分支；不切换本地工作区或上传队列的目标。").font(.caption).softGroupedRow()
+                Button("创建并切换") { confirm = true }.disabled(busy || head.isEmpty || !DesktopRules.validBranch(name)).softGroupedRow(bottom: true)
             }
         }
     }
