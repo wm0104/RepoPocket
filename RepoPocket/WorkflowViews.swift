@@ -51,9 +51,13 @@ struct WorkflowRunsView: View {
                 if store.loaded && store.items.isEmpty {
                     SoftGroupRow("empty") { Text(headSHA.isEmpty ? "暂无运行记录" : "尚未发现本次提交的运行。GitHub 可能仍在排队，也可能未配置此分支的 push 工作流，请稍后刷新；不会自动触发或显示其他提交。") }
                 }
+                // Paging rows stay in this group: a separate section leaves an iOS 16 gap
+                // and the split groups lose their outer rounded corners.
+                if store.busy { SoftGroupRow("page-loading") { ProgressView("加载中…") } }
+                if !store.error.isEmpty { SoftGroupRow("page-error") { Text(store.error).font(.caption).textSelection(.enabled) } }
+                if store.more { SoftGroupRow("page-next") { Button(store.error.isEmpty ? "加载更多" : "重试") { load() }.disabled(store.busy || selection.busy) } }
+                if store.limited { SoftGroupRow("page-limited") { Text("已显示前 300 条。").font(.caption).foregroundStyle(.secondary) } }
             }
-            // Paging stays in this section; a separate footer section is a large iOS 16 gap.
-            CommunityPageFooter(store: store, next: { load() }, inline: true).disabled(selection.busy)
         }
     }
     var body: some View {

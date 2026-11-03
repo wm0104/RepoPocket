@@ -137,7 +137,8 @@ class WorkflowSelectionTests(unittest.TestCase):
         # section itself for the iOS 16 gap to actually go away.
         source = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text()
         runs = source.split('for run in store.items', 1)[1].split('if selection.busy ||', 1)[0]
-        self.assertIn('CommunityPageFooter(store: store, next: { load() }, inline: true)', runs)
+        self.assertIn('if store.more { SoftGroupRow("page-next")', runs)
+        self.assertIn('if store.busy { SoftGroupRow("page-loading")', runs)
         self.assertNotIn('WorkflowListSpacing', source)
         self.assertNotIn('listSectionSpacing', source)
         self.assertNotIn('UICollectionView.appearance()', source)
