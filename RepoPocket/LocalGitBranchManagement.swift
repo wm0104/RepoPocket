@@ -17,6 +17,7 @@ struct LocalGitBranchManagement: View {
     @State private var target: LocalGitBranch?
     @State private var deleting: LocalGitBranch?
     @State private var renaming: LocalGitBranch?
+    @State private var merging: LocalGitBranch?
     @State private var renameName = ""
     @State private var operation: Task<Void, Never>?
     private var valid: Bool { generation == AccountStore.generation && isValid() }
@@ -67,6 +68,14 @@ struct LocalGitBranchManagement: View {
         .task { await load() }
         .refreshable { await load() }
         .onDisappear { operation?.cancel() }
+        .sheet(item: $merging) { branch in
+            NavigationStack {
+                LocalGitMergeView(project: project, metadata: metadata, internalRoot: internalRoot,
+                    generation: generation, isValid: isValid, source: branch) {
+                    branches = nil; changed()
+                }
+            }.appSheetCornerRadius()
+        }
         .alert("从当前 HEAD 新建并切换", isPresented: $creating) {
             TextField("新分支名称", text: $newName).textInputAutocapitalization(.never).autocorrectionDisabled()
             Button("取消", role: .cancel) {}
@@ -126,6 +135,8 @@ struct LocalGitBranchManagement: View {
                 Button("重命名") { renameName = branch.name; renaming = branch }.disabled(busy || !valid)
             }
             if !branch.current && !branch.remote {
+                Button("合并到当前分支…") { merging = branch }.disabled(busy || !valid)
+                    .accessibilityIdentifier("localgit.merge-" + branch.name)
                 Button("删除本地分支", role: .destructive) { deleting = branch }.disabled(busy || !valid)
             }
         }

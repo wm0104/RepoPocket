@@ -2,6 +2,59 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testLocalMergePreviewUsesCurrentBranchAndDoesNotPush() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-local-git-style-preview", "-local-merge-style-preview"]
+        app.launch()
+        let entry = app.buttons["localgit.merge"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 40)); reveal(entry, in: app); entry.tap()
+        let source = app.buttons["localgit.merge-source-source"]
+        XCTAssertTrue(source.waitForExistence(timeout: 15)); source.tap()
+        let preview = app.buttons["localgit.merge-preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 10)); preview.tap()
+        let changedFile = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "merge.txt")).firstMatch
+        XCTAssertTrue(changedFile.waitForExistence(timeout: 20), "The native merge preview must show the source change")
+        keepScreenshot(app, name: "local-branch-merge-preview")
+        XCTAssertFalse(app.buttons["推送本地提交"].exists, "Preview does not open the push flow")
+    }
+
+    func testRemoteMergeRequiresPreviewAndExplicitSquashConfirmation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-remote-branch-merge-preview"]
+        app.launch()
+        let source = app.buttons["remote-branch-source"]
+        XCTAssertTrue(source.waitForExistence(timeout: 20)); source.press(forDuration: 1)
+        let merge = app.buttons["合并到其他分支…"]
+        XCTAssertTrue(merge.waitForExistence(timeout: 5)); merge.tap()
+        let targetPicker = app.buttons["branch-merge-target"]
+        XCTAssertTrue(targetPicker.waitForExistence(timeout: 10)); targetPicker.tap()
+        let target = app.buttons["target"]
+        XCTAssertTrue(target.waitForExistence(timeout: 10)); target.tap()
+        let title = app.textFields["branch-merge-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5)); title.tap(); dismissKeyboardIntroduction(app)
+        title.typeText("合并测试来源")
+        let preview = app.buttons["branch-merge-preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 5)); preview.tap()
+        let changedFile = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "demo.txt")).firstMatch
+        XCTAssertTrue(changedFile.waitForExistence(timeout: 15), "Read-only preview must include file changes before PR creation")
+        keepScreenshot(app, name: "remote-branch-merge-preview")
+        let create = app.buttons["branch-merge-open-pr"]
+        XCTAssertTrue(create.waitForExistence(timeout: 5)); create.tap()
+        let refresh = app.buttons["branch-merge-refresh"]
+        XCTAssertTrue(refresh.waitForExistence(timeout: 10)); reveal(refresh, in: app); refresh.tap()
+        let submit = app.buttons["branch-merge-confirm"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 15))
+        keepScreenshot(app, name: "remote-branch-squash-confirm")
+        app.buttons["取消"].tap()
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5)); refresh.tap()
+        XCTAssertTrue(submit.waitForExistence(timeout: 15)); submit.tap()
+        let result = app.staticTexts["branch-merge-result"]
+        XCTAssertTrue(result.waitForExistence(timeout: 20))
+        XCTAssertTrue(result.label.contains("已") && result.label.contains("合并"), result.label)
+        keepScreenshot(app, name: "remote-branch-squash-result")
+    }
     func testSharedGroupCornersSurviveRefreshAndBackNavigation() {
         continueAfterFailure = false
         let app = XCUIApplication()

@@ -33,6 +33,19 @@ mkdir -p "$PREVIEW_ROOT"
 git -C "$PREVIEW_ROOT" init -b master
 git -C "$PREVIEW_ROOT" config user.name 'RepoPocket UI Test'
 git -C "$PREVIEW_ROOT" config user.email 'ui-test@repopocket.invalid'
+# A separate, clean repository exercises local merge without altering editor fixtures.
+MERGE_ROOT="$APP_CONTAINER/Documents/本地合并预览"
+mkdir -p "$MERGE_ROOT"
+git -C "$MERGE_ROOT" init -b target
+git -C "$MERGE_ROOT" config user.name 'RepoPocket UI Test'
+git -C "$MERGE_ROOT" config user.email 'ui-test@repopocket.invalid'
+printf '%s\n' 'before merge' > "$MERGE_ROOT/merge.txt"
+git -C "$MERGE_ROOT" add merge.txt
+git -C "$MERGE_ROOT" commit -m '合并测试基线'
+git -C "$MERGE_ROOT" checkout -b source
+printf '%s\n' 'after merge' > "$MERGE_ROOT/merge.txt"
+git -C "$MERGE_ROOT" commit -am '合并测试来源提交'
+git -C "$MERGE_ROOT" checkout target
 printf '%s\n' '# Python 示例' 'print("before")' > "$PREVIEW_ROOT/示例.py"
 git -C "$PREVIEW_ROOT" add --all
 git -C "$PREVIEW_ROOT" commit -m '初始 Python 示例'
@@ -96,6 +109,10 @@ xcrun simctl io "$DEVICE" recordVideo --codec=h264 screenshots/local-git-interac
 RECORDING_PID=$!
 TEST_STATUS=0
 case "${RP_STYLE_TEST_SCOPE:-all}" in
+  branch-merge) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalMergePreviewUsesCurrentBranchAndDoesNotPush
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRemoteMergeRequiresPreviewAndExplicitSquashConfirmation
+  ) ;;
   maintenance-regressions) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSharedGroupCornersSurviveRefreshAndBackNavigation
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowLastCardToLoadMoreUsesCompactGap

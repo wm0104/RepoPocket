@@ -887,6 +887,42 @@ final class GitHub: ObservableObject {
     }
     // Native collaboration transport: allowed routes and bodies are constructed
     // by CommunityMutationRules, never from a user-supplied API path.
+    // BEGIN RemoteBranchMerge transport
+    var remoteBranchMergeSession: RemoteBranchMergeSession { .init(accountID: accountID, generation: accountGeneration) }
+    func remoteBranchMergeData(_ repo: String, suffix: String, method: String = "GET",
+                               object: [String: Any]? = nil, query: [URLQueryItem] = []) async throws -> Data {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard method == "GET" || (method == "POST" && suffix == "/pulls") ||
+                (method == "PUT" && suffix.range(of: "^/pulls/[1-9][0-9]*/merge$", options: .regularExpression) != nil) else {
+            throw AppError(text: "不支持的远端 PR 操作。")
+        }
+        let body = try object.map { try JSONSerialization.data(withJSONObject: $0) }
+        var r = try request(url(Self.repoPath(repo) + suffix, query: query), method: method, body: body)
+        r.timeoutInterval = 30
+        let file: URL
+        let response: URLResponse
+        do { (file, response) = try await session.download(for: r, delegate: RemoteBranchMergeBudget()) }
+        catch {
+            try ensureActiveAccount(); try Task.checkCancellation()
+            if method != "GET" { throw AppError(text: "PR 写入结果未知；仅可只读核实，勿直接重试。\n" + error.localizedDescription) }
+            throw error
+        }
+        defer { try? FileManager.default.removeItem(at: file) }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let bytes = try await Task.detached { () -> Data in
+            let handle = try FileHandle(forReadingFrom: file); defer { try? handle.close() }
+            return try handle.read(upToCount: RemoteBranchMergeBudget.limit + 1) ?? Data()
+        }.value
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard bytes.count <= RemoteBranchMergeBudget.limit else { throw AppError(text: "PR 响应超过 8 MiB，已停止；写入如已发送，请只读核实。") }
+        try check(bytes, response, operation: "远端 PR Squash")
+        let expected = method == "POST" ? 201 : 200
+        guard (response as? HTTPURLResponse)?.statusCode == expected else {
+            throw AppError(text: method == "GET" ? "PR 读取未返回完整成功响应。" : "PR 写入响应未确认（需要 HTTP \(expected)），请只读核实，勿重发写入。")
+        }
+        return bytes
+    }
+    // END RemoteBranchMerge transport
     func communityMutate(_ repo: String, action: CommunityMutation, title: String = "", text: String = "") async throws -> Data {
         try ensureActiveAccount(); try Task.checkCancellation()
         let change = try CommunityMutationRules.request(action, title: title, text: text)

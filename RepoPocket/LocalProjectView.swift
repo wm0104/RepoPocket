@@ -343,6 +343,17 @@ struct LocalProjectView: View {
                         }
                     }.buttonStyle(.borderless).disabled(busy || !state.fresh || snapshot.history.remote.isEmpty)
                 }
+                SoftGroupRow("merge") {
+                    NavigationLink("合并本地分支…") {
+                        LocalGitMergeSourcePicker(project: project, metadata: store.metadata(project), internalRoot: store.internalRoot,
+                            generation: generation, isValid: { valid }) {
+                            state.filesChanged(); state.selected.removeAll(); resetHistoryPages()
+                            build = nil; pullSummary = nil
+                            note = "本地合并操作已结束，请重新检查当前分支与文件；不会自动推送。"
+                        }
+                    }.disabled(busy || !state.fresh || !valid)
+                        .accessibilityIdentifier("localgit.merge")
+                }
                 if let build, valid {
                     SoftGroupRow("build") {
                         NavigationLink("查看本次构建") { WorkflowRunsView(api: api, repo: build.repo, branch: build.branch, headSHA: build.sha) }

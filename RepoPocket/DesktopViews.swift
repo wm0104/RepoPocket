@@ -127,6 +127,7 @@ struct BranchPickerView: View {
     @State private var deletion: Task<Void, Never>?
     @State private var deletionMessage = ""
     @State private var renaming: DesktopBranch?
+    @State private var merging: DesktopBranch?
     @State private var renameName = ""
     var body: some View {
         NavigationStack {
@@ -142,6 +143,11 @@ struct BranchPickerView: View {
             .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
             .task { await load(); await captureHead(); await captureDefaultBranch() }
             .onDisappear { deletion?.cancel() }
+            .sheet(item: $merging) { source in
+                NavigationStack {
+                    RemoteBranchMergeView(api: api, repo: repo, source: source.name)
+                }.appSheetCornerRadius()
+            }
             .confirmationDialog("从 \(current) @ \(head.prefix(7)) 创建 \(name)？", isPresented: $confirm, titleVisibility: .visible) {
                 Button("确认创建远端分支") { Task { await create() } }
             }
@@ -175,8 +181,12 @@ struct BranchPickerView: View {
                 Button { select(b.name); dismiss() } label: {
                     HStack { Text(b.name); if b.name == current { Image(systemName: "checkmark") } }
                 }.disabled(busy)
+                .accessibilityIdentifier("remote-branch-" + b.name)
                 .contextMenu {
                     if canWrite && api.isCurrentSession {
+                        Button("合并到其他分支…") { merging = b }
+                            .disabled(busy || b.commit?.sha.isEmpty != false)
+                            .accessibilityIdentifier("remote-branch-merge-" + b.name)
                         Button { renameName = b.name + "-new"; renaming = b } label: { Label("重命名 GitHub 远端分支", systemImage: "pencil") }
                             .disabled(busy || b.protected == true || (b.commit?.sha ?? "").isEmpty)
                         Button(role: .destructive) { deletionMessage = ""; deleting = b } label: { Label("删除 GitHub 远端分支", systemImage: "trash") }
