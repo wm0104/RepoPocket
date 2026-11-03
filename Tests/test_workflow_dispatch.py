@@ -264,18 +264,14 @@ HARNESS += r'''
                                   newRequest: URLRequest(url: location)) { refused = $0 == nil }
         precondition(refused)
         dummy.cancel()
-        // An optional run title is sent as the documented run_title input.
-        let named = WorkflowDispatchState()
-        named.workflowID = 101
-        named.ref = "feature/中文"
-        named.runTitle = "  测试标题  "
-        let namedTarget = named.target("someone/any-repo", api: anyAPI)
-        precondition(namedTarget?.runTitle == "测试标题")
-        precondition(namedTarget != nil)
-        let workspace = WorkflowDispatchState()
-        workspace.workflowID = 101
-        workspace.ref = "feature/中文"
-        precondition(workspace.target("someone/any-repo", api: anyAPI)?.runTitle == "")
+        // An optional run title travels with the confirmed target; it is trimmed.
+        let titled = await WorkflowDispatchState.prepared(api)
+        titled.runTitle = "  测试标题  "
+        let titledTarget: WorkflowDispatchTarget? = titled.target("someone/any-repo", api: api)
+        precondition(titledTarget?.runTitle == "测试标题")
+        titled.runTitle = ""
+        let untitled: WorkflowDispatchTarget? = titled.target("someone/any-repo", api: api)
+        precondition(untitled?.runTitle == "")
         print("PASS production dispatch POST shape, paginated selection, permission failures, only-204 acknowledgement, account isolation, duplicate taps and no unknown-send retry; URLProtocol only")
     }
 }
