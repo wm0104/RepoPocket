@@ -53,7 +53,8 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(refresh.waitForExistence(timeout: 5)); refresh.tap()
         XCTAssertTrue(submit.waitForExistence(timeout: 15)); submit.tap()
         let result = app.staticTexts["branch-merge-result"]
-        XCTAssertTrue(result.waitForExistence(timeout: 20))
+        reveal(result, in: app)
+        XCTAssertTrue(result.waitForExistence(timeout: 20), "The verified result must be visible: " + app.debugDescription)
         XCTAssertTrue(result.label.contains("已") && result.label.contains("合并"), result.label)
         keepScreenshot(app, name: "remote-branch-squash-result")
     }
