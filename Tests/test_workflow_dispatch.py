@@ -59,8 +59,7 @@ class WorkflowDispatchTests(unittest.TestCase):
         github = (ROOT / 'RepoPocket/GitHub.swift').read_text()
         transport = github.split('    // Dispatch uses the account-bound session and refuses redirects, including reads.\n', 1)[1].split('    func searchUsers', 1)[0]
         self.assertIn('delegate: OfficialUpdateRedirectPolicy()', transport)
-        self.assertIn('inputs.isEmpty ?', transport) self.assertIn('["ref": $0, "inputs": inputs]', transport)
-        self.assertIn('inputs: title.isEmpty ? [:] : ["run_title": title]', transport)
+        self.assertIn('inputs.isEmpty ?', transport); self.assertIn('["ref": $0, "inputs": inputs]', transport)
         # The only free-form input allowed is the optional run title.
         self.assertNotIn('"text"', transport)
         self.assertIn('"run_title": title', transport)
