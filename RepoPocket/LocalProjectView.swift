@@ -14,6 +14,11 @@ struct LocalProjectView: View {
     @State private var accountID = AccountStore.activeID
     @State private var sheet: LocalProjectSheet?
     @State private var historyExpanded = false
+    @State private var historyPages: [LocalGitCommit] = []
+    @State private var historyPageKey = ""
+    @State private var historyError = ""
+    @State private var historyTask: Task<Void, Never>?
+    @State private var historyRequestID: UUID?
     @State private var pendingCommit = false
     @State private var syncing: String?
     @State private var note = ""
@@ -103,7 +108,7 @@ struct LocalProjectView: View {
                 .toolbar { Button("关闭") { choosingImportTarget = false } }
             }.appSheetCornerRadius()
         }
-        .onDisappear { state.cancel(); importer.cancel() }
+        .onDisappear { state.cancel(); importer.cancel(); resetHistoryPages() }
     }
     private var projectSheets: some View {
         projectList
@@ -338,6 +343,17 @@ struct LocalProjectView: View {
                         }
                     }.buttonStyle(.borderless).disabled(busy || !state.fresh || snapshot.history.remote.isEmpty)
                 }
+                SoftGroupRow("merge") {
+                    NavigationLink("合并本地分支…") {
+                        LocalGitMergeSourcePicker(project: project, metadata: store.metadata(project), internalRoot: store.internalRoot,
+                            generation: generation, isValid: { valid }) {
+                            state.filesChanged(); state.selected.removeAll(); resetHistoryPages()
+                            build = nil; pullSummary = nil
+                            note = "本地合并操作已结束，请重新检查当前分支与文件；不会自动推送。"
+                        }
+                    }.disabled(busy || !state.fresh || !valid)
+                        .accessibilityIdentifier("localgit.merge")
+                }
                 if let build, valid {
                     SoftGroupRow("build") {
                         NavigationLink("查看本次构建") { WorkflowRunsView(api: api, repo: build.repo, branch: build.branch, headSHA: build.sha) }
@@ -349,17 +365,23 @@ struct LocalProjectView: View {
     }
 
     private func historySection(_ snapshot: LocalGitSnapshot) -> some View {
-        Section {
+        let key = historyIdentity(snapshot)
+        let commits = snapshot.history.commits + (historyPageKey == key ? historyPages : [])
+        return Section {
             SoftGroupRows(animateBackground: false) {
                 SoftGroupRow("disclosure") {
                     Button {
                         UIRules.withoutAnimation { historyExpanded.toggle() }
                     } label: {
-                        HStack { Label("本地提交历史", systemImage: "clock.arrow.circlepath"); Spacer(); Text("\(snapshot.history.commits.count)").foregroundStyle(.secondary); Image(systemName: historyExpanded ? "chevron.up" : "chevron.down").font(.caption) }
+                        HStack { Label("本地提交历史", systemImage: "clock.arrow.circlepath"); Spacer(); Text(snapshot.history.totalCount.map { String($0) } ?? "总数未知").foregroundStyle(.secondary); Image(systemName: historyExpanded ? "chevron.up" : "chevron.down").font(.caption) }
                     }.buttonStyle(.plain).accessibilityValue(historyExpanded ? "已展开" : "已折叠")
                 }
                 if historyExpanded {
-                    for commit in snapshot.history.commits {
+                    SoftGroupRow("history-scope") {
+                        Text(snapshot.history.shallow == true ? "浅克隆：仅统计当前 HEAD 可达且本地已有的提交。" : "仅统计当前 HEAD 可达的本地提交。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    for commit in commits {
                         SoftGroupRow(commit.id) {
                             NavigationLink {
                                 LocalProjectCommitView(project: project, metadata: store.metadata(project), internalRoot: store.internalRoot, sha: commit.sha)
@@ -372,6 +394,19 @@ struct LocalProjectView: View {
                             }
                         }
                     }
+                    if let total = snapshot.history.totalCount, commits.count < total {
+                        SoftGroupRow("history-more") {
+                            if historyTask != nil {
+                                HStack { ProgressView("读取历史…"); Spacer(); Button("取消") { resetHistoryPages() } }
+                            } else {
+                                Button("加载更多（已显示 \(commits.count) / \(total)）") { loadMoreHistory(snapshot) }
+                                    .disabled(busy || !state.fresh || !valid)
+                            }
+                        }
+                    }
+                    if !historyError.isEmpty {
+                        SoftGroupRow("history-error") { Text(historyError).font(.caption).foregroundStyle(.red) }
+                    }
                     SoftGroupRow("collapse") {
                         Button("收起提交记录") {
                             UIRules.withoutAnimation { historyExpanded = false }
@@ -381,12 +416,68 @@ struct LocalProjectView: View {
             }
         }
         .transaction { $0.animation = nil; $0.disablesAnimations = true }
+        .onChange(of: key) { _ in resetHistoryPages() }
+        .onChange(of: historyExpanded) { expanded in if !expanded { resetHistoryPages() } }
+        .onChange(of: busy) { value in if value { resetHistoryPages() } }
+    }
+    private func historyIdentity(_ snapshot: LocalGitSnapshot) -> String {
+        [generation.uuidString, accountID, project.id.uuidString, project.identity,
+         snapshot.status.head, snapshot.status.reference].joined(separator: "|")
+    }
+    private func resetHistoryPages() {
+        historyTask?.cancel()
+        historyTask = nil
+        historyRequestID = nil
+        historyPages = []
+        historyPageKey = ""
+        historyError = ""
+    }
+    private func loadMoreHistory(_ snapshot: LocalGitSnapshot) {
+        guard valid, !busy, state.fresh, historyTask == nil,
+              let total = snapshot.history.totalCount else { return }
+        let key = historyIdentity(snapshot)
+        if historyPageKey != key { resetHistoryPages(); historyPageKey = key }
+        let offset = snapshot.history.commits.count + historyPages.count
+        guard offset < total else { return }
+        let requestID = UUID()
+        historyRequestID = requestID
+        historyError = ""
+        historyTask = Task {
+            defer {
+                if historyRequestID == requestID { historyTask = nil; historyRequestID = nil }
+            }
+            do {
+                let page: LocalGitHistory = try await LocalGitEngine.shared.run("history", project: project,
+                    metadata: store.metadata(project), internalRoot: store.internalRoot,
+                    arguments: ["expectedHead": snapshot.status.head, "expectedRef": snapshot.status.reference,
+                                "offset": offset, "limit": 30], generation: generation)
+                try Task.checkCancellation()
+                guard valid, !busy, state.fresh, historyRequestID == requestID,
+                      let current = state.snapshot, historyIdentity(current) == key else { return }
+                guard page.head == snapshot.status.head, page.reference == snapshot.status.reference,
+                      page.totalCount == total, page.offset == offset,
+                      page.commits.count == min(30, total - offset),
+                      Set((snapshot.history.commits + historyPages + page.commits).map(\.sha)).count == offset + page.commits.count else {
+                    throw LocalGitError(text: "本地历史已变化或分页不完整，请下拉刷新后重试。")
+                }
+                historyPages.append(contentsOf: page.commits)
+            } catch is CancellationError {
+                // The next snapshot owns the history after cancellation.
+            } catch {
+                guard valid, historyRequestID == requestID,
+                      let current = state.snapshot, historyIdentity(current) == key else { return }
+                historyPages = []
+                historyError = "读取更多本地历史失败：" + error.localizedDescription
+            }
+        }
     }
     private func snapshot() async throws -> LocalGitSnapshot {
+        resetHistoryPages()
         guard valid else { throw CancellationError() }
         if ProcessInfo.processInfo.thermalState == .serious || ProcessInfo.processInfo.thermalState == .critical { throw LocalGitError(text:"设备当前温度较高，已暂停 Git 检查；降温后可手动重试。") }
         let status:LocalGitStatus = try await LocalGitEngine.shared.run("status",project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,generation:generation)
-        let history:LocalGitHistory = try await LocalGitEngine.shared.run("history",project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,generation:generation)
+        let history:LocalGitHistory = try await LocalGitEngine.shared.run("history",project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
+            arguments:["expectedHead":status.head,"expectedRef":status.reference],generation:generation)
         let files = status.files
         fileSizes = try await LocalGitEngine.shared.file(project: project, internalRoot: store.internalRoot, generation: generation) { root in
             var sizes: [String: Int64] = [:]

@@ -33,11 +33,12 @@ private final class WorkflowSelectionPreviewProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     private static var runs: [[String: Any]] {
-        (1...4).map { id in
+        let paginated = ProcessInfo.processInfo.arguments.contains("-workflow-pagination-preview")
+        return (1...(paginated ? 30 : 4)).map { id in
             var row: [String: Any] = ["id": id, "name": "Build IPA", "run_number": id, "head_sha": "fixture-sha",
                 "created_at": "2026-10-20T00:00:00Z", "run_started_at": "2026-10-20T00:00:00Z",
                 "updated_at": "2026-10-20T00:08:00Z", "event": "workflow_dispatch"]
-            row["display_title"] = ["失败运行一", "失败运行二", "进行中的运行", "另一分支成功运行"][id-1]
+            row["display_title"] = ["失败运行一", "失败运行二", "进行中的运行", "另一分支成功运行"][(id-1) % 4]
             row["head_branch"] = id == 4 ? "feature" : "main"
             row["status"] = id == 3 ? "in_progress" : "completed"
             if id != 3 { row["conclusion"] = id == 4 ? "success" : "failure" }

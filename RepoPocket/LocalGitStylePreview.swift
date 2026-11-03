@@ -25,7 +25,8 @@ struct LocalGitStylePreview: View {
         .task {
             guard project == nil, failure.isEmpty else { return }
             do {
-                let root = store.internalRoot.appendingPathComponent("本地提交预览", isDirectory: true)
+                let fixtureName = ProcessInfo.processInfo.arguments.contains("-local-merge-style-preview") ? "本地合并预览" : "本地提交预览"
+                let root = store.internalRoot.appendingPathComponent(fixtureName, isDirectory: true)
                 NSLog("LocalGitPreview: preparing %@", root.path)
                 let prepared = try store.prepare(root)
                 NSLog("LocalGitPreview: prepared")

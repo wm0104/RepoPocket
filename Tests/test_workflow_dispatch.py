@@ -48,9 +48,9 @@ class WorkflowDispatchTests(unittest.TestCase):
         self.assertIn('? displayedBranch : ""', view)
         for text in ['SoftGroupRows', 'Picker("工作流"', 'Picker("分支"', 'target.repo',
                      'target.workflow.path', 'target.ref', '.confirmationDialog', 'state.submit(target',
-                     'state.loadWorkflows', 'state.loadBranches', '仅使用默认输入']:
+                     'state.loadWorkflows', 'state.loadBranches', '运行名称会作为 run_title']:
             self.assertIn(text, dispatch)
-        self.assertNotIn('TextField(', dispatch)
+        self.assertIn('TextField("运行名称（选填）", text: $state.runTitle)', dispatch)
         self.assertNotIn('softGroupedRow', dispatch, 'Use the original SoftGroupRows component')
         source = (ROOT / 'RepoPocket/WorkflowDispatch.swift').read_text()
         self.assertIn('branches.contains(where: { $0.name == ref })', source)
@@ -59,8 +59,11 @@ class WorkflowDispatchTests(unittest.TestCase):
         github = (ROOT / 'RepoPocket/GitHub.swift').read_text()
         transport = github.split('    // Dispatch uses the account-bound session and refuses redirects, including reads.\n', 1)[1].split('    func searchUsers', 1)[0]
         self.assertIn('delegate: OfficialUpdateRedirectPolicy()', transport)
-        self.assertIn('["ref": $0]', transport)
-        self.assertNotIn('"inputs"', transport)
+        self.assertIn('inputs.isEmpty ?', transport)
+        self.assertIn('["ref": $0, "inputs": inputs]', transport)
+        # The only free-form input allowed is the optional run title.
+        self.assertNotIn('"text"', transport)
+        self.assertIn('"run_title": title', transport)
         self.assertNotIn('requireWriteAccess', transport, 'Actions write errors must not report Contents permission')
 
     @unittest.skipUnless(shutil.which('swiftc'), 'swiftc absent: native URLProtocol tests NOT executed')
@@ -165,7 +168,7 @@ HARNESS += r'''
     @MainActor static func prepared(_ api: GitHub) async -> WorkflowDispatchState {
         let state = WorkflowDispatchState()
         await state.loadWorkflows("someone/any-repo", api: api)
-        precondition(state.workflows.count == 100 && state.moreWorkflows)
+        precondition(state.workflows.count == 100 && state.moreWorkflows, "数量=\(state.workflows.count), 请求数=\(DispatchFixture.requests.count), 会话有效=\(api.isCurrentSession), 加载中=\(state.loadingWorkflows), 错误=\(state.error)")
         await state.loadWorkflows("someone/any-repo", api: api)
         precondition(state.workflows.count == 101 && !state.moreWorkflows)
         await state.loadBranches("someone/any-repo", api: api)
@@ -201,6 +204,21 @@ HARNESS += r'''
         precondition(state.target("someone/any-repo", api: api) == nil)
         await state.submit(target, api: api) { _ in preconditionFailure("Consumed target") }
         precondition(DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count == 1)
+
+        // Exercise normal title submission before the account-revocation cases below.
+        let titled = await prepared(api)
+        titled.runTitle = "  测试标题  "
+        let titledTarget = titled.target("someone/any-repo", api: api)!
+        precondition(titledTarget.runTitle == "测试标题")
+        let beforeTitled = DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count
+        var titledAccepted = 0
+        await titled.submit(titledTarget, api: api) { _ in titledAccepted += 1 }
+        let titledPosts = DispatchFixture.requests.filter { $0.httpMethod == "POST" }
+        precondition(titledAccepted == 1 && titledPosts.count == beforeTitled + 1)
+        let titledBody = try JSONSerialization.jsonObject(with: DispatchFixture.body(titledPosts.last!)) as! [String: Any]
+        precondition(titledBody["ref"] as? String == "feature/中文")
+        precondition(titledBody["inputs"] as? [String: String] == ["run_title": "测试标题"])
+        precondition(api.isCurrentSession)
 
         for (code, help) in [(401, "重新登录"), (403, "Actions: write"), (404, "仓库"), (422, "workflow_dispatch"), (200, "204"), (202, "204"), (500, "未知")] {
             DispatchFixture.status = code

@@ -26,6 +26,40 @@ struct WorkflowRunsView: View {
     @State private var showingDispatch = false
     @State private var dispatchedBranch: String?
     private var displayedBranch: String { dispatchedBranch ?? branch }
+    private var runsSection: some View {
+        Section {
+            SoftGroupRows {
+                for run in store.items {
+                    SoftGroupRow(String(run.id)) {
+                        if selection.active {
+                            Button { selection.toggle(run) } label: {
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: selection.selected.contains(run.id) ? "checkmark.square.fill" : "square")
+                                        .font(.title2).foregroundStyle(Color.accentColor).frame(width: 44, height: 44)
+                                    WorkflowRunSummary(run: run)
+                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain).disabled(selection.busy || run.status != "completed")
+                                .accessibilityValue(selection.selected.contains(run.id) ? "已选中" : "未选中")
+                                .accessibilityIdentifier("workflow-run-\(run.id)")
+                        } else {
+                            NavigationLink { WorkflowRunView(api: api, repo: repo, run: run) } label: {
+                                WorkflowRunSummary(run: run)
+                            }.accessibilityIdentifier("workflow-run-\(run.id)")
+                        }
+                    }
+                }
+                if store.loaded && store.items.isEmpty {
+                    SoftGroupRow("empty") { Text(headSHA.isEmpty ? "暂无运行记录" : "尚未发现本次提交的运行。GitHub 可能仍在排队，也可能未配置此分支的 push 工作流，请稍后刷新；不会自动触发或显示其他提交。") }
+                }
+                // Paging rows stay in this group: a separate section leaves an iOS 16 gap
+                // and the split groups lose their outer rounded corners.
+                if store.busy { SoftGroupRow("page-loading") { ProgressView("加载中…") } }
+                if !store.error.isEmpty { SoftGroupRow("page-error") { Text(store.error).font(.caption).textSelection(.enabled) } }
+                if store.more { SoftGroupRow("page-next") { Button(store.error.isEmpty ? "加载更多" : "重试") { load() }.disabled(store.busy || selection.busy) } }
+                if store.limited { SoftGroupRow("page-limited") { Text("已显示前 300 条。").font(.caption).foregroundStyle(.secondary) } }
+            }
+        }
+    }
     var body: some View {
         List {
             Section {
@@ -41,32 +75,7 @@ struct WorkflowRunsView: View {
                     SoftGroupRow("failed") { Toggle("仅看失败记录", isOn: $failedOnly) }
                 }
             }.disabled(selection.busy)
-            Section {
-                SoftGroupRows {
-                    for run in store.items {
-                        SoftGroupRow(String(run.id)) {
-                            if selection.active {
-                                Button { selection.toggle(run) } label: {
-                                    HStack(alignment: .top, spacing: 8) {
-                                        Image(systemName: selection.selected.contains(run.id) ? "checkmark.square.fill" : "square")
-                                            .font(.title2).foregroundStyle(Color.accentColor).frame(width: 44, height: 44)
-                                        WorkflowRunSummary(run: run)
-                                    }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                                }.buttonStyle(.plain).disabled(selection.busy || run.status != "completed")
-                                    .accessibilityValue(selection.selected.contains(run.id) ? "已选中" : "未选中")
-                                    .accessibilityIdentifier("workflow-run-\(run.id)")
-                            } else {
-                                NavigationLink { WorkflowRunView(api: api, repo: repo, run: run) } label: {
-                                    WorkflowRunSummary(run: run)
-                                }.accessibilityIdentifier("workflow-run-\(run.id)")
-                            }
-                        }
-                    }
-                    if store.loaded && store.items.isEmpty {
-                        SoftGroupRow("empty") { Text(headSHA.isEmpty ? "暂无运行记录" : "尚未发现本次提交的运行。GitHub 可能仍在排队，也可能未配置此分支的 push 工作流，请稍后刷新；不会自动触发或显示其他提交。") }
-                    }
-                }
-            }
+            runsSection
             if selection.busy || !selection.result.isEmpty || !selection.failures.isEmpty {
                 Section {
                     SoftGroupRows {
@@ -78,7 +87,6 @@ struct WorkflowRunsView: View {
                     }
                 }
             }
-            CommunityPageFooter(store: store, next: { load() }).disabled(selection.busy)
         }.navigationTitle("Actions").adaptiveWorkspaceLayout()
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
@@ -197,6 +205,11 @@ struct WorkflowDispatchView: View {
                             ForEach(state.branches) { Text($0.name).tag($0.name) }
                         }.accessibilityIdentifier("workflow-dispatch-branch")
                     }
+                    SoftGroupRow("run-title") {
+                        TextField("运行名称（选填）", text: $state.runTitle)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityIdentifier("workflow-dispatch-title")
+                    }
                     if state.loadingBranches { SoftGroupRow("loading-branches") { ProgressView("加载分支…") } }
                     if state.moreBranches {
                         SoftGroupRow("more-branches") {
@@ -207,7 +220,7 @@ struct WorkflowDispatchView: View {
                     } else if state.branches.isEmpty { SoftGroupRow("no-branches") { Text("没有可选择的已有分支。") } }
                 }
             } footer: {
-                Text("仅使用工作流默认输入。GitHub 列表不提供手动触发能力或 inputs 信息；未配置 workflow_dispatch、必填参数没有默认值等情况将由 GitHub 拒绝，不会视为启动成功。")
+                Text("运行名称会作为 run_title 输入发送，只对声明了该输入的工作流有效；其他工作流请留空，否则会被 GitHub 拒绝。其余参数使用工作流默认值。")
             }.disabled(state.attempted || !api.isCurrentSession)
             Section {
                 SoftGroupRows {
@@ -283,7 +296,7 @@ struct WorkflowRunView: View {
                     if detailsExpanded {
                         SoftGroupRow("actor") {
                             if let actor = displayedRun.actor {
-                                CommunityAuthorLink(api: api, user: User(id: nil, login: actor.login, avatar_url: nil, name: nil, followers: nil, following: nil))
+                                CommunityAuthorLink(api: api, user: User(id: nil, login: actor.login, avatar_url: actor.avatar_url, name: nil, followers: nil, following: nil))
                             } else { Text("未知用户").foregroundStyle(.secondary) }
                         }
                         SoftGroupRow("trigger") { LabeledContent("触发方式", value: WorkflowTime.trigger(displayedRun.event)) }

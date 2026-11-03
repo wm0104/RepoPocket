@@ -132,6 +132,24 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
 
 
 class WorkflowSelectionTests(unittest.TestCase):
+    def test_actions_keeps_paging_inside_the_run_section(self):
+        # listSectionSpacing is iOS 17 only, so the paging row must live in the run
+        # section itself for the iOS 16 gap to actually go away.
+        source = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text()
+        runs = source.split('for run in store.items', 1)[1].split('if selection.busy ||', 1)[0]
+        self.assertIn('if store.more { SoftGroupRow("page-next")', runs)
+        self.assertIn('if store.busy { SoftGroupRow("page-loading")', runs)
+        self.assertNotIn('WorkflowListSpacing', source)
+        self.assertNotIn('listSectionSpacing', source)
+        self.assertNotIn('UICollectionView.appearance()', source)
+
+    def test_workflow_actor_uses_api_avatar(self):
+        for name in ('RepoPocket/WorkflowViews.swift', 'RepoPocket/WorkflowSummaryUI.swift'):
+            source = (ROOT / name).read_text()
+            self.assertIn('avatar_url: actor.avatar_url', source, name)
+        models = (ROOT / 'RepoPocket/NativeRepositoryModels.swift').read_text()
+        self.assertIn('struct Actor: Decodable { let login: String; let avatar_url: String? }', models)
+
     def test_run_details_fold_only_secondary_metadata_without_animation(self):
         view = (ROOT/'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8').split('struct WorkflowRunView: View {', 1)[1].split('struct WorkflowArtifactsView:', 1)[0]
         self.assertIn('@State private var detailsExpanded = false', view)

@@ -2,6 +2,134 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testLocalMergePreviewUsesCurrentBranchAndDoesNotPush() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-local-git-style-preview", "-local-merge-style-preview"]
+        app.launch()
+        let entry = app.buttons["localgit.merge"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 40)); reveal(entry, in: app); entry.tap()
+        let source = app.buttons["localgit.merge-source-source"]
+        XCTAssertTrue(source.waitForExistence(timeout: 15)); source.tap()
+        let preview = app.buttons["localgit.merge-preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 10)); preview.tap()
+        let changedFile = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "merge.txt")).firstMatch
+        XCTAssertTrue(changedFile.waitForExistence(timeout: 20), "The native merge preview must show the source change")
+        keepScreenshot(app, name: "local-branch-merge-preview")
+        XCTAssertFalse(app.buttons["推送本地提交"].exists, "Preview does not open the push flow")
+    }
+
+    func testRemoteMergeRequiresPreviewAndExplicitSquashConfirmation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-remote-branch-merge-preview"]
+        app.launch()
+        let source = app.buttons["remote-branch-source"]
+        XCTAssertTrue(source.waitForExistence(timeout: 20)); source.press(forDuration: 1)
+        let merge = app.buttons["合并到其他分支…"]
+        XCTAssertTrue(merge.waitForExistence(timeout: 5)); merge.tap()
+        let targetPicker = app.buttons["branch-merge-target"]
+        XCTAssertTrue(targetPicker.waitForExistence(timeout: 10)); targetPicker.tap()
+        let target = app.buttons["remote-branch-choice-target"]
+        XCTAssertTrue(target.waitForExistence(timeout: 10)); target.tap()
+        let title = app.textFields["branch-merge-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5)); title.tap(); dismissKeyboardIntroduction(app)
+        title.typeText("合并测试来源")
+        let preview = app.buttons["branch-merge-preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 5)); preview.tap()
+        let changedFile = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "demo.txt")).firstMatch
+        reveal(changedFile, in: app)
+        XCTAssertTrue(changedFile.waitForExistence(timeout: 15), "Read-only preview must include file changes before PR creation: " + app.debugDescription)
+        keepScreenshot(app, name: "remote-branch-merge-preview")
+        let create = app.buttons["branch-merge-open-pr"]
+        reveal(create, in: app)
+        XCTAssertTrue(create.waitForExistence(timeout: 5)); create.tap()
+        let refresh = app.buttons["branch-merge-refresh"]
+        XCTAssertTrue(refresh.waitForExistence(timeout: 10)); reveal(refresh, in: app); refresh.tap()
+        let submit = app.buttons["branch-merge-confirm"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 15))
+        keepScreenshot(app, name: "remote-branch-squash-confirm")
+        app.buttons["取消"].tap()
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5)); refresh.tap()
+        XCTAssertTrue(submit.waitForExistence(timeout: 15)); submit.tap()
+        let result = app.staticTexts["branch-merge-result"]
+        reveal(result, in: app)
+        XCTAssertTrue(result.waitForExistence(timeout: 20), "The verified result must be visible: " + app.debugDescription)
+        XCTAssertTrue(result.label.contains("已") && result.label.contains("合并"), result.label)
+        keepScreenshot(app, name: "remote-branch-squash-result")
+    }
+    func testSharedGroupCornersSurviveRefreshAndBackNavigation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-soft-group-lifecycle-preview"]
+        app.launch()
+        for name in ["仓库", "本地 Git", "设置"] {
+            app.buttons[name].tap()
+            XCTAssertTrue(app.staticTexts["boundary-last"].waitForExistence(timeout: 10))
+            for cycle in 0..<4 {
+                assertGroupCorners(app, identifier: "boundary-first", top: true, bottom: false)
+                assertGroupCorners(app, identifier: "boundary-last", top: false, bottom: true)
+                assertGroupCorners(app, identifier: "boundary-single", top: true, bottom: true)
+                keepScreenshot(app, name: "group-corners-\(name)-\(cycle)")
+                app.buttons["刷新"].tap()
+                app.buttons["boundary-first"].tap()
+                XCTAssertTrue(app.staticTexts["详情内容"].waitForExistence(timeout: 5))
+                app.navigationBars.buttons.element(boundBy: 0).tap()
+                XCTAssertTrue(app.staticTexts["boundary-last"].waitForExistence(timeout: 5))
+            }
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+    }
+
+    private func assertGroupCorners(_ app: XCUIApplication, identifier: String, top: Bool, bottom: Bool) {
+        let cell = app.descendants(matching: .cell).containing(.any, identifier: identifier).firstMatch
+        XCTAssertTrue(cell.exists, identifier)
+        let frame = cell.frame
+        guard let image = app.screenshot().image.cgImage else { return XCTFail("Missing screenshot") }
+        let scale = CGFloat(image.width) / app.frame.width
+        func pixel(_ x: CGFloat, _ y: CGFloat) -> [Int] {
+            guard let crop = image.cropping(to: CGRect(x: x * scale, y: y * scale, width: 1, height: 1)) else { return [] }
+            var bytes = [UInt8](repeating: 0, count: 4)
+            bytes.withUnsafeMutableBytes { buffer in
+                let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                context.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            }
+            return bytes.prefix(3).map(Int.init)
+        }
+        let background = pixel(2, frame.midY)
+        // Locate the actual card edge; native cells can include the list inset in their AX frame.
+        let left = (0..<80).first { pixel(CGFloat($0), frame.midY).allSatisfy { $0 > 250 } }
+        let right = (0..<80).first { pixel(app.frame.width - 1 - CGFloat($0), frame.midY).allSatisfy { $0 > 250 } }
+        guard let left, let right else { return XCTFail("No visible row fill: \(identifier), \(frame)") }
+        for y in [top ? frame.minY + 3 : nil, bottom ? frame.maxY - 4 : nil].compactMap({ $0 }) {
+            for x in [CGFloat(left) + 3, app.frame.width - CGFloat(right) - 4] {
+                let corner = pixel(x, y)
+                XCTAssertEqual(corner.count, 3)
+                XCTAssertLessThanOrEqual(zip(corner, background).map { abs($0 - $1) }.max() ?? 255, 8,
+                    "Square corner after refresh/back: \(identifier), \(frame), corner=\(corner), background=\(background)")
+            }
+        }
+    }
+
+    func testWorkflowLastCardToLoadMoreUsesCompactGap() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-workflow-selection-style-preview", "-workflow-pagination-preview"]
+        app.launch()
+        let next = app.buttons["加载更多"]
+        for _ in 0..<24 {
+            if next.exists && next.isHittable { break }
+            app.swipeUp()
+        }
+        reveal(next, in: app)
+        let last = app.descendants(matching: .cell).containing(.any, identifier: "workflow-run-30").firstMatch
+        let footer = app.descendants(matching: .cell).containing(.button, identifier: "加载更多").firstMatch
+        XCTAssertTrue(last.exists && footer.exists)
+        XCTAssertGreaterThanOrEqual(footer.frame.minY - last.frame.maxY, 0)
+        XCTAssertLessThanOrEqual(footer.frame.minY - last.frame.maxY, 16)
+        keepScreenshot(app, name: "workflow-pagination-compact-gap")
+    }
     func testUpstreamWatchLinkInputKeepsFormResponsiveAndBranchSelectionExplicit() {
         continueAfterFailure = false
         let app = XCUIApplication()

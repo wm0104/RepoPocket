@@ -87,6 +87,13 @@ struct WorkflowRun: Decodable, Identifiable {
     let id: Int
     let name: String?
     let display_title: String?
+    let head_commit: HeadCommit?
+    struct HeadCommit: Decodable { let message: String? }
+    var title: String {
+        let subject = head_commit?.message?.components(separatedBy: .newlines).first
+        return [display_title, subject, name].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty }) ?? "Workflow"
+    }
     let run_number: Int
     let head_branch: String?
     let head_sha: String
@@ -97,7 +104,7 @@ struct WorkflowRun: Decodable, Identifiable {
     let updated_at: String?
     let event: String?
     let actor: Actor?
-    struct Actor: Decodable { let login: String }
+    struct Actor: Decodable { let login: String; let avatar_url: String? }
 }
 struct WorkflowJobs: Decodable { let jobs: [WorkflowJob] }
 struct WorkflowArtifacts: Decodable { let artifacts: [WorkflowArtifact]; let total_count: Int? }

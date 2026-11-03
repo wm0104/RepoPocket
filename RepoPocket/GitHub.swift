@@ -539,6 +539,34 @@ final class GitHub: ObservableObject {
         }
         _ = try await data(Self.repoPath(repo) + "/git/refs", method: "POST", object: ["ref": "refs/heads/" + name, "sha": expectedHead])
     }
+    /// Local-facing rename becomes create-then-delete on GitHub: commits exist under the
+    /// new ref before the old one disappears, and nothing is force-moved.
+    func renameBranch(_ repo: String, name: String, to newName: String, expectedHead: String, current: String) async throws {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard DesktopRules.validBranch(newName), newName != name,
+              expectedHead.count == 40, expectedHead.allSatisfy({ $0.isHexDigit }) else {
+            throw AppError(text: "新分支名无效或与原名称相同，未做修改。")
+        }
+        let info = try await repository(repo)
+        guard info.permissions?.push == true else { throw AppError(text: "此账号没有已确认的仓库推送权限，不能重命名远端分支。") }
+        guard let defaultBranch = info.default_branch, !defaultBranch.isEmpty, name != defaultBranch else {
+            throw AppError(text: "不能重命名仓库默认分支，请先在 GitHub 更换默认分支。")
+        }
+        let target = try await decoded(DesktopBranch.self, Self.repoPath(repo) + "/branches/" + Self.component(name))
+        guard target.name == name, target.protected == false else { throw AppError(text: "此分支受保护或保护状态未知，不能重命名。") }
+        guard target.commit?.sha == expectedHead else { throw AppError(text: "分支已新增提交或发生变化，请刷新列表后重新确认；未做修改。") }
+        // 404 means the name is free; any other failure still surfaces from the POST below.
+        if (try? await decoded(DesktopBranch.self, Self.repoPath(repo) + "/branches/" + Self.component(newName)))?.name == newName {
+            throw AppError(text: "同名远端分支已存在，未做修改。")
+        }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        _ = try await data(Self.repoPath(repo) + "/git/refs", method: "POST", object: ["ref": "refs/heads/" + newName, "sha": expectedHead])
+        do { try await deleteBranch(repo, name: name, expectedHead: expectedHead, current: current) }
+        catch {
+            if RefreshFailure.isCancellation(error) { throw error }
+            throw AppError(text: "已创建新分支 " + newName + "，但删除旧分支失败；两个分支都保留，请刷新核实后手动处理。\n" + error.localizedDescription)
+        }
+    }
     func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {
         try ensureActiveAccount(); try Task.checkCancellation()
         guard DesktopRules.validBranch(name), name != current, expectedHead.count == 40,
@@ -859,6 +887,42 @@ final class GitHub: ObservableObject {
     }
     // Native collaboration transport: allowed routes and bodies are constructed
     // by CommunityMutationRules, never from a user-supplied API path.
+    // BEGIN RemoteBranchMerge transport
+    var remoteBranchMergeSession: RemoteBranchMergeSession { .init(accountID: accountID, generation: accountGeneration) }
+    func remoteBranchMergeData(_ repo: String, suffix: String, method: String = "GET",
+                               object: [String: Any]? = nil, query: [URLQueryItem] = []) async throws -> Data {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard method == "GET" || (method == "POST" && suffix == "/pulls") ||
+                (method == "PUT" && suffix.range(of: "^/pulls/[1-9][0-9]*/merge$", options: .regularExpression) != nil) else {
+            throw AppError(text: "不支持的远端 PR 操作。")
+        }
+        let body = try object.map { try JSONSerialization.data(withJSONObject: $0) }
+        var r = try request(url(Self.repoPath(repo) + suffix, query: query), method: method, body: body)
+        r.timeoutInterval = 30
+        let file: URL
+        let response: URLResponse
+        do { (file, response) = try await session.download(for: r, delegate: RemoteBranchMergeBudget()) }
+        catch {
+            try ensureActiveAccount(); try Task.checkCancellation()
+            if method != "GET" { throw AppError(text: "PR 写入结果未知；仅可只读核实，勿直接重试。\n" + error.localizedDescription) }
+            throw error
+        }
+        defer { try? FileManager.default.removeItem(at: file) }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let bytes = try await Task.detached { () -> Data in
+            let handle = try FileHandle(forReadingFrom: file); defer { try? handle.close() }
+            return try handle.read(upToCount: RemoteBranchMergeBudget.limit + 1) ?? Data()
+        }.value
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard bytes.count <= RemoteBranchMergeBudget.limit else { throw AppError(text: "PR 响应超过 8 MiB，已停止；写入如已发送，请只读核实。") }
+        try check(bytes, response, operation: "远端 PR Squash")
+        let expected = method == "POST" ? 201 : 200
+        guard (response as? HTTPURLResponse)?.statusCode == expected else {
+            throw AppError(text: method == "GET" ? "PR 读取未返回完整成功响应。" : "PR 写入响应未确认（需要 HTTP \(expected)），请只读核实，勿重发写入。")
+        }
+        return bytes
+    }
+    // END RemoteBranchMerge transport
     func communityMutate(_ repo: String, action: CommunityMutation, title: String = "", text: String = "") async throws -> Data {
         try ensureActiveAccount(); try Task.checkCancellation()
         let change = try CommunityMutationRules.request(action, title: title, text: text)
@@ -931,9 +995,9 @@ final class GitHub: ObservableObject {
     // Dispatch uses the account-bound session and refuses redirects, including reads.
     var workflowDispatchSession: WorkflowDispatchSession { .init(accountID: accountID, generation: accountGeneration) }
     private func workflowDispatchData(_ repo: String, suffix: String, page: Int? = nil,
-                              ref: String? = nil) async throws -> Data {
+                              ref: String? = nil, inputs: [String: String] = [:]) async throws -> Data {
         try ensureActiveAccount(); try Task.checkCancellation()
-        let body = try ref.map { try JSONSerialization.data(withJSONObject: ["ref": $0]) }
+        let body = try ref.map { try JSONSerialization.data(withJSONObject: inputs.isEmpty ? (["ref": $0] as [String: Any]) : (["ref": $0, "inputs": inputs] as [String: Any])) }
         let query: [URLQueryItem] = page.map { [.init(name: "per_page", value: "100"), .init(name: "page", value: String($0))] } ?? []
         let r = try request(url(Self.repoPath(repo) + suffix, query: query), method: ref == nil ? "GET" : "POST", body: body)
         let result: (Data, URLResponse)
@@ -970,7 +1034,10 @@ final class GitHub: ObservableObject {
         let branch = try JSONDecoder().decode(DesktopBranch.self, from: await workflowDispatchData(target.repo, suffix: "/branches/" + Self.component(target.ref)))
         guard branch.name == target.ref else { throw AppError(text: "所选分支已变化，请重新加载分支列表。") }
         try ensureActiveAccount(); try Task.checkCancellation()
-        _ = try await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)/dispatches", ref: target.ref)
+        let title = target.runTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only workflows that declare a matching input accept it; GitHub rejects others with 422.
+        _ = try await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)/dispatches",
+                                           ref: target.ref, inputs: title.isEmpty ? [:] : ["run_title": title])
     }
     func searchUsers(_ query: String, page: Int) async throws -> UserSearchResponse {
         let endpoint = RepositorySearchRules.endpoint(kind: .users, query: query, page: page)

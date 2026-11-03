@@ -121,10 +121,10 @@ struct CommunityPageFooter<Item: Identifiable>: View where Item.ID: Hashable {
     var body: some View {
         Section {
             SoftGroupRows {
-            if store.busy { SoftGroupRow("loading") { ProgressView("加载中…") } }
-            if !store.error.isEmpty { SoftGroupRow("error") { Text(store.error).font(.caption).textSelection(.enabled) } }
-            if store.more { SoftGroupRow("next") { Button(store.error.isEmpty ? "加载更多" : "重试") { next() }.disabled(store.busy) } }
-            if store.limited { SoftGroupRow("limited") { Text("已显示前 300 条。").font(.caption).foregroundStyle(.secondary) } }
+        if store.busy { SoftGroupRow("loading") { ProgressView("加载中…") } }
+        if !store.error.isEmpty { SoftGroupRow("error") { Text(store.error).font(.caption).textSelection(.enabled) } }
+        if store.more { SoftGroupRow("next") { Button(store.error.isEmpty ? "加载更多" : "重试") { next() }.disabled(store.busy) } }
+        if store.limited { SoftGroupRow("limited") { Text("已显示前 300 条。").font(.caption).foregroundStyle(.secondary) } }
             }
         }
     }
