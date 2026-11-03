@@ -30,7 +30,7 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(merge.waitForExistence(timeout: 5)); merge.tap()
         let targetPicker = app.buttons["branch-merge-target"]
         XCTAssertTrue(targetPicker.waitForExistence(timeout: 10)); targetPicker.tap()
-        let target = app.buttons["target"]
+        let target = app.buttons["remote-branch-choice-target"]
         XCTAssertTrue(target.waitForExistence(timeout: 10)); target.tap()
         let title = app.textFields["branch-merge-title"]
         XCTAssertTrue(title.waitForExistence(timeout: 5)); title.tap(); dismissKeyboardIntroduction(app)

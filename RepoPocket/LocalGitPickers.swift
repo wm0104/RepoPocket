@@ -69,7 +69,7 @@ struct LocalGitBranchPicker: View {
                         SoftGroupRow("branch:" + branch.id) {
                             Button { select(branch.name); dismiss() } label: {
                                 HStack { Text(branch.name); Spacer(); if branch.name == current { Image(systemName: "checkmark") } }
-                            }
+                            }.accessibilityIdentifier("remote-branch-choice-" + branch.name)
                         }
                     }
                     if busy { SoftGroupRow("loading") { ProgressView("读取分支…") } }
