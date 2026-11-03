@@ -762,7 +762,7 @@ struct SettingsView: View {
                 DownloadLocationSection()
                 Section("关于") {
                     AppUpdateSection(api: api, checker: updateChecker)
-                    Text("辅助开发：Codex").softGroupedRow()
+                    
                     // The version is the stable final row of the update group in every state.
                     Text("RepoPocket " + AppUpdateSessionRules.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—", build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—")).foregroundColor(.secondary).softGroupedRow(bottom: true)
                 }
