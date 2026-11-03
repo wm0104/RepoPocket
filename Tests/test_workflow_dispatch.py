@@ -205,6 +205,21 @@ HARNESS += r'''
         await state.submit(target, api: api) { _ in preconditionFailure("Consumed target") }
         precondition(DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count == 1)
 
+        // Exercise normal title submission before the account-revocation cases below.
+        let titled = await prepared(api)
+        titled.runTitle = "  测试标题  "
+        let titledTarget = titled.target("someone/any-repo", api: api)!
+        precondition(titledTarget.runTitle == "测试标题")
+        let beforeTitled = DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count
+        var titledAccepted = 0
+        await titled.submit(titledTarget, api: api) { _ in titledAccepted += 1 }
+        let titledPosts = DispatchFixture.requests.filter { $0.httpMethod == "POST" }
+        precondition(titledAccepted == 1 && titledPosts.count == beforeTitled + 1)
+        let titledBody = try JSONSerialization.jsonObject(with: DispatchFixture.body(titledPosts.last!)) as! [String: Any]
+        precondition(titledBody["ref"] as? String == "feature/中文")
+        precondition(titledBody["inputs"] as? [String: String] == ["run_title": "测试标题"])
+        precondition(api.isCurrentSession)
+
         for (code, help) in [(401, "重新登录"), (403, "Actions: write"), (404, "仓库"), (422, "workflow_dispatch"), (200, "204"), (202, "204"), (500, "未知")] {
             DispatchFixture.status = code
             let denied = await prepared(api)
@@ -264,14 +279,6 @@ HARNESS += r'''
                                   newRequest: URLRequest(url: location)) { refused = $0 == nil }
         precondition(refused)
         dummy.cancel()
-        // An optional run title travels with the confirmed target; it is trimmed.
-        let titled = await prepared(api)
-        titled.runTitle = "  测试标题  "
-        let titledTarget: WorkflowDispatchTarget? = titled.target("someone/any-repo", api: api)
-        precondition(titledTarget?.runTitle == "测试标题")
-        titled.runTitle = ""
-        let untitled: WorkflowDispatchTarget? = titled.target("someone/any-repo", api: api)
-        precondition(untitled?.runTitle == "")
         print("PASS production dispatch POST shape, paginated selection, permission failures, only-204 acknowledgement, account isolation, duplicate taps and no unknown-send retry; URLProtocol only")
     }
 }
