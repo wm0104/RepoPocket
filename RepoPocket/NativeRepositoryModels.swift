@@ -37,6 +37,33 @@ enum CommunityMutationRules {
     }
 }
 struct WorkflowRuns: Decodable { let workflow_runs: [WorkflowRun] }
+struct WorkflowCancellationState {
+    private(set) var requested = false
+    private(set) var waiting = false
+    private(set) var message = ""
+    mutating func begin() -> Bool {
+        guard !requested else { return false }
+        requested = true
+        return true
+    }
+    mutating func accepted() {
+        waiting = true
+        message = "GitHub 已接受取消请求，正在等待运行结束；清理可能需要几分钟，无需重复取消。"
+    }
+    mutating func uncertain(_ reason: String) {
+        waiting = true
+        message = reason + "\n尚未确认取消结果，正在刷新核实；请勿重复发送取消请求。"
+    }
+    mutating func observe(status: String, conclusion: String?) {
+        guard requested, status == "completed" else { return }
+        waiting = false
+        message = conclusion == "cancelled" ? "运行已取消。" : "运行已结束：" + WorkflowStatusPresentation(status: status, conclusion: conclusion).title + "。"
+    }
+    mutating func stopWaiting() {
+        waiting = false
+        message = "尚未确认运行结束。GitHub 可能仍在清理，请稍后刷新核实；不会重复发送取消请求。"
+    }
+}
 struct WorkflowStatusPresentation {
     let title: String
     let symbol: String

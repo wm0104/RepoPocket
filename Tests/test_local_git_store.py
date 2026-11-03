@@ -10,6 +10,45 @@ FILES = ['LocalGitModels.swift', 'LocalGitFileAccess.swift', 'LocalGitRegistry.s
 
 
 class LocalGitStoreTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('swiftc'), 'Swift creation fixture runs on macOS')
+    def test_creation_never_overwrites_or_escapes_and_repeated_save_keeps_conflict_checks(self):
+        source = r'''
+import Foundation
+@main struct Fixture {
+ static func main() throws {
+  let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+  defer { try? FileManager.default.removeItem(at: root) }
+  try LocalGitFileAccess.create(root: root, directory: "", name: "代码", folder: true)
+  try LocalGitFileAccess.create(root: root, directory: "代码", name: "new.swift", folder: false)
+  let file = root.appendingPathComponent("代码/new.swift")
+  let initial = try LocalGitFileAccess.read(root: root, path: "代码/new.swift")
+  precondition(initial.text.isEmpty)
+  try LocalGitFileAccess.write(root: root, path: "代码/new.swift", text: "first", expected: initial.fingerprint)
+  try LocalGitFileAccess.write(root: root, path: "代码/new.swift", text: "second", expected: LocalGitFileAccess.fingerprint(Data("first".utf8)))
+  do { try LocalGitFileAccess.create(root: root, directory: "代码", name: "new.swift", folder: false); preconditionFailure("overwrote existing file") } catch {}
+  do { try LocalGitFileAccess.create(root: root, directory: "", name: "代码", folder: true); preconditionFailure("accepted existing directory") } catch {}
+  for name in ["", ".", "..", ".git", ".GIT", "../escape", "a/b", "a\\b", "bad\0name"] {
+   do { try LocalGitFileAccess.create(root: root, directory: "", name: name, folder: false); preconditionFailure("unsafe child accepted") } catch {}
+  }
+  try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("link"), withDestinationURL: root.appendingPathComponent("代码"))
+  do { try LocalGitFileAccess.create(root: root, directory: "link", name: "unsafe", folder: false); preconditionFailure("followed symlink") } catch {}
+  do { try LocalGitFileAccess.create(root: root, directory: "../outside", name: "unsafe", folder: false); preconditionFailure("escaped root") } catch {}
+  try Data("external".utf8).write(to: file)
+  do { try LocalGitFileAccess.write(root: root, path: "代码/new.swift", text: "lost", expected: LocalGitFileAccess.fingerprint(Data("second".utf8))); preconditionFailure("lost conflict guard") } catch {}
+  precondition((try? String(contentsOf: file)) == "external")
+  print("PASS exclusive creation, path and symlink rejection, repeated saves and external conflicts")
+ }
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / 'Fixture.swift'
+            fixture.write_text(source, encoding='utf-8')
+            subprocess.run(['swiftc', '-parse-as-library', str(ROOT/'RepoPocket/ChinaDate.swift'), str(ROOT/'RepoPocket/LocalGitModels.swift'),
+                            str(ROOT/'RepoPocket/LocalGitFileAccess.swift'), str(fixture), '-o', str(root/'check')], check=True)
+            subprocess.run([str(root/'check')], check=True, timeout=20)
+
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift deletion fixture runs on macOS')
     def test_confirmed_deletion_preserves_external_edits_and_unselected_files(self):
         source = r'''

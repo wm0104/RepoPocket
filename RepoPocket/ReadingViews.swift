@@ -84,7 +84,7 @@ struct RepositoryReadmeView: View {
         .navigationTitle((entryPath as NSString).lastPathComponent).adaptiveWorkspaceLayout()
         .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
         .toolbar { Button("刷新") { revision += 1 } }
-        .task(id: revision) {
+        .task(id: [repo, branch, api.accountID, AccountStore.generation.uuidString, String(revision)]) {
             error = ""; document = nil; raw = false; renderError = ""
             do {
                 let selected = try await api.resolvedBranch(repo, branch: branch)
@@ -92,7 +92,7 @@ struct RepositoryReadmeView: View {
                 try Task.checkCancellation(); guard api.isCurrentSession else { return }
                 resolved = selected; entryPath = loaded.entry.path; document = loaded
             } catch {
-                if api.isCurrentSession, !RefreshFailure.isCancellation(error) {
+                if !Task.isCancelled, api.isCurrentSession, !RefreshFailure.isCancellation(error) {
                     self.error = (error as? GitHubAPIError)?.status == 404 ? "此分支没有 README，或账号没有读取权限。" : error.localizedDescription
                 }
             }
@@ -106,18 +106,43 @@ struct FileReadingView: View {
     let repo: String
     let branch: String
     var api: GitHub? = nil
-    @State private var markdown = true
+    @State private var renderedKey: [String] = []
+    @State private var renderedHTML: String?
+    @State private var htmlAttempted = false
+    @State private var readingLink: ReadingLink?
     private var isMarkdown: Bool { ["md", "markdown", "mdown"].contains((path as NSString).pathExtension.lowercased()) }
+    private var baseURL: URL? { CommunityRules.readingBase(repo, branch: branch, file: path, raw: false) }
+    private var mediaBaseURL: URL? { CommunityRules.readingBase(repo, branch: branch, file: path, raw: true) }
+    private var requestKey: [String] { [text, repo, branch, path, api?.accountID ?? "", api == nil ? "" : AccountStore.generation.uuidString] }
     var body: some View {
         VStack(spacing: 0) {
-          if isMarkdown { Toggle("Markdown 排版", isOn: $markdown).padding(.horizontal).padding(.vertical, 8) }
-          if !isMarkdown || !markdown { SourceCodeView(text: text, filename: path) }
+          if !isMarkdown { SourceCodeView(text: text, filename: path) }
+          else if let renderedHTML, renderedKey == requestKey {
+            // GitHub's renderer keeps native HTML such as centered headers and remote images.
+            ReadmeHTMLView(html: renderedHTML, baseURL: baseURL, mediaBaseURL: mediaBaseURL, scrolling: true,
+                           height: .constant(0), onFailure: { _ in
+                               guard renderedKey == requestKey else { return }
+                               self.renderedHTML = nil
+                           }) { readingLink = ReadingLink(url: $0) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+          }
+          else if renderedKey != requestKey || !htmlAttempted { ProgressView("排版中…").frame(maxWidth: .infinity, minHeight: 160) }
           else { ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                    CommunityMarkdown(text: text, baseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: false),
-                        imageBaseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: true), api: api)
+                    CommunityMarkdown(text: text, baseURL: baseURL, imageBaseURL: mediaBaseURL, api: api)
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
           } }
-        }.navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
+        }.id(requestKey).navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
+        .task(id: requestKey) {
+            // Server-rendered HTML first; offline, signed out or on failure the local
+            // MarkdownUI rendering below stays readable.
+            renderedKey = requestKey; renderedHTML = nil; htmlAttempted = false
+            defer { if !Task.isCancelled { htmlAttempted = true } }
+            guard isMarkdown, let api, api.isCurrentSession,
+                  let html = try? await api.renderedMarkdownHTML(text, repo: repo) else { return }
+            guard !Task.isCancelled, api.isCurrentSession, !html.isEmpty else { return }
+            renderedHTML = html
+        }
     }
 }

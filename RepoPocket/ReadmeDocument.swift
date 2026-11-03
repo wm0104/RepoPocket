@@ -28,6 +28,24 @@ enum ReadmeDocumentRules {
     })();
     """
 
+    // Retry only a proven decode/load failure once; never reload healthy or pending media.
+    static let imageRecovery = """
+    (() => {
+      const article = document.getElementById('repopocket-readme');
+      if (!article) return;
+      const retried = new WeakSet();
+      const recover = image => {
+        if (!(image instanceof HTMLImageElement) || !image.complete || image.naturalWidth !== 0 || retried.has(image)) return;
+        const source = image.getAttribute('src');
+        if (!source || image.hasAttribute('srcset') || image.closest('picture')) return;
+        retried.add(image);
+        image.setAttribute('src', source);
+      };
+      article.addEventListener('error', event => recover(event.target), true);
+      article.querySelectorAll('img').forEach(recover);
+    })();
+    """
+
     static func source(_ entry: Entry) throws -> String {
         guard (entry.size ?? 0) <= sourceByteLimit, entry.encoding == "base64",
               let content = entry.content, let bytes = Data(base64Encoded: content, options: .ignoreUnknownCharacters),
@@ -117,14 +135,14 @@ enum ReadmeDocumentRules {
         <style>
         :root { color-scheme: light dark; } * { box-sizing: border-box; }
         html, body { margin: 0; padding: 0; background: transparent; }
-        #repopocket-readme { display: flow-root; }
+        #repopocket-readme { display: flow-root; padding: 16px; min-width: 0; max-width: 100%; }
         body { font: -apple-system-body; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; color: #1f2328; }
         h1 { font-size: 1.85em; } h2 { font-size: 1.45em; } h3 { font-size: 1.2em; }
         h1, h2 { border-bottom: 1px solid #d1d9e0; padding-bottom: .25em; }
         p, ul, ol, pre, blockquote, table { margin: 0 0 1em; } ul, ol { padding-left: 1.6em; }
         a { color: #0969da; text-decoration: none; } .anchor { display: none; }
         img, svg, video { max-width: 100%; height: auto; } img { vertical-align: middle; }
-        pre { overflow: auto; white-space: pre; overflow-wrap: normal; word-break: normal; padding: 12px; background: #f6f8fa; border-radius: 8px; }
+        pre { max-width: 100%; overflow: auto; white-space: pre; overflow-wrap: normal; word-break: normal; padding: 12px; background: #f6f8fa; border-radius: 8px; }
         code, pre { font-family: ui-monospace, Menlo, monospace; font-size: .88em; }
         table { display: block; overflow: auto; border-collapse: collapse; max-width: 100%; }
         td, th { padding: 6px 12px; border: 1px solid #d1d9e0; }

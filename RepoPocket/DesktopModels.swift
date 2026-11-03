@@ -2,6 +2,9 @@ import Foundation
 
 struct DesktopBranch: Decodable, Identifiable {
     let name: String
+    struct Commit: Decodable { let sha: String }
+    let commit: Commit?
+    let protected: Bool?
     var id: String { name }
 }
 struct DesktopCommit: Decodable, Identifiable {

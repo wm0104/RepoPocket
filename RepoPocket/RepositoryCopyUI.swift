@@ -9,6 +9,17 @@ final class RepositoryCopyFeedback: ObservableObject {
     // Called only by an explicit menu button action; never during view rendering.
     func copy(_ input: String) {
         guard let url = RepositoryLinkRules.canonicalURL(input) else { return }
+        show(url)
+    }
+
+    /// Copy a URL already produced by RepositoryLinkRules; any other scheme or host is refused.
+    func copy(url: URL?) {
+        guard let url, url.scheme == "https", let host = url.host?.lowercased(),
+              host == "github.com" || host == "raw.githubusercontent.com" else { return }
+        show(url)
+    }
+
+    private func show(_ url: URL) {
         UIPasteboard.general.string = url.absoluteString
         timeout?.cancel()
         let token = notice.show()

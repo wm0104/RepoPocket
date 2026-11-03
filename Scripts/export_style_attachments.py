@@ -1,4 +1,4 @@
-"""Export native UI regression screenshots from Xcode 15."""
+"""Export native UI regression screenshots from xcresult bundles."""
 import json
 from pathlib import Path
 import subprocess
@@ -32,6 +32,20 @@ actions.update({'workflow-runs-normal', 'workflow-runs-selection', 'workflow-run
 file_feedback = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-editor'}
 download_lifecycle = file_feedback | {'local-file-sheet-dismissed', 'release-compact-attachments', 'release-inline-progress'}
 file_edit = {'remote-file-editor-cancelled', 'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'}
+file_edit.update({'mobile-editor-saved-preview', 'source-native-file-search', 'repository-file-folder-search', 'repository-search-opened-code'})
+diagnostics = {'account-switch-failure', 'account-control-failure'}
+diagnostics.update({'mobile-editor-create-menu', 'source-native-find-start'})
+maintenance = {'local-project-compact', 'local-project-information', 'local-branch-create-confirmation',
+               'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
+               'local-commit-patch', 'local-history-after-folding', 'local-import-destination',
+               'local-import-picker', 'local-whole-folder-import', 'local-folder-selection',
+               'upstream-watch-link-input-responsive', 'upstream-preview-retains-result',
+               'upstream-preview-retains-error', 'workflow-run-details-collapsed',
+               'workflow-run-details-after-rapid-folding', 'repository-more-after-rapid-folding',
+               'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'}
+maintenance.update('upstream-preview-collapsed-' + mode for mode in ('empty', 'single', 'many', 'truncated'))
+maintenance.update(prefix + mode for prefix in ('upstream-commits-expanded-', 'upstream-files-expanded-')
+                   for mode in ('single', 'many', 'truncated'))
 if scope == 'profiles':
     expected = profiles
 elif scope == 'workflow-selection':
@@ -44,12 +58,18 @@ elif scope == 'download-lifecycle':
     expected = download_lifecycle
 elif scope == 'file-edit':
     expected = file_edit
+elif scope == 'review-regressions':
+    expected = {'account-session-after-switch', 'local-deb-editor', 'profile-public-contacts',
+                'profile-contacts-retry', 'readme-badges'}
+elif scope == 'maintenance-regressions':
+    expected = maintenance
 elif scope == 'all':
     expected.update(profiles)
     expected.update(actions)
     expected.update(file_feedback)
     expected.update(download_lifecycle)
     expected.update(file_edit)
+    expected.update(maintenance)
 else:
     raise ValueError('Unknown UI test scope')
 
@@ -58,7 +78,7 @@ while pending:
     if reference in seen:
         continue
     seen.add(reference)
-    command = ['xcrun', 'xcresulttool', 'get', '--path', bundle, '--format', 'json']
+    command = ['xcrun', 'xcresulttool', 'get', 'object', '--legacy', '--path', bundle, '--format', 'json']
     if reference:
         command += ['--id', reference]
     tree = json.loads(subprocess.check_output(command))
@@ -74,10 +94,11 @@ while pending:
                     pending.append(ref)
             name = item.get('name', {}).get('_value', '')
             payload = item.get('payloadRef', {}).get('id', {}).get('_value')
-            if payload and name in expected:
-                subprocess.run(['xcrun', 'xcresulttool', 'export', '--type', 'file', '--path', bundle,
+            if payload and name in expected | diagnostics:
+                subprocess.run(['xcrun', 'xcresulttool', 'export', 'object', '--legacy', '--type', 'file', '--path', bundle,
                                 '--id', payload, '--output-path', str(destination / (name + '.png'))], check=True)
-                exported.add(name)
+                if name in expected:
+                    exported.add(name)
             stack.extend(item.values())
 
 if exported != expected:

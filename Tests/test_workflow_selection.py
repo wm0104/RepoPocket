@@ -132,6 +132,33 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
 
 
 class WorkflowSelectionTests(unittest.TestCase):
+    def test_run_details_fold_only_secondary_metadata_without_animation(self):
+        view = (ROOT/'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8').split('struct WorkflowRunView: View {', 1)[1].split('struct WorkflowArtifactsView:', 1)[0]
+        self.assertIn('@State private var detailsExpanded = false', view)
+        self.assertIn('SoftGroupRows(animateBackground: false)', view)
+        self.assertIn('UIRules.withoutAnimation { detailsExpanded.toggle() }', view)
+        self.assertNotIn('WorkflowRunMetadata(', view, 'Run metadata would repeat the permanently visible branch')
+        before, details = view.split('if detailsExpanded {', 1)
+        for text in ('WorkflowRunMetrics(', 'SoftGroupRow("branch")', 'workflow-run-details'):
+            self.assertIn(text, before)
+        details, rest = details.split('if !statusError.isEmpty', 1)
+        for text in ('CommunityAuthorLink(', 'WorkflowTime.trigger(', 'ChinaDate.dateTime(', 'Text(displayedRun.head_sha)'):
+            self.assertIn(text, details)
+        for text in ('status-error', 'cancelling', 'cancellation-result'):
+            self.assertIn(text, rest)
+        self.assertNotIn('.softGroupedRow(', before + details)
+
+    def test_repository_more_uses_existing_disclosure_and_visible_row_boundaries(self):
+        source = (ROOT/'RepoPocket/CollaborationViews.swift').read_text(encoding='utf-8').split('struct RepositoryCommunitySection: View {', 1)[1].split('struct CollaborationListView:', 1)[0]
+        self.assertIn('SoftGroupRows(animateBackground: false)', source)
+        self.assertIn('UIRules.withoutAnimation { expanded.toggle() }', source)
+        self.assertEqual(source.count('RepositoryFeatureLabel(title: "更多"'), 1)
+        self.assertIn('if expanded {', source)
+        self.assertIn('if let owner {', source)
+        self.assertNotIn('.softGroupedRow(', source)
+        groups = (ROOT/'RepoPocket/WorkspaceSelectionUI.swift').read_text(encoding='utf-8')
+        self.assertIn('top: row.id == rows.first?.id, bottom: row.id == rows.last?.id', groups)
+
     def test_uses_guarded_transport_and_snapshot_lifetime(self):
         source = (ROOT/'RepoPocket/WorkflowRunSelection.swift').read_text(encoding='utf-8')
         self.assertIn('api.communityMutate(target.repo, action: .deleteRun(run.id))', source)

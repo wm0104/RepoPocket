@@ -539,6 +539,29 @@ final class GitHub: ObservableObject {
         }
         _ = try await data(Self.repoPath(repo) + "/git/refs", method: "POST", object: ["ref": "refs/heads/" + name, "sha": expectedHead])
     }
+    func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard DesktopRules.validBranch(name), name != current, expectedHead.count == 40,
+              expectedHead.allSatisfy({ $0.isHexDigit }) else { throw AppError(text: "不能删除当前分支，或分支信息已失效，请刷新后重试。") }
+        let info = try await repository(repo)
+        guard info.permissions?.push == true else { throw AppError(text: "此账号没有已确认的仓库推送权限，不能删除远端分支。") }
+        guard let defaultBranch = info.default_branch, !defaultBranch.isEmpty, name != defaultBranch else {
+            throw AppError(text: "不能删除默认分支，或尚未确认仓库的默认分支。")
+        }
+        let target = try await decoded(DesktopBranch.self, Self.repoPath(repo) + "/branches/" + Self.component(name))
+        guard target.name == name, target.protected == false else { throw AppError(text: "此分支受保护或保护状态未知，不能删除。") }
+        guard target.commit?.sha == expectedHead else { throw AppError(text: "分支已新增提交或发生变化，请刷新列表后重新确认；未执行删除。") }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        // GitHub DELETE has no expected-SHA precondition; this check is not an atomic compare-and-delete.
+        let r = try request(url(Self.repoPath(repo) + "/git/refs/heads/" + Self.filePath(name)), method: "DELETE")
+        let result: (Data, URLResponse)
+        do { result = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy()) }
+        catch { throw AppError(text: "删除请求结果未知，请刷新分支列表核实，勿直接重试。\n" + error.localizedDescription) }
+        try check(result.0, result.1, operation: "删除 GitHub 远端分支")
+        guard (result.1 as? HTTPURLResponse)?.statusCode == 204 else {
+            throw AppError(text: "未收到 GitHub 删除成功确认（204），请刷新核实。")
+        }
+    }
     func fetchWorkspace(_ repo: String, branch: String, revision: String = "") async throws -> (WorkspaceBinding, URL) {
         let repo = try RepositoryInput.parse(repo)
         let branch = try await resolvedBranch(repo, branch: branch)
@@ -808,6 +831,24 @@ final class GitHub: ObservableObject {
         guard bytes.count <= 8 * 1024 * 1024 else { throw AppError(text: "响应过大，请在 GitHub 查看。") }
         return bytes
     }
+    /// Server-side GFM rendering for file pages. Native HTML such as `<div align="center">` and
+    /// `<img>` only survives GitHub's own renderer, so a read-only POST /markdown is preferred
+    /// over the local MarkdownUI fallback. No extra permission is required.
+    func renderedMarkdownHTML(_ source: String, repo: String) async throws -> String {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let canonical = try RepositoryInput.parse(repo)
+        let body = try JSONSerialization.data(withJSONObject: [
+            "text": String(decoding: source.utf8.prefix(CommunityRules.markdownByteLimit), as: UTF8.self),
+            "mode": "gfm",
+            "context": canonical
+        ])
+        var r = try request(url("/markdown"), method: "POST", body: body)
+        // A slow render must not hold the reading page; the page falls back to local Markdown.
+        r.timeoutInterval = 20
+        let (bytes, response) = try await session.data(for: r, delegate: GitHubAPIRedirectPolicy())
+        try check(bytes, response, operation: "渲染 Markdown"); try Task.checkCancellation()
+        return try ReadmeDocumentRules.renderedHTML(bytes)
+    }
     func communityReadmeHTML(_ repo: String, branch: String) async throws -> String {
         try ensureActiveAccount(); try Task.checkCancellation()
         var r = try request(url(Self.repoPath(repo) + "/readme", query: [.init(name: "ref", value: branch)]))
@@ -834,6 +875,9 @@ final class GitHub: ObservableObject {
         if case .deleteRun = action { r.httpBody = nil }
         let response = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
         try check(response.0, response.1, operation: "仓库协作操作")
+        if case .cancelRun = action, (response.1 as? HTTPURLResponse)?.statusCode != 202 {
+            throw AppError(text: "未收到 GitHub 的取消受理确认，请刷新运行状态核实。")
+        }
         if case .deleteRun = action, (response.1 as? HTTPURLResponse)?.statusCode != 204 {
             throw AppError(text: "未收到删除成功确认，请刷新运行列表核实，避免重复操作。")
         }
@@ -883,6 +927,50 @@ final class GitHub: ObservableObject {
     func communityArtifact(_ repo: String, id: Int, name: String) async throws -> URL {
         guard id > 0 else { throw AppError(text: "无效构建产物编号") }
         return try await download(request(url(Self.repoPath(repo) + "/actions/artifacts/\(id)/zip")), name: DownloadRules.safeName(name) + ".zip", redirect: WorkflowLogRedirectPolicy())
+    }
+    // Dispatch uses the account-bound session and refuses redirects, including reads.
+    var workflowDispatchSession: WorkflowDispatchSession { .init(accountID: accountID, generation: accountGeneration) }
+    private func workflowDispatchData(_ repo: String, suffix: String, page: Int? = nil,
+                              ref: String? = nil) async throws -> Data {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let body = try ref.map { try JSONSerialization.data(withJSONObject: ["ref": $0]) }
+        let query: [URLQueryItem] = page.map { [.init(name: "per_page", value: "100"), .init(name: "page", value: String($0))] } ?? []
+        let r = try request(url(Self.repoPath(repo) + suffix, query: query), method: ref == nil ? "GET" : "POST", body: body)
+        let result: (Data, URLResponse)
+        do { result = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy()) }
+        catch {
+            if ref != nil { throw AppError(text: "启动请求结果未知，可能已发送。请先刷新该分支的 Actions 核实，勿直接重试。\n" + error.localizedDescription) }
+            throw error
+        }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard let http = result.1 as? HTTPURLResponse else { throw AppError(text: "未收到有效 HTTP 响应；请刷新 Actions 核实，勿盲目重试。") }
+        try WorkflowDispatchRules.check(status: http.statusCode, dispatch: ref != nil, bytes: result.0)
+        return result.0
+    }
+    func dispatchWorkflows(_ repo: String, page: Int) async throws -> [DispatchWorkflow] {
+        guard page > 0 else { throw AppError(text: "无效页码") }
+        return try JSONDecoder().decode(DispatchWorkflows.self, from: await workflowDispatchData(repo, suffix: "/actions/workflows", page: page)).workflows
+    }
+    func dispatchBranches(_ repo: String, page: Int) async throws -> [DesktopBranch] {
+        guard page > 0 else { throw AppError(text: "无效页码") }
+        return try JSONDecoder().decode([DesktopBranch].self, from: await workflowDispatchData(repo, suffix: "/branches", page: page))
+    }
+    func dispatchWorkflow(_ target: WorkflowDispatchTarget) async throws {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard target.session == workflowDispatchSession, target.workflow.id > 0, !target.ref.isEmpty else {
+            throw AppError(text: "启动目标或账号已变化，请重新选择。")
+        }
+        struct Access: Decodable { struct Permissions: Decodable { let push: Bool? }; let permissions: Permissions? }
+        let access = try JSONDecoder().decode(Access.self, from: await workflowDispatchData(target.repo, suffix: ""))
+        guard access.permissions?.push == true else { throw AppError(text: WorkflowDispatchRules.permissionHelp) }
+        let workflow = try JSONDecoder().decode(DispatchWorkflow.self, from: await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)"))
+        guard workflow.id == target.workflow.id, workflow.state == "active" else {
+            throw AppError(text: "此工作流已停用或不再可用，请刷新工作流列表。")
+        }
+        let branch = try JSONDecoder().decode(DesktopBranch.self, from: await workflowDispatchData(target.repo, suffix: "/branches/" + Self.component(target.ref)))
+        guard branch.name == target.ref else { throw AppError(text: "所选分支已变化，请重新加载分支列表。") }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        _ = try await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)/dispatches", ref: target.ref)
     }
     func searchUsers(_ query: String, page: Int) async throws -> UserSearchResponse {
         let endpoint = RepositorySearchRules.endpoint(kind: .users, query: query, page: page)
@@ -1524,5 +1612,65 @@ extension GitHub {
                 userInfo: ["account": accountID, "generation": accountGeneration])
         }
         return bytes
+    }
+    // MARK: - Upstream sync
+    // Step 1 is read-only: one compare request, no refs, no merges.
+    func upstreamCompare(repo: String, base: String, upstream: UpstreamSyncRules.Target) async throws -> UpstreamCompare {
+        let path = try UpstreamSyncRules.comparePath(repo: repo, base: base, upstream: upstream)
+        return try await decoded(UpstreamCompare.self, path)
+    }
+    func upstreamBranchHead(repo: String, branch: String) async throws -> String {
+        let bytes = try await data(try UpstreamSyncRules.branchHeadPath(repo: repo, branch: branch))
+        guard let sha = UpstreamSyncRules.objectSHA(bytes) else {
+            throw AppError(text: "未能读取目标分支的最新提交，请刷新后重试。")
+        }
+        return sha
+    }
+    /// Creates the backup tag and the temporary branch. Both point at the exact
+    /// head that was just read; neither moves the target branch.
+    func createUpstreamRef(repo: String, ref: String, sha: String) async throws {
+        guard UpstreamSyncRules.validSHA(sha) else { throw AppError(text: "提交 SHA 无效，未创建任何引用。") }
+        _ = try await data(try UpstreamSyncRules.refsPath(repo: repo), method: "POST",
+                           object: UpstreamSyncRules.refObject(ref: ref, sha: sha))
+    }
+    func mergeUpstream(repo: String, base: String, upstream: UpstreamSyncRules.Target,
+                       message: String) async throws -> UpstreamSyncRules.MergeOutcome {
+        try ensureActiveAccount()
+        try await requireWriteAccess(repo)
+        try Task.checkCancellation()
+        let body = try JSONSerialization.data(withJSONObject:
+            UpstreamSyncRules.mergeObject(base: base, upstream: upstream, message: message))
+        var r = try request(url(try UpstreamSyncRules.mergesPath(repo: repo)), method: "POST", body: body)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await session.data(for: r)
+        try Task.checkCancellation(); try ensureActiveAccount()
+        guard let http = response as? HTTPURLResponse else { throw AppError(text: "无有效服务器响应") }
+        if [401, 403, 404].contains(http.statusCode) {
+            throw GitHubAPIError(status: http.statusCode, operation: "合并上游到临时分支",
+                                 reason: UpstreamSyncRules.message(bytes) ?? "GitHub 拒绝了合并请求",
+                                 permissions: http.value(forHTTPHeaderField: "X-Accepted-GitHub-Permissions"))
+        }
+        return UpstreamSyncRules.mergeOutcome(status: http.statusCode, body: bytes)
+    }
+    /// Fast-forward only: the request always sends force: false.
+    func applyUpstreamFastForward(repo: String, branch: String,
+                                  sha: String) async throws -> UpstreamSyncRules.ApplyOutcome {
+        guard UpstreamSyncRules.validSHA(sha) else { throw AppError(text: "提交 SHA 无效，未更新分支。") }
+        try ensureActiveAccount()
+        try await requireWriteAccess(repo)
+        try Task.checkCancellation()
+        let body = try JSONSerialization.data(withJSONObject: UpstreamSyncRules.applyObject(sha: sha))
+        var r = try request(url(try UpstreamSyncRules.branchRefPath(repo: repo, branch: branch)),
+                            method: "PATCH", body: body)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await session.data(for: r)
+        try Task.checkCancellation(); try ensureActiveAccount()
+        guard let http = response as? HTTPURLResponse else { throw AppError(text: "无有效服务器响应") }
+        if [401, 403, 404].contains(http.statusCode) {
+            throw GitHubAPIError(status: http.statusCode, operation: "应用快进更新",
+                                 reason: UpstreamSyncRules.message(bytes) ?? "GitHub 拒绝了引用更新",
+                                 permissions: http.value(forHTTPHeaderField: "X-Accepted-GitHub-Permissions"))
+        }
+        return UpstreamSyncRules.applyOutcome(status: http.statusCode, body: bytes)
     }
 }

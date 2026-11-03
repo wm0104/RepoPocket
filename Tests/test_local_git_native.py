@@ -19,6 +19,16 @@ class NativeGitFiles(unittest.TestCase):
         self.assertTrue((ROOT / 'Vendor/NativeGit/NativeGitBridge.m').is_file(),
                         'Real local Git bridge has not been implemented')
 
+    def test_pull_diff_uses_pinned_object_trees(self):
+        bridge = (ROOT/'Vendor/NativeGit/NativeGitBridge.m').read_text(encoding='utf-8')
+        self.assertIn('static NSDictionary *RPPullDiff(', bridge)
+        body = bridge.split('static NSDictionary *RPPullDiff(', 1)[1].split('static NSDictionary *RPPullSummary(', 1)[0]
+        for text in ['beforeSHA', 'afterSHA', 'git_commit_lookup', 'git_diff_tree_to_tree', 'GIT_DIFF_DISABLE_PATHSPEC_MATCH', 'RPIsCancelled']:
+            self.assertIn(text, body)
+        for text in ['git_diff_tree_to_workdir', 'RPHead(', 'RPPath(', 'git_checkout', 'git_index_write']:
+            self.assertNotIn(text, body)
+        self.assertIn('[op isEqual:@"pullDiff"]', bridge)
+
     def test_pull_summary_is_calculated_before_checkout(self):
         bridge=(ROOT/'Vendor/NativeGit/NativeGitBridge.m').read_text(encoding='utf-8')
         pull=bridge.split('static NSDictionary *RPPull(',1)[1].split('static NSDictionary *RPPush(',1)[0]
@@ -368,7 +378,7 @@ do {
 
     def test_pull_when_only_local_is_ahead_preserves_unpushed_commit(self):
         self.make_remote()
-        empty=dict(commits=0,files=[],totalFiles=0,added=0,modified=0,deleted=0,truncated=False)
+        empty=dict(beforeSHA=self.head,afterSHA=self.head,commits=0,files=[],totalFiles=0,added=0,modified=0,deleted=0,truncated=False)
         unchanged=self.result('pull', expectedHead=self.head)
         self.assertEqual(unchanged['head'], self.head)
         self.assertEqual(unchanged['pullSummary'], empty)
@@ -382,6 +392,7 @@ do {
 
         unchanged=self.result('pull', expectedHead=local)
         self.assertEqual(unchanged['head'], local)
+        empty.update(beforeSHA=local,afterSHA=local)
         self.assertEqual(unchanged['pullSummary'], empty)
         self.assertIs(unchanged['pullSummary']['truncated'], False)
         self.assertEqual(self.git('rev-parse', 'HEAD'), local)
@@ -421,6 +432,68 @@ do {
         self.assertEqual((self.work/'new.txt').read_text(encoding='utf-8'),'final version')
         self.assertFalse((self.work/'temporary.txt').exists())
         self.assertEqual(self.result('status')['files'],[])
+        self.assertEqual(summary['beforeSHA'], self.head)
+        self.assertEqual(summary['afterSHA'], result['head'])
+        refs = dict(beforeSHA=summary['beforeSHA'], afterSHA=summary['afterSHA'])
+        (self.work/'代码.py').write_text('later committed content\n')
+        self.git('add', '代码.py')
+        self.git('commit', '-m', 'later local commit')
+        (self.work/'代码.py').write_text('later uncommitted content\n')
+        (self.work/'other.txt').write_text('recreated after deletion\n')
+        index = (self.work/'.git/index').read_bytes()
+        head = self.git('rev-parse', 'HEAD')
+        modified = self.result('pullDiff', path='代码.py', **refs)
+        self.assertEqual(modified['status'], 'modified')
+        self.assertIn('-print("old")', modified['text'])
+        self.assertIn('+print("remote update")', modified['text'])
+        self.assertNotIn('later', modified['text'])
+        added = self.result('pullDiff', path='new.txt', **refs)
+        self.assertEqual(added['status'], 'added')
+        self.assertIn('+final version', added['text'])
+        self.assertNotIn('first version', added['text'])
+        deleted = self.result('pullDiff', path='other.txt', **refs)
+        self.assertEqual(deleted['status'], 'removed')
+        self.assertIn('-unchanged', deleted['text'])
+        self.assertNotIn('recreated', deleted['text'])
+        self.assertGreater(deleted['deletions'], 0)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), head)
+        self.assertEqual((self.work/'.git/index').read_bytes(), index)
+        self.assertEqual((self.work/'other.txt').read_text(), 'recreated after deletion\n')
+        self.assertEqual((self.work/'代码.py').read_text(), 'later uncommitted content\n')
+
+    def test_pull_diff_binary_large_and_invalid_inputs(self):
+        (self.work/'image.bin').write_bytes(b'\x00private binary payload')
+        (self.work/'large.txt').write_text('x' * (256 * 1024 + 1))
+        (self.work/'literal[1]*.txt').write_text('literal path\n')
+        self.git('add', '.')
+        self.git('commit', '-m', 'diff targets')
+        after = self.git('rev-parse', 'HEAD')
+        refs = dict(beforeSHA=self.head, afterSHA=after)
+        binary = self.result('pullDiff', path='image.bin', **refs)
+        self.assertIs(binary['binary'], True)
+        self.assertEqual(binary['text'], '')
+        self.assertEqual(binary['status'], 'added')
+        large = self.result('pullDiff', path='large.txt', **refs)
+        self.assertIs(large['truncated'], True)
+        self.assertEqual(large['text'], '')
+        self.assertIn('+literal path', self.result('pullDiff', path='literal[1]*.txt', **refs)['text'])
+        for path in ('../outside', '.git/config', '/etc/passwd', 'a//b', 'a\\b', 'a/./b', 'missing.txt', 'other.txt', 'a\x00b'):
+            with self.subTest(path=path):
+                self.assertIs(self.call('pullDiff', path=path, **refs)['ok'], False)
+        for key in ('beforeSHA', 'afterSHA'):
+            for value in ('HEAD', 'HEAD~1', '0'*40, 'z'*40, after+'0'):
+                with self.subTest(key=key, value=value):
+                    self.assertIs(self.call('pullDiff', path='image.bin', **(refs | {key:value}))['ok'], False)
+        other = Path(self.temp.name)/'wrong repository'
+        other.mkdir()
+        self.git('init', '-b', 'main', cwd=other)
+        self.assertIs(self.call('pullDiff', path='image.bin', repository=str(other/'.git'), **refs)['ok'], False)
+        index = (self.work/'.git/index').read_bytes()
+        self.native.rp_git_cancel.argtypes = [ctypes.c_char_p]
+        self.native.rp_git_cancel(b'cancel-pull-diff')
+        self.assertIs(self.call('pullDiff', path='image.bin', requestID='cancel-pull-diff', **refs)['ok'], False)
+        self.assertEqual(self.git('rev-parse', 'HEAD'), after)
+        self.assertEqual((self.work/'.git/index').read_bytes(), index)
 
     def test_pull_summary_limits_rows_but_keeps_accurate_totals(self):
         self.make_remote()

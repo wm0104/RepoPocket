@@ -591,14 +591,19 @@ static NSDictionary *RPCommitDetail(git_repository *repo, NSDictionary *q, RPGit
              @"author":@(git_commit_author(commit)->name ?: ""), @"time":@(git_commit_time(commit)),
              @"files":files, @"truncated":@(truncated), @"merge":parents > 1 ? @YES : @NO};
 }
-static git_transaction *RPLockHead(git_repository *repo, git_reference *head, RPGitResources *c) {
+static git_transaction *RPLockHeadForUpdate(git_repository *repo, git_reference *head, BOOL symbolicWrite, RPGitResources *c) {
     NSString *metadata=@(git_repository_path(repo));RPLeaseBegin(metadata,head,c);
     git_transaction *tx = NULL; RPCheck(git_transaction_new(&tx,repo), @"创建 Git 事务失败。"); KEEP(tx,git_transaction_free);
     RPCheck(git_transaction_lock_ref(tx,"HEAD"), @"当前分支被其他工具锁定。");
-    RPLeaseCapture(metadata,@"HEAD.lock",YES,c);
+    // libgit2 does not truncate short symbolic writes: preserve ownership by inode/birth,
+    // but never leave a marker's trailing bytes inside the committed HEAD file.
+    RPLeaseCapture(metadata,@"HEAD.lock",!symbolicWrite,c);
     RPCheck(git_transaction_lock_ref(tx,git_reference_name(head)), @"当前分支被其他工具锁定。");
     RPLeaseCapture(metadata,[@(git_reference_name(head)) stringByAppendingString:@".lock"],YES,c);
     return tx;
+}
+static git_transaction *RPLockHead(git_repository *repo, git_reference *head, RPGitResources *c) {
+    return RPLockHeadForUpdate(repo,head,NO,c);
 }
 static NSDictionary *RPRecover(git_repository *repo, NSDictionary *q, RPGitResources *c) {
     NSString *metadata=@(git_repository_path(repo));
@@ -619,6 +624,7 @@ static NSDictionary *RPRecover(git_repository *repo, NSDictionary *q, RPGitResou
     RPCheck(git_oid_fromstr(&oldID,RPString(intent,@"oldHead").UTF8String),@"恢复基准无效。");
     RPCheck(git_oid_fromstr(&newID,RPString(intent,@"newHead").UTF8String),@"恢复目标无效。");
     RPRequire(git_oid_equal(git_reference_target(head),&oldID) || git_oid_equal(git_reference_target(head),&newID),@"分支已由其他工具更新，不会自动恢复。");
+    RPRequire(![intent[@"operation"] isEqual:@"switchBranch"],@"上次分支切换中断，请先在原工具检查工作文件、暂存区和 HEAD；不会自动覆盖恢复。恢复记录已保留。");
     RPRequire(git_graph_descendant_of(repo,&newID,&oldID)==1,@"恢复目标不是原提交的后续历史，已停止。");
     git_transaction *tx=RPLockHead(repo,head,c);
     git_reference *locked=RPHead(repo,c);
@@ -675,9 +681,67 @@ static NSDictionary *RPRecover(git_repository *repo, NSDictionary *q, RPGitResou
 static int RPPullDiffProgress(const git_diff *diff, const char *oldPath, const char *newPath, void *payload) {
     return RPIsCancelled((__bridge NSString *)payload) ? GIT_EUSER : 0;
 }
+static NSDictionary *RPPullDiff(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    NSString *path=RPString(q,@"path");
+    RPRequire(!path.isAbsolutePath && ![path containsString:@"\\"] && path.length<4096, @"文件路径无效。");
+    for (NSString *part in [path componentsSeparatedByString:@"/"])
+        RPRequire(part.length && ![part isEqual:@"."] && ![part isEqual:@".."] && ![part.lowercaseString isEqual:@".git"], @"不能访问 Git 元数据或项目外的文件。");
+    git_tree *trees[2]={NULL,NULL};
+    NSArray *keys=@[@"beforeSHA",@"afterSHA"];
+    for (NSUInteger i=0;i<2;i++) {
+        NSString *sha=RPString(q,keys[i]); git_oid oid;
+        RPRequire(sha.length==GIT_OID_HEXSZ, @"拉取提交标识无效。");
+        RPCheck(git_oid_fromstr(&oid,sha.UTF8String), @"拉取提交标识无效。");
+        git_commit *commit=NULL;
+        RPCheck(git_commit_lookup(&commit,repo,&oid), @"本次拉取提交已不可用，请使用桌面 Git 查看。"); KEEP(commit,git_commit_free);
+        RPCheck(git_commit_tree(&trees[i],commit), @"读取拉取文件树失败。"); KEEP(trees[i],git_tree_free);
+    }
+    RPRequire(!RPIsCancelled(q[@"requestID"]), @"Git 操作已取消。");
+    git_diff_options options=GIT_DIFF_OPTIONS_INIT;
+    options.flags=GIT_DIFF_INCLUDE_TYPECHANGE|GIT_DIFF_DISABLE_PATHSPEC_MATCH;
+    options.max_size=256*1024;
+    options.progress_cb=RPPullDiffProgress; options.payload=(__bridge void *)q[@"requestID"];
+    char *onePath=(char *)path.UTF8String; options.pathspec.strings=&onePath; options.pathspec.count=1;
+    git_diff *diff=NULL;
+    RPCheck(git_diff_tree_to_tree(&diff,repo,trees[0],trees[1],&options), @"读取本次拉取差异失败。"); KEEP(diff,git_diff_free);
+    RPRequire(git_diff_num_deltas(diff)==1, @"本次拉取中没有该文件的变化。");
+    const git_diff_delta *delta=git_diff_get_delta(diff,0);
+    const char *raw=delta->status==GIT_DELTA_DELETED ? delta->old_file.path : delta->new_file.path;
+    RPRequire(raw && [path isEqual:@(raw)], @"拉取文件路径不匹配。");
+    BOOL binary=NO,truncated=NO; size_t additions=0,deletions=0; NSString *text=@"";
+    git_odb *odb=NULL; RPCheck(git_repository_odb(&odb,repo), @"读取 Git 对象失败。"); KEEP(odb,git_odb_free);
+    const git_oid *oids[2]={&delta->old_file.id,&delta->new_file.id};
+    for (NSUInteger i=0;i<2;i++) {
+        if (git_oid_is_zero(oids[i])) continue;
+        size_t size=0; git_object_t type;
+        RPCheck(git_odb_read_header(&size,&type,odb,oids[i]), @"读取拉取文件对象失败。");
+        if (type!=GIT_OBJECT_BLOB || size>256*1024) truncated=YES;
+    }
+    if (!truncated) {
+        git_patch *patch=NULL;
+        RPCheck(git_patch_from_diff(&patch,diff,0), @"生成本次拉取差异失败。"); KEEP(patch,git_patch_free);
+        binary=!patch || (delta->flags&GIT_DIFF_FLAG_BINARY);
+        if (!binary) {
+            git_patch_line_stats(NULL,&additions,&deletions,patch);
+            git_buf buffer=GIT_BUF_INIT;
+            int rc=git_patch_to_buf(&buffer,patch);
+            if (rc<0 || buffer.size>256*1024) truncated=YES;
+            else {
+                NSString *decoded=[[NSString alloc] initWithBytes:buffer.ptr length:buffer.size encoding:NSUTF8StringEncoding];
+                if (decoded) text=decoded; else binary=YES;
+            }
+            git_buf_dispose(&buffer);
+        }
+    }
+    RPRequire(!RPIsCancelled(q[@"requestID"]), @"Git 操作已取消。");
+    NSString *status=delta->status==GIT_DELTA_ADDED ? @"added" : (delta->status==GIT_DELTA_DELETED ? @"removed" : (delta->status==GIT_DELTA_RENAMED ? @"renamed" : @"modified"));
+    return @{@"text":text,@"binary":@(binary),@"truncated":@(truncated),@"status":status,
+             @"previousFilename":delta->status==GIT_DELTA_RENAMED ? @(delta->old_file.path) : NSNull.null,
+             @"additions":@(additions),@"deletions":@(deletions)};
+}
 static NSDictionary *RPPullSummary(git_repository *repo, const git_oid *before, const git_oid *target,
                                    NSString *requestID, RPGitResources *c) {
-    if (git_oid_equal(before,target)) return @{@"commits":@0,@"files":@[],@"totalFiles":@0,@"added":@0,@"modified":@0,@"deleted":@0,@"truncated":@NO};
+    if (git_oid_equal(before,target)) return @{@"beforeSHA":RPOID(before),@"afterSHA":RPOID(target),@"commits":@0,@"files":@[],@"totalFiles":@0,@"added":@0,@"modified":@0,@"deleted":@0,@"truncated":@NO};
     size_t commits=0, behind=0;
     RPCheck(git_graph_ahead_behind(&commits,&behind,repo,target,before), @"统计本次拉取提交失败，尚未更新工作文件。");
     git_commit *oldCommit=NULL,*newCommit=NULL; git_tree *oldTree=NULL,*newTree=NULL;
@@ -705,7 +769,7 @@ static NSDictionary *RPPullSummary(git_repository *repo, const git_oid *before, 
             [files addObject:@{@"path":path,@"kind":kind}];
         }
     }
-    return @{@"commits":@(commits),@"files":files,@"totalFiles":@(total),@"added":@(added),@"modified":@(modified),@"deleted":@(deleted),@"truncated":total>files.count ? @YES : @NO};
+    return @{@"beforeSHA":RPOID(before),@"afterSHA":RPOID(target),@"commits":@(commits),@"files":files,@"totalFiles":@(total),@"added":@(added),@"modified":@(modified),@"deleted":@(deleted),@"truncated":total>files.count ? @YES : @NO};
 }
 static NSDictionary *RPPull(git_repository *repo, NSMutableDictionary *q, RPGitResources *c) {
     NSDictionary *status = RPStatus(repo,c); RPWritable(repo,status);
@@ -741,7 +805,19 @@ static NSDictionary *RPPull(git_repository *repo, NSMutableDictionary *q, RPGitR
 }
 static NSDictionary *RPPush(git_repository *repo, NSMutableDictionary *q, RPGitResources *c) {
     NSDictionary *status = RPStatus(repo,c); RPWritable(repo,status);
-    RPExpected(status,q);RPSafeUpstream(repo,RPHead(repo,c),YES,c);
+    RPExpected(status,q);
+    git_reference *current=RPHead(repo,c);
+    NSString *branch=@(git_reference_shorthand(current));
+    git_config *config=NULL; RPCheck(git_repository_config_snapshot(&config,repo),@"读取跟踪配置失败。"); KEEP(config,git_config_free);
+    NSString *remoteKey=[NSString stringWithFormat:@"branch.%@.remote",branch];
+    NSString *mergeKey=[NSString stringWithFormat:@"branch.%@.merge",branch];
+    const char *configuredRemote=NULL,*configuredMerge=NULL;
+    int remoteRC=git_config_get_string(&configuredRemote,config,remoteKey.UTF8String);
+    int mergeRC=git_config_get_string(&configuredMerge,config,mergeKey.UTF8String);
+    BOOL firstPush=remoteRC==GIT_ENOTFOUND && mergeRC==GIT_ENOTFOUND;
+    RPRequire(firstPush || (remoteRC==0 && mergeRC==0 && strcmp(configuredRemote,"origin")==0 &&
+        [@(configuredMerge) isEqual:[@"refs/heads/" stringByAppendingString:branch]]),
+        @"当前分支已关联其他目标或跟踪配置不完整，请先在原工具确认；不会更改既有跟踪目标。");
     git_reference *head = RPHead(repo,c); git_transaction *lock = RPLockHead(repo,head,c); (void)lock;
     RPExpected(RPStatus(repo,c),q);
     git_remote *remote = RPRemote(repo,q,c);
@@ -756,8 +832,150 @@ static NSDictionary *RPPush(git_repository *repo, NSMutableDictionary *q, RPGitR
     git_reference *updated=NULL;
     int rc=git_reference_create(&updated,repo,tracking.UTF8String,git_reference_target(head),1,"RepoPocket push");KEEP(updated,git_reference_free);
     RPCheck(rc,@"远端已接收推送，但本地远端状态未更新，请重新检查。");
+    if (firstPush) {
+        git_config *writable=NULL,*local=NULL;
+        RPCheck(git_repository_config(&writable,repo),@"远端已接收推送，但读取跟踪配置失败，请重新检查。"); KEEP(writable,git_config_free);
+        RPCheck(git_config_open_level(&local,writable,GIT_CONFIG_LEVEL_LOCAL),@"远端已接收推送，但本地配置不可写，请在原工具关联跟踪分支。"); KEEP(local,git_config_free);
+        git_transaction *configTx=NULL; RPCheck(git_config_lock(&configTx,local),@"远端已接收推送，但配置被锁定，请重新检查。"); KEEP(configTx,git_transaction_free);
+        git_config *latest=NULL; RPCheck(git_config_snapshot(&latest,local),@"远端已接收推送，但核对跟踪配置失败。"); KEEP(latest,git_config_free);
+        const char *value=NULL;
+        RPRequire(git_config_get_string(&value,latest,remoteKey.UTF8String)==GIT_ENOTFOUND &&
+                  git_config_get_string(&value,latest,mergeKey.UTF8String)==GIT_ENOTFOUND,
+                  @"远端已接收推送，但跟踪配置已被其他工具修改，未覆盖；请重新检查。");
+        RPCheck(git_config_set_string(local,remoteKey.UTF8String,"origin"),@"远端已接收推送，但保存跟踪配置失败。");
+        RPCheck(git_config_set_string(local,mergeKey.UTF8String,git_reference_name(head)),@"远端已接收推送，但保存跟踪配置失败。");
+        RPCheck(git_transaction_commit(configTx),@"远端已接收推送，但跟踪配置未更新，请重新检查。");
+    }
     return @{@"head":status[@"head"]};
 }
+static NSDictionary *RPBranches(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    git_reference *head=RPHead(repo,c);
+    NSMutableArray *local=[NSMutableArray new], *remote=[NSMutableArray new];
+    git_branch_iterator *iterator=NULL;
+    RPCheck(git_branch_iterator_new(&iterator,repo,GIT_BRANCH_ALL),@"读取分支失败。"); KEEP(iterator,git_branch_iterator_free);
+    git_reference *ref=NULL; git_branch_t type; int rc; NSUInteger count=0;
+    while ((rc=git_branch_next(&ref,&type,iterator))==0) {
+        KEEP(ref,git_reference_free);
+        RPRequire(++count<=2000 && !RPIsCancelled(q[@"requestID"]),@"分支超过 2000 项或操作已取消，请使用桌面 Git。");
+        if (git_reference_type(ref)!=GIT_REFERENCE_DIRECT) continue;
+        const char *name=NULL; RPCheck(git_branch_name(&name,ref),@"读取分支名称失败。");
+        BOOL isRemote=type==GIT_BRANCH_REMOTE;
+        [(isRemote ? remote : local) addObject:@{@"name":@(name),@"reference":@(git_reference_name(ref)),
+            @"head":RPOID(git_reference_target(ref)),@"remote":isRemote ? @YES : @NO,
+            @"current":strcmp(git_reference_name(ref),git_reference_name(head))==0 ? @YES : @NO}];
+    }
+    RPRequire(rc==GIT_ITEROVER,@"读取分支列表未完成，请重试。");
+    NSSortDescriptor *sort=[NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES selector:@selector(localizedStandardCompare:)];
+    return @{@"head":RPOID(git_reference_target(head)),@"reference":@(git_reference_name(head)),
+             @"local":[local sortedArrayUsingDescriptors:@[sort]],@"remote":[remote sortedArrayUsingDescriptors:@[sort]]};
+}
+static void RPBranchState(git_repository *repo, NSDictionary *status) {
+    RPRequire([status[@"repoState"] intValue]==0,@"仓库有冲突、合并或中断操作，请先在原工具处理后重新检查；文件和暂存区不会被清理。");
+    git_index *index=NULL; RPCheck(git_repository_index(&index,repo),@"读取暂存区失败。");
+    BOOL conflicts=git_index_has_conflicts(index), submodule=NO;
+    for (size_t i=0; i<git_index_entrycount(index); i++) {
+        if (git_index_get_byindex(index,i)->mode==GIT_FILEMODE_COMMIT) submodule=YES;
+    }
+    git_index_free(index);
+    RPRequire(!conflicts,@"暂存区存在冲突，请先在原工具解决后重试；不会撤销暂存。");
+    RPRequire(!submodule,@"第一版暂不接管子模块；不会切换分支或修改工作文件。");
+}
+static void RPLockBranch(git_transaction *tx,git_repository *repo,NSString *ref,RPGitResources *c) {
+    RPCheck(git_transaction_lock_ref(tx,ref.UTF8String),@"目标分支被其他工具锁定，请稍后重试。");
+    RPLeaseCapture(@(git_repository_path(repo)),[ref stringByAppendingString:@".lock"],YES,c);
+}
+static void RPAbsentBranch(git_repository *repo,NSString *ref) {
+    git_reference *existing=NULL; int rc=git_reference_lookup(&existing,repo,ref.UTF8String);
+    git_reference_free(existing);
+    RPRequire(rc==GIT_ENOTFOUND,@"同名本地分支已存在，请从本地分支列表选择；未覆盖任何分支。");
+}
+static NSDictionary *RPCreateBranch(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    NSString *name=RPString(q,@"name"); RPBranch(name);
+    NSDictionary *status=RPStatus(repo,c); RPExpected(status,q); RPBranchState(repo,status);
+    git_reference *head=RPHead(repo,c); git_transaction *tx=RPLockHeadForUpdate(repo,head,YES,c);
+    NSString *ref=[@"refs/heads/" stringByAppendingString:name];
+    RPAbsentBranch(repo,ref); RPLockBranch(tx,repo,ref,c); RPAbsentBranch(repo,ref);
+    NSDictionary *fresh=RPStatus(repo,c); RPExpected(fresh,q); RPBranchState(repo,fresh);
+    RPRequire(!RPIsCancelled(q[@"requestID"]),@"新建分支已取消，文件与暂存区保持不变。");
+    git_signature *signature=NULL;
+    RPCheck(git_signature_now(&signature,"RepoPocket","local@repopocket.invalid"),@"无法创建操作记录。"); KEEP(signature,git_signature_free);
+    RPCheck(git_transaction_set_target(tx,ref.UTF8String,git_reference_target(head),signature,"RepoPocket create branch"),@"创建分支失败。");
+    RPCheck(git_transaction_set_symbolic_target(tx,"HEAD",ref.UTF8String,signature,"RepoPocket switch new branch"),@"设置当前分支失败。");
+    // Same commit: only references change, never checkout or rewrite the user's index.
+    RPCheck(git_transaction_commit(tx),@"分支切换未完成，请重新检查；原文件与暂存区未修改。");
+    return @{@"head":status[@"head"]};
+}
+static NSDictionary *RPSwitchBranch(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    NSDictionary *status=RPStatus(repo,c); RPExpected(status,q); RPBranchState(repo,status);
+    NSString *dirty=@"当前有未提交、已暂存或未跟踪文件。请先提交，或使用“从当前 HEAD 新建并切换”保留修改；切换已有分支前须在原工具处理至干净状态。不会自动暂存、丢弃或强制切换。";
+    RPRequire([status[@"files"] count]==0 && [status[@"staged"] count]==0,dirty);
+    NSString *targetRef=RPString(q,@"targetRef");
+    BOOL remote=[targetRef hasPrefix:@"refs/remotes/"];
+    RPRequire(remote || [targetRef hasPrefix:@"refs/heads/"],@"请选择列表中的本地或远端跟踪分支。");
+    git_reference *head=RPHead(repo,c); git_transaction *tx=RPLockHeadForUpdate(repo,head,YES,c);
+    RPRequire(strcmp(targetRef.UTF8String,git_reference_name(head))!=0,@"已经在当前分支，请刷新列表。");
+    RPLockBranch(tx,repo,targetRef,c);
+    git_reference *target=NULL; RPCheck(git_reference_lookup(&target,repo,targetRef.UTF8String),@"目标分支已删除，请刷新列表。"); KEEP(target,git_reference_free);
+    RPRequire(git_reference_type(target)==GIT_REFERENCE_DIRECT &&
+        [RPOID(git_reference_target(target)) isEqual:RPString(q,@"expectedTargetHead")],@"目标分支已变化，请刷新列表并重新选择。");
+    NSString *localRef=targetRef, *upstream=nil;
+    if (remote) {
+        git_buf remoteName=GIT_BUF_INIT;
+        int rc=git_branch_remote_name(&remoteName,repo,targetRef.UTF8String);
+        NSString *prefix=rc>=0 ? [NSString stringWithFormat:@"refs/remotes/%s/",remoteName.ptr] : nil;
+        git_buf_dispose(&remoteName); RPCheck(rc,@"远端分支未关联有效远端，请先在原工具处理。");
+        RPRequire([targetRef hasPrefix:prefix],@"远端分支名称无效。");
+        NSString *name=[targetRef substringFromIndex:prefix.length]; RPBranch(name);
+        localRef=[@"refs/heads/" stringByAppendingString:name]; upstream=[targetRef substringFromIndex:13];
+        RPAbsentBranch(repo,localRef); RPLockBranch(tx,repo,localRef,c); RPAbsentBranch(repo,localRef);
+    }
+    NSDictionary *fresh=RPStatus(repo,c); RPExpected(fresh,q); RPBranchState(repo,fresh);
+    RPRequire([fresh[@"files"] count]==0 && [fresh[@"staged"] count]==0,dirty);
+    git_object *commit=NULL; RPCheck(git_object_lookup(&commit,repo,git_reference_target(target),GIT_OBJECT_COMMIT),@"目标分支提交不可用。"); KEEP(commit,git_object_free);
+    git_checkout_options options=GIT_CHECKOUT_OPTIONS_INIT;
+    options.checkout_strategy=GIT_CHECKOUT_SAFE|GIT_CHECKOUT_DONT_OVERWRITE_IGNORED|GIT_CHECKOUT_DRY_RUN;
+    RPCheck(git_checkout_tree(repo,commit,&options),@"切换会覆盖本地内容（含忽略文件），已停止；请先在原工具处理。");
+    RPRequire(!RPIsCancelled(q[@"requestID"]),@"切换已取消，尚未修改工作文件。");
+    git_signature *signature=NULL;
+    RPCheck(git_signature_now(&signature,"RepoPocket","local@repopocket.invalid"),@"无法创建操作记录。"); KEEP(signature,git_signature_free);
+    if (remote) RPCheck(git_transaction_set_target(tx,localRef.UTF8String,git_reference_target(target),signature,"RepoPocket track branch"),@"创建本地分支失败。");
+    RPCheck(git_transaction_set_symbolic_target(tx,"HEAD",localRef.UTF8String,signature,"RepoPocket switch branch"),@"设置当前分支失败。");
+    NSString *journal=[@(git_repository_path(repo)) stringByAppendingPathComponent:@"repopocket-transaction.json"];
+    NSData *intent=[NSJSONSerialization dataWithJSONObject:@{@"operation":@"switchBranch",@"reference":@(git_reference_name(head)),@"targetRef":localRef,@"oldHead":status[@"head"],@"newHead":RPOID(git_reference_target(target))} options:0 error:nil];
+    RPRequire([intent writeToFile:journal options:NSDataWritingAtomic error:nil],@"无法保存切换恢复信息，尚未修改工作文件。");
+    options.checkout_strategy &= ~GIT_CHECKOUT_DRY_RUN;
+    RPCheck(git_checkout_tree(repo,commit,&options),@"切换未完整完成，请在原工具检查；文件和恢复信息已保留。");
+    RPCheck(git_transaction_commit(tx),@"分支切换未完成，请在原工具检查；文件和恢复信息已保留。");
+    unlink(journal.fileSystemRepresentation);
+    if (upstream) {
+        git_reference *local=NULL; RPCheck(git_reference_lookup(&local,repo,localRef.UTF8String),@"已切换，请刷新检查跟踪配置。"); KEEP(local,git_reference_free);
+        RPCheck(git_branch_set_upstream(local,upstream.UTF8String),@"已切换，但关联跟踪分支失败，请在原工具处理。");
+    }
+    return @{@"head":RPOID(git_reference_target(target))};
+}
+
+static NSDictionary *RPDeleteBranch(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    NSDictionary *status=RPStatus(repo,c); RPExpected(status,q); RPBranchState(repo,status);
+    NSString *targetRef=RPString(q,@"targetRef");
+    RPRequire([targetRef hasPrefix:@"refs/heads/"],@"只能删除本地分支；不会删除远端跟踪引用或 GitHub 分支。");
+    RPBranch([targetRef substringFromIndex:11]);
+    git_reference *head=RPHead(repo,c); git_transaction *tx=RPLockHead(repo,head,c);
+    RPRequire(strcmp(targetRef.UTF8String,git_reference_name(head))!=0,@"不能删除当前分支，请先切换到其他分支。");
+    RPLockBranch(tx,repo,targetRef,c);
+    git_reference *target=NULL; RPCheck(git_reference_lookup(&target,repo,targetRef.UTF8String),@"目标分支已删除，请刷新列表。"); KEEP(target,git_reference_free);
+    RPRequire(git_reference_type(target)==GIT_REFERENCE_DIRECT &&
+        [RPOID(git_reference_target(target)) isEqual:RPString(q,@"expectedTargetHead")],@"目标分支已变化，请刷新列表并重新确认。");
+    RPRequire(git_branch_is_checked_out(target)==0,@"分支正在其他工作区使用，不能删除。");
+    RPRequire(git_oid_equal(git_reference_target(head),git_reference_target(target)) ||
+        git_graph_descendant_of(repo,git_reference_target(head),git_reference_target(target))==1,
+        @"此分支包含尚未合并到当前分支的提交，已停止删除；请先合并并确认保留提交。");
+    NSDictionary *fresh=RPStatus(repo,c); RPExpected(fresh,q); RPBranchState(repo,fresh);
+    RPRequire(!RPIsCancelled(q[@"requestID"]),@"删除已取消，分支、文件和暂存区保持不变。");
+    RPCheck(git_transaction_remove(tx,targetRef.UTF8String),@"删除本地分支失败。");
+    RPCheck(git_transaction_commit(tx),@"删除本地分支未完成，请刷新核实；文件和暂存区未修改。");
+    return @{@"head":status[@"head"]};
+}
+
 static NSDictionary *RPCreate(NSString *op, NSMutableDictionary *q, RPGitResources *c) {
     NSString *remoteURL = RPString(q,@"remote"), *branch = RPString(q,@"branch");
     RPRequire(RPAllowedRemote(remoteURL), @"仅支持 GitHub HTTPS 仓库地址。"); RPBranch(branch);
@@ -826,10 +1044,15 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
             if ([op isEqual:@"clone"] || [op isEqual:@"associate"]) result = RPCreate(op,q,c);
             else {
                 git_repository *repo = RPOpen(q, c);
-                if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"]) RPScanBudget(repo,requestID,c);
+                if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"] || [op isEqual:@"createBranch"] || [op isEqual:@"switchBranch"] || [op isEqual:@"deleteBranch"]) RPScanBudget(repo,requestID,c);
                 if ([op isEqual:@"status"] || [op isEqual:@"inspect"]) result = RPStatus(repo, c);
                 else if ([op isEqual:@"diff"]) result = RPDiff(repo, q, c);
+                else if ([op isEqual:@"pullDiff"]) result = RPPullDiff(repo, q, c);
                 else if ([op isEqual:@"commit"]) result = RPCommit(repo, q, c);
+                else if ([op isEqual:@"branches"]) result = RPBranches(repo,q,c);
+                else if ([op isEqual:@"createBranch"]) result = RPCreateBranch(repo,q,c);
+                else if ([op isEqual:@"switchBranch"]) result = RPSwitchBranch(repo,q,c);
+                else if ([op isEqual:@"deleteBranch"]) result = RPDeleteBranch(repo,q,c);
                 else if ([op isEqual:@"history"]) result = RPHistory(repo,c);
                 else if ([op isEqual:@"commitDetail"]) result = RPCommitDetail(repo,q,c);
                 else if ([op isEqual:@"fetch"]) { RPFetch(repo,q,c); result = RPHistory(repo,c); }

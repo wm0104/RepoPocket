@@ -22,9 +22,11 @@ class BrowserRollbackTests(unittest.TestCase):
                 cache_start = historic.index('    func clearIfIdle()')
                 cache_end = historic.index('    func image(for url:', cache_start)
                 historic = historic[:cache_start] + historic[cache_end:]
-                # Only the newly approved star/fork count destinations differ.
-                begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
-                self.assertEqual(current.split(begin)[0], historic.split(begin)[0])
+                # Explicit avatar refresh has its own production actor/loader harness.
+                self.assertEqual(current.split('actor AvatarPipeline')[0], historic.split('actor AvatarPipeline')[0])
+                self.assertIn('configuration.urlCredentialStorage = nil', current)
+                self.assertIn('RepoPocket.avatarRefreshRequested', current)
+                self.assertIn('.reloadRevalidatingCacheData', current)
                 self.assertEqual(current.split('struct LoadingRows:')[1], historic.split('struct LoadingRows:')[1])
                 self.assertEqual(current.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0], historic.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0])
                 self.assertIn('openOwner: openOwner', current)
@@ -33,6 +35,15 @@ class BrowserRollbackTests(unittest.TestCase):
         # RepoPocketApp.swift is not compared byte-for-byte: the directory-nav
         # freeze fix intentionally changes BrowserView's destination form. Its
         # release-removal and menu contracts are asserted below instead.
+        # Upstream preview alone moves out of the AnyView row into a stable route.
+        self.assertEqual(BROWSER.count('    @State private var showingUpstreamSync = false\n'), 1)
+        self.assertEqual(BROWSER.count('Button("上游同步") { showingUpstreamSync = true }'), 1)
+        upstream_route = '''        .navigationDestination(isPresented: $showingUpstreamSync) {
+            UpstreamSyncView(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, repository: repositoryInfo)
+        }
+'''
+        self.assertEqual(BROWSER.count(upstream_route), 1)
+        self.assertNotIn('NavigationLink { UpstreamSyncView(', BROWSER)
         self.assertNotIn('RepositoryRelease', APP)
         for token in ('RepositoryRelease', 'repositoryReleasePage', 'repositoryLatestRelease', 'releases.load', 'releases.reset'):
             for file in (ROOT/'RepoPocket').glob('*.swift'):
@@ -58,6 +69,12 @@ class BrowserRollbackTests(unittest.TestCase):
         # account/host/error guards. Normalize only those exact additions before
         # comparing the complete historic write/download implementation.
         normalized = api_new[:added_start].replace(approved, historic)
+        # Only the new remote-branch delete method is excluded; its permission,
+        # protected/default/current branch and acknowledgement tests are separate.
+        deletion_start = normalized.index('    func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {')
+        deletion_end = normalized.index('    func fetchWorkspace(', deletion_start)
+        self.assertEqual(normalized[deletion_start:deletion_end].count('    func '), 1)
+        normalized = normalized[:deletion_start] + normalized[deletion_end:]
         # Normalize the removed manual cache reset and the exact bounded error
         # read only; every other historic transport byte remains protected.
         self.assertNotIn('    func clearMemoryCaches()', normalized)
@@ -98,6 +115,12 @@ class BrowserRollbackTests(unittest.TestCase):
         gateway = normalized[gateway_start:gateway_end]
         self.assertIn('let bytes = try await data(path, query: query)', gateway)
         self.assertIn('try Task.checkCancellation()', gateway)
+        # File-page GFM rendering is a read-only render call (POST /markdown, no repository
+        # write); its own contract lives in Tests/test_markdown_file_render.py.
+        render_start = gateway.index('    /// Server-side GFM rendering for file pages.')
+        render_end = gateway.index('    // Native collaboration transport:', render_start)
+        self.assertIn('url("/markdown")', gateway[render_start:render_end])
+        gateway = gateway[:render_start] + gateway[render_end:]
         self.assertNotIn('method:', gateway.split('    // Native collaboration transport:')[0])
         normalized = normalized[:gateway_start] + normalized[gateway_end:]
         # Explicit fork-status fix: new lookup and accepted-POST bookkeeping are
@@ -206,7 +229,7 @@ final class GitHub {
 }
 final class BrowserHarness {
  let api: GitHub; let repo: String; let path: String
- var activeBranch = ""; var repositoryInfo: Repository?; var busy = false
+ var activeBranch = ""; var repositoryInfo: Repository?; var busy = false; var refreshing = false
  var selectedBranch = ""; var entries: [Entry] = []; var loaded = false
  init(_ api: GitHub, _ repo: String, _ path: String) { self.api=api; self.repo=repo; self.path=path }
  func enter() async { if !loaded { await load() } }

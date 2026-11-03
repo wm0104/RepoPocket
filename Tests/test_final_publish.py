@@ -4,6 +4,16 @@ import shutil, subprocess, tempfile, unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 class FinalPublishTests(unittest.TestCase):
+    def test_native_find_uses_declared_chinese_localization(self):
+        project = (ROOT/'project.yml').read_text()
+        self.assertIn('developmentLanguage: zh-Hans', project)
+        self.assertIn('CFBundleDevelopmentRegion: zh-Hans', project)
+        self.assertIn('CFBundleLocalizations: [zh-Hans]', project)
+        surface = (ROOT/'RepoPocket/SourceTextSurface.swift').read_text()
+        self.assertIn('UIFindInteraction', surface)
+        self.assertNotIn('AppleLanguages', surface)
+        self.assertNotIn('method_exchangeImplementations', surface)
+
     def test_shared_form_and_safety(self):
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
         entry = (ROOT/'RepoPocket/ReleaseEntryView.swift').read_text()
@@ -27,7 +37,7 @@ class FinalPublishTests(unittest.TestCase):
         self.assertNotIn('let label = UILabel()', picker)
         for token in ['Menu("工作区…")', 'if !selected.isEmpty', 'Text("暂无变更")', '复制实际工作目录路径', '发布为发行版']:
             self.assertIn(token, workspace)
-        self.assertIn('await updateChecker.automaticCheck(api: api)', app)
+        self.assertIn('await updateChecker.appEntryCheck(api: api)', app)
         self.assertNotIn('.badge(updateChecker.hasUpdate', app)
         self.assertNotIn('Circle().fill(Color.red)', updates)
         self.assertIn('Text("应用更新")', updates)
@@ -39,8 +49,23 @@ class FinalPublishTests(unittest.TestCase):
         self.assertIn('AppUpdateSessionRules.version', app)
         for path in ROOT.joinpath('RepoPocket').glob('*.swift'):
             text = path.read_text()
-            self.assertNotIn('scenePhase', text)
             self.assertNotIn('willEnterForegroundNotification', text)
+            # Root update checks and the foreground-only cancellation receipt poll
+            # are the only lifecycle observers; no workspace scanning on resume.
+            self.assertEqual('scenePhase' in text, path.name in ('RepoPocketApp.swift', 'WorkflowViews.swift'), path.name)
+            if path.name == 'WorkflowViews.swift':
+                self.assertEqual(text.count('scenePhase'), 4)
+                self.assertIn('@Environment(\\.scenePhase) private var scenePhase', text)
+                polling = text.split('.task(id: cancellation.waiting && scenePhase == .active) {', 1)[1].split('        .task {', 1)[0]
+                for token in ('guard cancellation.waiting, scenePhase == .active', 'for _ in 0..<60',
+                              'Task.sleep(nanoseconds: 5_000_000_000)', 'try Task.checkCancellation()',
+                              'guard api.isCurrentSession', 'await refreshRunStatus()', 'cancellation.stopWaiting()'):
+                    self.assertIn(token, polling)
+                self.assertNotIn('scan()', polling)
+                self.assertNotIn('communityMutation(', polling)
+        entry = app.split('.onChange(of: scenePhase)', 1)[1].split('.task { await NetworkWarmup', 1)[0]
+        self.assertEqual(entry.count('appEntryCheck(api: api)'), 1)
+        self.assertNotIn('scan()', entry)
         self.assertIn('private let build: () -> AnyView', ui)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'production fixtures execute on macOS CI')
@@ -71,11 +96,11 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
   let now = Date(timeIntervalSince1970:100_000)
   var cold = AppUpdateSessionRules(); precondition(cold.claim(now:now,last:nil))
   precondition(!cold.claim(now:now.addingTimeInterval(100_000),last:nil))
-  var recent = AppUpdateSessionRules(); precondition(!recent.claim(now:now,last:now.addingTimeInterval(-21_599)))
-  var due = AppUpdateSessionRules(); precondition(due.claim(now:now,last:now.addingTimeInterval(-21_600)))
+  var recent = AppUpdateSessionRules(); precondition(!recent.claim(now:now,last:now.addingTimeInterval(-899)))
+  var due = AppUpdateSessionRules(); precondition(due.claim(now:now,last:now.addingTimeInterval(-900)))
   var future = AppUpdateSessionRules(); precondition(!future.claim(now:now,last:now.addingTimeInterval(1)))
   precondition(AppUpdateSessionRules.version("1.0.1",build:"5") == "1.0.1")
-  print("PASS production phase, fixed draft retry, cancel/finalization failure, identity/size, nonempty/budget/names, session once, six-hour edge and version format")
+  print("PASS production phase, fixed draft retry, cancel/finalization failure, identity/size, nonempty/budget/names, session once, 15-minute edge and version format")
  }
 }
 '''
