@@ -37,19 +37,20 @@ class BuildWorkflowTests(unittest.TestCase):
     def setUpClass(cls):
         cls.source = Path(REPO_ROOT, '.github/workflows/build.yml').read_text()
 
-    def test_test_branches_build_on_push(self):
-        # Test-branch pushes build automatically; other branches stay manual.
+    def test_builds_are_manual_only(self):
+        # Pushing code must never start a build behind the user's back.
         triggers = self.source.split('\non:\n', 1)[1].split('\npermissions:', 1)[0]
-        self.assertIn('\n  push:\n    branches: [test]', triggers)
+        self.assertNotIn('  push:', triggers)
+        self.assertIn('  workflow_dispatch:', triggers)
 
     def test_pull_requests_and_manual_dispatch(self):
         self.assertNotIn('  pull_request:', self.source)
         self.assertIn('  workflow_dispatch:', self.source)
 
-    def test_checks_run_only_for_pull_requests_manual_dispatch_or_test_pushes(self):
+    def test_checks_run_only_for_pull_requests_or_manual_dispatch(self):
         import re
         expected = {'local-git-check.yml': {'pull_request', 'workflow_dispatch'},
-                    'ui-check.yml': {'pull_request', 'push', 'workflow_dispatch'}}
+                    'ui-check.yml': {'pull_request', 'workflow_dispatch'}}
         for name, wanted in expected.items():
             with self.subTest(workflow=name):
                 source = (REPO_ROOT / '.github/workflows' / name).read_text()
@@ -57,7 +58,7 @@ class BuildWorkflowTests(unittest.TestCase):
                 events = set(re.findall(r'^  ([a-z_]+):', triggers, re.MULTILINE))
                 self.assertEqual(events, wanted)
         ui = (REPO_ROOT / '.github/workflows/ui-check.yml').read_text()
-        self.assertIn('\n  push:\n    branches: [test]', ui)
+        self.assertNotIn('  push:', ui)
 
     def test_read_only_permissions_and_apple_runner(self):
         self.assertIn('permissions:\n  contents: read', self.source)

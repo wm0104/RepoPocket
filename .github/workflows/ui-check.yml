@@ -18,17 +18,6 @@ on:
       - StyleUITests/**
       - Scripts/**
       - .github/workflows/ui-check.yml
-  push:
-    branches: [test]
-    paths:
-      - RepoPocket/**
-      - SharedInbox/**
-      - ShareExtension/**
-      - Vendor/**
-      - project.yml
-      - StyleUITests/**
-      - Scripts/**
-      - .github/workflows/ui-check.yml
 concurrency:
   group: ui-check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
