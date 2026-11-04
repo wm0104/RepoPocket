@@ -145,7 +145,7 @@ final class ReleaseEditorTests: XCTestCase {
     private func scrollToTop(_ app: XCUIApplication) {
         for _ in 0..<12 {
             let title = app.textFields["release-title"]
-            if title.exists && title.isHittable { return }
+            if visibleInForm(title, in: app) { return }
             dragForm(app, up: false)
         }
         XCTFail("Could not reveal title: " + app.debugDescription)
@@ -154,25 +154,40 @@ final class ReleaseEditorTests: XCTestCase {
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         // Do not wait for existence before scrolling: Form lazily instantiates rows.
         for _ in 0..<12 {
-            if element.exists && element.isHittable { return }
-            dragForm(app, up: true)
+            if visibleInForm(element, in: app) { return }
+            let above = element.exists && element.frame.maxY <= formViewport(app).minY
+            dragForm(app, up: !above)
         }
         XCTAssertTrue(element.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(element.isHittable)
+        XCTAssertTrue(visibleInForm(element, in: app), app.debugDescription)
+    }
+
+    private func formViewport(_ app: XCUIApplication) -> CGRect {
+        let scroll = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
+        let frame = scroll.frame.intersection(app.frame)
+        let navigation = app.navigationBars.firstMatch
+        let top = max(frame.minY, navigation.exists ? navigation.frame.maxY : frame.minY) + 8
+        var bottom = frame.maxY - 20
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.exists { bottom = min(bottom, keyboard.frame.minY - 100) }
+        let audit = app.staticTexts["release-fixture-audit"]
+        if audit.exists && !app.navigationBars["待上传文件"].exists { bottom = min(bottom, audit.frame.minY - 10) }
+        return CGRect(x: frame.minX, y: top, width: frame.width, height: max(70, bottom - top))
+    }
+
+    private func visibleInForm(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists, element.isHittable else { return false }
+        let viewport = formViewport(app), frame = element.frame
+        if element.elementType == .textView { return frame.intersection(viewport).height >= 44 }
+        return frame.minY >= viewport.minY && frame.maxY <= viewport.maxY
     }
 
     private func dragForm(_ app: XCUIApplication, up: Bool) {
-        let scroll = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
-        let frame = scroll.frame.intersection(app.frame)
-        let keyboard = app.keyboards.firstMatch
-        let bottom = keyboard.exists ? min(frame.maxY, keyboard.frame.minY - 100) : frame.maxY - 20
-        let navigation = app.navigationBars.firstMatch
-        let top = max(frame.minY, navigation.exists ? navigation.frame.maxY : frame.minY) + 35
-        // Drag below the navigation bar; dragging at y=65 hits the bar instead of the Form.
-        // Stay on the Form's edge, outside the independently scrolling TextEditor.
+        let viewport = formViewport(app)
+        // Exclude the navigation bar, software keyboard and DEBUG audit inset.
         let origin = app.coordinate(withNormalizedOffset: .zero)
-        let high = origin.withOffset(CGVector(dx: frame.maxX - 12, dy: top))
-        let low = origin.withOffset(CGVector(dx: frame.maxX - 12, dy: max(top + 40, bottom - 30)))
+        let high = origin.withOffset(CGVector(dx: viewport.maxX - 12, dy: viewport.minY + 20))
+        let low = origin.withOffset(CGVector(dx: viewport.maxX - 12, dy: viewport.maxY - 20))
         (up ? low : high).press(forDuration: 0.05, thenDragTo: up ? high : low)
     }
 
