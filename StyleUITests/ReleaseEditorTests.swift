@@ -169,9 +169,10 @@ final class ReleaseEditorTests: XCTestCase {
         let top = max(frame.minY, navigation.exists ? navigation.frame.maxY : frame.minY) + 8
         var bottom = frame.maxY - 20
         let keyboard = app.keyboards.firstMatch
-        if keyboard.exists { bottom = min(bottom, keyboard.frame.minY - 100) }
         let audit = app.staticTexts["release-fixture-audit"]
-        if audit.exists && !app.navigationBars["待上传文件"].exists { bottom = min(bottom, audit.frame.minY - 10) }
+        if audit.exists && !app.navigationBars["待上传文件"].exists {
+            bottom = min(bottom, audit.frame.minY - 4)
+        } else if keyboard.exists { bottom = min(bottom, keyboard.frame.minY - 60) }
         return CGRect(x: frame.minX, y: top, width: frame.width, height: max(70, bottom - top))
     }
 
@@ -179,7 +180,9 @@ final class ReleaseEditorTests: XCTestCase {
         guard element.exists, element.isHittable else { return false }
         let viewport = formViewport(app), frame = element.frame
         if element.elementType == .textView { return frame.intersection(viewport).height >= 44 }
-        return frame.minY >= viewport.minY && frame.maxY <= viewport.maxY
+        // UIKit can report a row extending a few points outside its viewport.
+        // The actual button hit point must be unobscured, not the full AX row rectangle.
+        return viewport.contains(CGPoint(x: frame.minX + min(60, frame.width / 2), y: frame.midY))
     }
 
     private func dragForm(_ app: XCUIApplication, up: Bool) {

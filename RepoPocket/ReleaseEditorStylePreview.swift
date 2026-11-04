@@ -12,18 +12,18 @@ struct ReleaseEditorStylePreview: View {
     var body: some View {
         Group {
             if let api {
-                ReleaseEditorView(api: api, repo: "fixture-owner/sample", original: nil, initialBranch: "main")
-                    .safeAreaInset(edge: .bottom) {
-                        VStack(spacing: 4) {
-                            Text(audit).font(.caption2).accessibilityIdentifier("release-fixture-audit")
-                            HStack {
-                                Button("检查只读请求") { audit = ReleaseEditorPreviewProtocol.audit }
-                                    .accessibilityIdentifier("release-fixture-check")
-                                Button("模拟账号切换") { AccountStore.activate("release-editor-other") }
-                                    .accessibilityIdentifier("release-fixture-switch")
-                            }.font(.caption)
-                        }.padding(4).background(.regularMaterial)
-                    }
+                VStack(spacing: 0) {
+                    ReleaseEditorView(api: api, repo: "fixture-owner/sample", original: nil, initialBranch: "main")
+                    VStack(spacing: 4) {
+                        Text(audit).font(.caption2).accessibilityIdentifier("release-fixture-audit")
+                        HStack {
+                            Button("检查只读请求") { audit = ReleaseEditorPreviewProtocol.audit }
+                                .accessibilityIdentifier("release-fixture-check")
+                            Button("模拟账号切换") { AccountStore.activate("release-editor-other") }
+                                .accessibilityIdentifier("release-fixture-switch")
+                        }.font(.caption)
+                    }.padding(4).background(.regularMaterial)
+                }
             } else if !error.isEmpty {
                 Text(error).accessibilityIdentifier("release-fixture-error")
             } else { ProgressView("准备发行表单测试…") }
