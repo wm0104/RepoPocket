@@ -69,6 +69,15 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
         self.assertIn('target.label.contains("main") && target.isEnabled', native)
         self.assertIn('Do not wait for existence before scrolling', native)
 
+    def test_fixture_keyboard_control_only_ends_editing(self):
+        fixture = (ROOT / 'RepoPocket/ReleaseEditorStylePreview.swift').read_text()
+        native = (ROOT / 'StyleUITests/ReleaseEditorTests.swift').read_text()
+        control = fixture.split('Button("收起键盘") {', 1)[1].split('Button("检查只读请求")', 1)[0]
+        self.assertIn('UIResponder.resignFirstResponder', control)
+        self.assertNotIn('ready', control)
+        self.assertIn('app.buttons["release-fixture-dismiss-keyboard"].tap()', native)
+        self.assertIn('object: confirmation)], timeout: 5)', native)
+
     def test_simulator_group_entitlements_preserve_keychain_settings(self):
         import plistlib
         runner = (ROOT / 'Scripts/run_style_preview.sh').read_text()

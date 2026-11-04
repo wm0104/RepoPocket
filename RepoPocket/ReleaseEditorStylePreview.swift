@@ -17,6 +17,9 @@ struct ReleaseEditorStylePreview: View {
                     VStack(spacing: 4) {
                         Text(audit).font(.caption2).accessibilityIdentifier("release-fixture-audit")
                         HStack {
+                            Button("收起键盘") {
+                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                            }.accessibilityIdentifier("release-fixture-dismiss-keyboard")
                             Button("检查只读请求") { audit = ReleaseEditorPreviewProtocol.audit }
                                 .accessibilityIdentifier("release-fixture-check")
                             Button("模拟账号切换") { AccountStore.activate("release-editor-other") }

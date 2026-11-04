@@ -35,6 +35,9 @@ final class ReleaseEditorTests: XCTestCase {
         screenshot(app, "release-editor-confirmation")
         // Never tap 确认保存: the regression stops at the real native confirmation.
         confirmation.buttons["取消"].tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+            object: confirmation)], timeout: 5), .completed)
+        reveal(publish, in: app)
         waitEnabled(publish, true)
         assertReadOnly(app)
     }
@@ -104,6 +107,9 @@ final class ReleaseEditorTests: XCTestCase {
         let text = "Release notes begin\n" + String(repeating: "Long native release body requires scrolling.\n", count: 24) + "Release notes end"
         body.typeText(text)
         XCTAssertTrue((body.value as? String)?.contains("Release notes end") == true)
+        app.buttons["release-fixture-dismiss-keyboard"].tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+            object: app.keyboards.firstMatch)], timeout: 5), .completed)
     }
 
     private func attachFromInbox(_ app: XCUIApplication, capture: Bool = false) {
