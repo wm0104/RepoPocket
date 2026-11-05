@@ -19,17 +19,30 @@ struct CommunityMarkdown: View {
     var baseURL: URL? = nil
     var imageBaseURL: URL? = nil
     var api: GitHub? = nil
+    var reader = false
     @State private var readingLink: ReadingLink?
     @State private var content: MarkdownContent?
+    @State private var showReader = false
+    @State private var scale = 1.0
     private var bounded: String { String(decoding: text.utf8.prefix(CommunityRules.markdownByteLimit), as: UTF8.self) }
+    private var offersReading: Bool {
+        bounded.count > 240 || bounded.contains("\n") || bounded.contains("|")
+            || bounded.contains("```") || bounded.contains("~~~") || bounded.hasPrefix("    ")
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if reader { ContentZoomControls(scale: $scale).frame(maxWidth: .infinity, alignment: .trailing) }
+            if !reader, offersReading {
+                Button("放大阅读") { showReader = true }.font(.caption).buttonStyle(.borderless)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .trailing)
+            }
             if text.utf8.count > CommunityRules.markdownByteLimit {
                 Text("正文仅预览前 256 KiB，完整内容请在 GitHub 查看。").font(.caption).foregroundStyle(.secondary)
             }
             if let content {
                 Markdown(content, baseURL: baseURL, imageBaseURL: imageBaseURL)
                     .markdownTheme(.gitHub)
+                    .markdownTextStyle(\.text) { FontSize(16 * scale) }
                     .textSelection(.enabled)
                     .environment(\.openURL, OpenURLAction { url in
                         guard let safe = CommunityRules.webURL(url.absoluteString) else { return .discarded }
@@ -39,6 +52,14 @@ struct CommunityMarkdown: View {
             } else { ProgressView("排版中…") }
         }.frame(maxWidth: .infinity, alignment: .leading)
         .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
+        .sheet(isPresented: $showReader) {
+            NavigationStack {
+                ScrollView {
+                    CommunityMarkdown(text: text, baseURL: baseURL, imageBaseURL: imageBaseURL, api: api, reader: true).padding()
+                }.navigationTitle("正文").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showReader = false } } }
+            }
+        }
         .task(id: text) {
             let source = bounded
             let parsed = await Task.detached(priority: .utility) { MarkdownContent(source) }.value
@@ -60,6 +81,7 @@ struct RepositoryReadmeView: View {
     @State private var raw = false
     @State private var renderError = ""
     @State private var readingLink: ReadingLink?
+    @State private var scale = 1.0
     private var webBase: URL? {
         CommunityRules.readingBase(repo, branch: resolved, file: entryPath, raw: false)
     }
@@ -69,9 +91,10 @@ struct RepositoryReadmeView: View {
                 if document.source != nil { Toggle("查看原文", isOn: $raw) }
                 if !renderError.isEmpty { Text(renderError).font(.caption).foregroundStyle(.secondary) }
                 if !raw, renderError.isEmpty, let html = document.html {
+                    ContentZoomControls(scale: $scale).frame(maxWidth: .infinity, alignment: .trailing)
                     ReadmeHTMLView(html: html, baseURL: webBase,
                         mediaBaseURL: CommunityRules.readingBase(repo, branch: resolved, file: entryPath, raw: true),
-                        scrolling: true, height: .constant(0), onFailure: { renderError = $0 }) {
+                        scrolling: true, scale: scale, height: .constant(0), onFailure: { renderError = $0 }) {
                         readingLink = ReadingLink(url: $0)
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let source = document.source {
@@ -110,6 +133,7 @@ struct FileReadingView: View {
     @State private var renderedHTML: String?
     @State private var htmlAttempted = false
     @State private var readingLink: ReadingLink?
+    @State private var scale = 1.0
     private var isMarkdown: Bool { ["md", "markdown", "mdown"].contains((path as NSString).pathExtension.lowercased()) }
     private var baseURL: URL? { CommunityRules.readingBase(repo, branch: branch, file: path, raw: false) }
     private var mediaBaseURL: URL? { CommunityRules.readingBase(repo, branch: branch, file: path, raw: true) }
@@ -119,7 +143,8 @@ struct FileReadingView: View {
           if !isMarkdown { SourceCodeView(text: text, filename: path) }
           else if let renderedHTML, renderedKey == requestKey {
             // GitHub's renderer keeps native HTML such as centered headers and remote images.
-            ReadmeHTMLView(html: renderedHTML, baseURL: baseURL, mediaBaseURL: mediaBaseURL, scrolling: true,
+            ContentZoomControls(scale: $scale).frame(maxWidth: .infinity, alignment: .trailing).padding(.horizontal)
+            ReadmeHTMLView(html: renderedHTML, baseURL: baseURL, mediaBaseURL: mediaBaseURL, scrolling: true, scale: scale,
                            height: .constant(0), onFailure: { _ in
                                guard renderedKey == requestKey else { return }
                                self.renderedHTML = nil
@@ -129,7 +154,7 @@ struct FileReadingView: View {
           else if renderedKey != requestKey || !htmlAttempted { ProgressView("排版中…").frame(maxWidth: .infinity, minHeight: 160) }
           else { ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                    CommunityMarkdown(text: text, baseURL: baseURL, imageBaseURL: mediaBaseURL, api: api)
+                    CommunityMarkdown(text: text, baseURL: baseURL, imageBaseURL: mediaBaseURL, api: api, reader: true)
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
           } }
         }.id(requestKey).navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)

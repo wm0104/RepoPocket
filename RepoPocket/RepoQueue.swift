@@ -16,6 +16,15 @@ struct PendingRepoItem: Identifiable {
         path = replacementPath ?? local.map { (folder.isEmpty ? "" : folder + "/") + $0.lastPathComponent }
         self.sha = sha; self.head = head
     }
+    mutating func inheritTarget(folder: String, head: String, files: [String: String], directories: Set<String>) throws -> Bool {
+        guard local != nil else { return false }
+        var candidate = self
+        candidate.select(folder: folder, replacementPath: nil, sha: nil, head: head)
+        guard let path = candidate.path, files[path] == nil else { return false }
+        try RepoQueue.validate([candidate], head: head, files: files, directories: directories)
+        self = candidate
+        return true
+    }
 }
 
 enum RepoQueue {

@@ -7,10 +7,11 @@ struct SourceTextSurface: UIViewRepresentable {
     let editable: Bool
     let dark: Bool
     var findRequest = 0
+    var scale = 1.0
     func makeUIView(context: Context) -> SourceTextContainer { SourceTextContainer() }
     func updateUIView(_ view: SourceTextContainer, context: Context) {
         view.changed = { text = $0 }
-        view.configure(text: text, filename: filename, editable: editable, dark: dark)
+        view.configure(text: text, filename: filename, editable: editable, dark: dark, scale: scale)
         view.find(request: findRequest)
     }
     static func dismantleUIView(_ view: SourceTextContainer, coordinator: ()) { view.cancelHighlight() }
@@ -71,6 +72,10 @@ final class SourceTextContainer: UIView, UITextViewDelegate, UIFindInteractionDe
     private var highlight: Task<Void, Never>?
     private var lineStarts = [0]
     private var lastFindRequest = 0
+    private var scale = 1.0
+    private var gutterFont: UIFont {
+        .monospacedSystemFont(ofSize: (textView.font?.pointSize ?? 14) * 12 / 14, weight: .regular)
+    }
     private var undoButton: UIButton?
     private var redoButton: UIButton?
     private lazy var codeKeyboard = makeCodeKeyboard()
@@ -80,8 +85,7 @@ final class SourceTextContainer: UIView, UITextViewDelegate, UIFindInteractionDe
         backgroundColor = .systemBackground
         textView.delegate = self
         textView.backgroundColor = .systemBackground
-        textView.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .monospacedSystemFont(ofSize: 14, weight: .regular), maximumPointSize: 28)
-        textView.adjustsFontForContentSizeCategory = true
+        textView.adjustsFontForContentSizeCategory = false
         textView.autocorrectionType = .no; textView.spellCheckingType = .no
         textView.smartQuotesType = .no; textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no; textView.autocapitalizationType = .none
@@ -97,11 +101,12 @@ final class SourceTextContainer: UIView, UITextViewDelegate, UIFindInteractionDe
         horizontal.isDirectionalLockEnabled = true
         textView.geometryChanged = { [weak self] in self?.setNeedsLayout() }
         addSubview(gutter); addSubview(horizontal); horizontal.addSubview(textView)
+        refreshFont()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let width: CGFloat = 46
+        let width = max(46, ceil((String(lineStarts.count) as NSString).size(withAttributes: [.font: gutterFont]).width) + 16)
         gutter.frame = CGRect(x: 0, y: 0, width: width, height: bounds.height)
         horizontal.frame = CGRect(x: width, y: 0, width: max(0, bounds.width - width), height: bounds.height)
         let canvas = max(horizontal.bounds.width, textView.sourceWidth)
@@ -109,10 +114,11 @@ final class SourceTextContainer: UIView, UITextViewDelegate, UIFindInteractionDe
         horizontal.contentSize = CGSize(width: canvas, height: bounds.height)
         gutter.setNeedsDisplay()
     }
-    func configure(text: String, filename: String, editable: Bool, dark: Bool) {
+    func configure(text: String, filename: String, editable: Bool, dark: Bool, scale: Double = 1) {
         let recolor = !configured || self.filename != filename || self.dark != dark || textView.text != text
         if textView.text != text { textView.text = text; rebuildLines(); textView.invalidateSourceGeometry() }
         self.filename = filename; self.dark = dark
+        self.scale = scale; refreshFont()
         if textView.isEditable != editable { viewportFind.dismissFindNavigator() }
         textView.isEditable = editable; textView.isSelectable = true
         if textView.inputAccessoryView !== (editable ? codeKeyboard : nil) {
@@ -121,6 +127,22 @@ final class SourceTextContainer: UIView, UITextViewDelegate, UIFindInteractionDe
         }
         configured = true
         if recolor { scheduleHighlight() }
+    }
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory { refreshFont() }
+    }
+    private func refreshFont() {
+        let base = UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .monospacedSystemFont(ofSize: 14, weight: .regular), maximumPointSize: 28, compatibleWith: traitCollection)
+        let font = UIFont.monospacedSystemFont(ofSize: base.pointSize * CGFloat(scale), weight: .regular)
+        guard textView.font != font else { return }
+        let selection = textView.selectedRange, offset = textView.contentOffset
+        textView.font = font
+        textView.typingAttributes[.font] = font
+        textView.selectedRange = selection
+        textView.setContentOffset(offset, animated: false)
+        textView.invalidateSourceGeometry()
+        gutter.setNeedsDisplay(); setNeedsLayout()
     }
     func textViewDidChange(_ textView: UITextView) {
         guard !coloring else { return }
@@ -246,7 +268,7 @@ final class SourceTextContainer: UIView, UITextViewDelegate, UIFindInteractionDe
         let manager = textView.layoutManager
         let visible = CGRect(x: 0, y: max(0,textView.contentOffset.y - textView.textContainerInset.top), width: max(1,textView.bounds.width), height: textView.bounds.height)
         let range = manager.glyphRange(forBoundingRect: visible, in: textView.textContainer)
-        let attributes: [NSAttributedString.Key:Any] = [.font:UIFont.monospacedSystemFont(ofSize: 12,weight: .regular), .foregroundColor:UIColor.secondaryLabel]
+        let attributes: [NSAttributedString.Key:Any] = [.font:gutterFont, .foregroundColor:UIColor.secondaryLabel]
         manager.enumerateLineFragments(forGlyphRange: range) { _, used, _, glyphs, _ in
             let character = manager.characterIndexForGlyph(at: glyphs.location)
             var lower = 0, upper = self.lineStarts.count

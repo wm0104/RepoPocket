@@ -99,13 +99,22 @@ private struct SourcePreviewProbe: UIViewRepresentable {
         manager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs)) { _, _, _, _, _ in fragments += 1 }
         let hardLines = content.components(separatedBy: "\n").count
         let gutterRect = gutter.convert(gutter.bounds, to: window)
-        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(horizontal.contentOffset.x))|width=\(Int(horizontal.contentSize.width))|viewport=\(Int(horizontal.bounds.width))|tail=\(visible ? 1 : 0)|tailX=\(Int(onScreenTail.minX))|tailY=\(Int(onScreenTail.minY))|tailWidth=\(Int(onScreenTail.width.rounded(.up)))|tailHeight=\(Int(onScreenTail.height.rounded(.up)))|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))"
+        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(horizontal.contentOffset.x))|width=\(Int(horizontal.contentSize.width))|viewport=\(Int(horizontal.bounds.width))|tail=\(visible ? 1 : 0)|tailX=\(Int(onScreenTail.minX))|tailY=\(Int(onScreenTail.minY))|tailWidth=\(Int(onScreenTail.width.rounded(.up)))|tailHeight=\(Int(onScreenTail.height.rounded(.up)))|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))|font=\(text.font?.pointSize ?? 0)|lineHeight=\(text.font?.lineHeight ?? 0)|selection=\(text.selectedRange.location):\(text.selectedRange.length)"
     }
 }
 
 struct PatchStylePreview: View {
     @State private var revision = 0
     @State private var report = "待检查"
+    private var localChange: LocalChange {
+        if ProcessInfo.processInfo.arguments.contains("-budget-diff-style-preview") {
+            let before = (0...1000).map { "line\($0)\n" }.joined()
+            let after = "changed first\n" + (1..<1000).map { "line\($0)\n" }.joined() + "changed last\n"
+            return LocalChange(path: "预算差异.py", kind: "修改", before: before, after: after)
+        }
+        let prefix = "message = \"" + String(repeating: "abcdefgh", count: 12)
+        return LocalChange(path: "长行差异.py", kind: "修改", before: prefix + "BEFORE_TAIL\"\n", after: prefix + "AFTER_TAIL\"\n")
+    }
     private var file: DesktopCommit.File {
         if ProcessInfo.processInfo.arguments.contains("-recorded-patch-style-preview") {
             // The real commit/file shown in IMG_2331, including its long constraint line.
@@ -120,7 +129,9 @@ struct PatchStylePreview: View {
         NavigationStack {
             NavigationLink("打开提交差异") {
             VStack(spacing: 0) {
-                CommitPatchView(file: file)
+                if ProcessInfo.processInfo.arguments.contains("-local-diff-style-preview") {
+                    LocalDiffPreview(change: localChange)
+                } else { CommitPatchView(file: file) }
                 Divider()
                 Button("检查代码布局") { revision += 1 }.padding(.vertical, 8)
                 Text(report).font(.caption2.monospaced()).lineLimit(3)

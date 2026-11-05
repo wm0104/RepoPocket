@@ -7,6 +7,7 @@ struct ReadmeHTMLView: UIViewRepresentable {
     let baseURL: URL?
     var mediaBaseURL: URL? = nil
     var scrolling = false
+    var scale = 1.0
     @Binding var height: CGFloat
     var onFailure: (String) -> Void = { _ in }
     var onReady: () -> Void = {}
@@ -33,6 +34,7 @@ struct ReadmeHTMLView: UIViewRepresentable {
     }
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
+        if scrolling, web.pageZoom != CGFloat(scale) { web.pageZoom = CGFloat(scale) }
         let identity = (baseURL?.absoluteString ?? "") + "\n" + (mediaBaseURL?.absoluteString ?? "") + "\n" + html
         guard context.coordinator.identity != identity else { return }
         context.coordinator.identity = identity

@@ -19,6 +19,20 @@ NAMES = {'release-editor-filled', 'release-editor-inbox', 'release-editor-attach
 
 
 class ReleaseEditorLifecycleTests(unittest.TestCase):
+    def test_upload_viewer_scope_exports_real_regression_attachments(self):
+        names = {'deb-first-open-common-fields', 'upload-inherited-preview', 'deb-original-expanded',
+                 'deb-more-fields-expanded', 'upload-explicit-replacement', 'upload-multiple-independent-targets',
+                 'source-zoom-200', 'editor-zoom-keyboard', 'commit-highlight-zoom-200', 'commit-raw-zoom-200',
+                 'local-diff-zoom-200', 'local-original-zoom-200', 'local-budget-original',
+                 'readme-zoom-200', 'markdown-reader-zoom-200', 'local-project-compact', 'local-project-information'}
+        try:
+            exported = self.export('upload-viewer', names | {'unrelated-screenshot'})
+        except ValueError as error:
+            self.fail('The new UI scope is not supported by the attachment exporter: ' + str(error))
+        self.assertEqual(exported, names)
+        with self.assertRaisesRegex(RuntimeError, 'Expected native UI regression screenshots'):
+            self.export('upload-viewer', names - {'deb-first-open-common-fields'})
+
     def export(self, scope, names):
         tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
                 for name in names]
@@ -62,7 +76,8 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
         self.assertIn('ReleaseEditorStylePreview()', gallery)
         self.assertIn('release-editor) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/ReleaseEditorTests)', runner)
         self.assertIn('all) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests)', runner)
-        self.assertIn('branch-merge, release-editor]', workflow)
+        scopes = {value.strip() for value in re.search(r'options: \[([^\]]+)\]', workflow).group(1).split(',')}
+        self.assertTrue({'branch-merge', 'release-editor'} <= scopes)
         self.assertEqual(set(re.findall(r'screenshot\(app, "([^"]+)"\)', native)), NAMES)
         self.assertNotIn('buttons["确认保存"].tap()', native)
         self.assertIn('confirmation.buttons["取消"].tap()', native)

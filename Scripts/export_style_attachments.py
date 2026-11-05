@@ -51,7 +51,14 @@ branch_merge = {'local-branch-merge-preview', 'remote-branch-merge-preview',
 release_editor = {'release-editor-filled', 'release-editor-inbox', 'release-editor-attached',
                   'release-editor-scrolled', 'release-editor-confirmation',
                   'release-editor-account-changed', 'release-editor-denied'}
-if scope == 'release-editor':
+upload_viewer = {'deb-first-open-common-fields', 'upload-inherited-preview', 'deb-original-expanded',
+                 'deb-more-fields-expanded', 'upload-explicit-replacement', 'upload-multiple-independent-targets',
+                 'source-zoom-200', 'editor-zoom-keyboard', 'commit-highlight-zoom-200', 'commit-raw-zoom-200',
+                 'local-diff-zoom-200', 'local-original-zoom-200', 'local-budget-original',
+                 'readme-zoom-200', 'markdown-reader-zoom-200', 'local-project-compact', 'local-project-information'}
+if scope == 'upload-viewer':
+    expected = upload_viewer
+elif scope == 'release-editor':
     expected = release_editor
 elif scope == 'branch-merge':
     expected = branch_merge
@@ -73,6 +80,7 @@ elif scope == 'review-regressions':
 elif scope == 'maintenance-regressions':
     expected = maintenance
 elif scope == 'all':
+    expected.update(upload_viewer)
     expected.update(release_editor)
     expected.update(branch_merge)
     expected.update(profiles)

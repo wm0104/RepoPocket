@@ -15,7 +15,7 @@ class LocalDiffTests(unittest.TestCase):
         self.assertIn('Task.checkCancellation()', model)
         self.assertNotIn('String(data:', model)
 
-    @unittest.skipUnless(shutil.which('swiftc'), 'No Swift compiler on Linux device; executed by macOS CI')
+    @unittest.skipUnless(shutil.which('swiftc'), 'No local Swift compiler; requires native Swift execution')
     def test_production_model(self):
         harness = r'''
 import Foundation
@@ -46,8 +46,20 @@ import Foundation
  let folded = try check(context, context.replacingOccurrences(of: "line10\n", with: "edited\n"))
  precondition(folded.entries.contains { if case .gap = $0 { return true }; return false })
  precondition(folded.changes.count == 1)
- let big = try check(String(repeating: "a\n", count: 16000), String(repeating: "b\n", count: 16000))
- precondition(big.degraded && big.deletions == 16000 && big.additions == 16000)
+ // Two distant edits must not fabricate deletion/addition of 999 unchanged lines.
+ let sparseBefore = (0...1000).map { "line\($0)\n" }.joined()
+ let sparseAfter = "changed first\n" + (1..<1000).map { "line\($0)\n" }.joined() + "changed last\n"
+ for pair in [(sparseBefore, sparseAfter), (String(repeating: "a\n", count: 16000), String(repeating: "b\n", count: 16000))] {
+  do {
+   _ = try LocalDiffModel.compute(before: pair.0, after: pair.1)
+   preconditionFailure("Over-budget diff must not return fabricated rows or counts")
+  } catch LocalDiffModel.Failure.budgetExceeded { }
+ }
+ let smallerBefore = (0...100).map { "line\($0)\n" }.joined()
+ let smallerAfter = "changed first\n" + (1..<100).map { "line\($0)\n" }.joined() + "changed last\n"
+ let sparse = try check(smallerBefore, smallerAfter)
+ precondition(sparse.additions == 2 && sparse.deletions == 2 && !sparse.degraded)
+ precondition(sparse.rows.filter { $0.kind == .context }.count == 99 && sparse.changes.count == 2)
  let long = try check(String(repeating: "a", count: 64000), String(repeating: "b", count: 64000))
  precondition(long.additions == 1 && long.deletions == 1)
  for a in ["", "x", "x\n", "\n", "x\ny\n", " y\t\r\n", "中文🙂"] {

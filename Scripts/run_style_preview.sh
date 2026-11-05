@@ -26,6 +26,12 @@ xcrun simctl status_bar "$DEVICE" override --time 9:41 --batteryState charged --
 # cannot exercise CredentialStore (errSecMissingEntitlement / -34018).
 SIGNING_ARGUMENTS=()
 case "${RP_STYLE_TEST_SCOPE:-all}" in
+  upload-viewer) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/UploadEditorTests
+    -only-testing:RepoPocketStyleUITests/ContentZoomTests
+    -only-testing:RepoPocketStyleUITests/ReadingZoomTests
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testCompactLocalProjectKeepsMetadataAndImportsAccessible
+  ) ;;
   all|release-editor)
     # ShareInboxStore.live() needs a real app-group container, not a picker mock.
     mkdir -p preview-build

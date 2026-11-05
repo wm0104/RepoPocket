@@ -12,6 +12,7 @@ struct LocalGitProject: Codable, Identifiable, Equatable {
     let metadataID: UUID
     let usesPrivateGit: Bool
     var active = true
+    var directPath: String? = nil
 }
 struct LocalGitChange: Codable, Identifiable, Equatable {
     let path: String

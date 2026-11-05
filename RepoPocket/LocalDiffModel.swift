@@ -2,6 +2,7 @@ import Foundation
 
 /// Read-only preview. Lines retain their terminators; empty files have zero lines.
 enum LocalDiffModel {
+    enum Failure: Error { case budgetExceeded }
     enum Kind { case context, deletion, addition }
     struct Run { let text: String; let emphasized: Bool }
     struct Row: Identifiable {
@@ -88,9 +89,7 @@ enum LocalDiffModel {
                 } else { append(.addition, b[prefix + j]); j += 1 }
             }
         } else {
-            degraded = true
-            for i in prefix..<endA { if i % 256 == 0 { try Task.checkCancellation() }; append(.deletion, a[i]) }
-            for j in prefix..<endB { if j % 256 == 0 { try Task.checkCancellation() }; append(.addition, b[j]) }
+            throw Failure.budgetExceeded
         }
         for i in endA..<a.count { append(.context, a[i]) }
         // Pair changed lines positionally, without comparing unrelated distant hunks.

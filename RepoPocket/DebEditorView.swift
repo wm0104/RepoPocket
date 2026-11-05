@@ -35,6 +35,8 @@ struct DebEditorView: View {
     @State private var busy = false
     @State private var error = ""
     @State private var didLoad = false
+    @State private var originalExpanded = false
+    @State private var moreExpanded = false
 
     private var current: [String: String] {
         var fields = ["Package": package, "Version": version, "Description": description, "Maintainer": maintainer]
@@ -57,9 +59,14 @@ struct DebEditorView: View {
         Form {
             sourceSection
             if !original.isEmpty {
-                originalSection
                 editSection
-                differencesSection
+                originalSection
+                if !differences.isEmpty { differencesSection }
+                Section {
+                    Button("生成新的 deb（验证后保存）") { Task { await generate() } }
+                        .disabled(busy || differences.isEmpty).softGroupedRow(top: true, bottom: true)
+                        .accessibilityIdentifier("deb-generate")
+                }
             }
             if let output {
                 outputSection(output)
@@ -69,45 +76,79 @@ struct DebEditorView: View {
 
     private var sourceSection: some View {
         Section("源文件") {
-            if remote == nil && initialFile == nil { Button("从“文件”选择 .deb") { showPicker = true }.disabled(busy).softGroupedRow(top: true) }
-            if let source { Text(source.lastPathComponent).softGroupedRow(top: remote != nil || initialFile != nil); Text(onSaveLocal == nil ? "只修改副本；原文件不会覆盖" : "先编辑副本，点击“保存到本地项目”才更新原文件").font(.caption).foregroundColor(.secondary).softGroupedRow() }
-            if busy { ProgressView("读取 / 生成中，请保持前台").softGroupedRow(top: source == nil && (remote != nil || initialFile != nil)) }
-            Text("支持 control.tar、gz、xz、zst；xz/zst 编辑后输出 gzip。bz2/lzma 暂不支持编辑，但仍可原样上传。").font(.caption).foregroundColor(.secondary).softGroupedRow(top: source == nil && !busy && (remote != nil || initialFile != nil), bottom: true)
+            SoftGroupRows {
+                if remote == nil && initialFile == nil {
+                    SoftGroupRow("choose") { Button("从“文件”选择 .deb") { showPicker = true }.disabled(busy) }
+                }
+                if let file = source ?? initialFile {
+                    SoftGroupRow("file") { Text(file.lastPathComponent) }
+                }
+                SoftGroupRow("copy") {
+                    Text(onSaveLocal == nil ? "只修改副本；原文件不会覆盖" : "先编辑副本，点击“保存到本地项目”才更新原文件").font(.caption).foregroundColor(.secondary)
+                }
+                if remote != nil && (!canWrite || !api.isCurrentSession) {
+                    SoftGroupRow("readonly") { Text("此仓库为只读，生成文件仅可保存到本地。").font(.caption).foregroundColor(.secondary) }
+                }
+                if busy { SoftGroupRow("progress") { ProgressView("读取 / 生成中，请保持前台") } }
+            }
         }
     }
 
     private var originalKeys: [String] { ["Name", "Package", "Version", "Description", "Maintainer", "Author", "Section", "Priority", "Homepage"].filter { original[$0] != nil } }
     private var originalSection: some View {
-        Section("原始包信息") {
-            ForEach(originalKeys, id: \.self) { key in
-                if let value = original[key] { LabeledContent(key, value: value).textSelection(.enabled).softGroupedRow(top: key == originalKeys.first, bottom: key == originalKeys.last) }
+        Section {
+            SoftGroupRows {
+                SoftGroupRow("original") {
+                    Button { UIRules.withoutAnimation { originalExpanded.toggle() } } label: {
+                        HStack { Text("原始包信息"); Spacer(); Image(systemName: originalExpanded ? "chevron.up" : "chevron.down").font(.caption) }
+                            .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("deb-original")
+                }
+                if originalExpanded {
+                    for key in originalKeys {
+                        SoftGroupRow(key) { LabeledContent(key, value: original[key] ?? "").textSelection(.enabled) }
+                    }
+                    SoftGroupRow("formats") {
+                        Text("支持 control.tar、gz、xz、zst；xz/zst 编辑后输出 gzip。bz2/lzma 暂不支持编辑，但仍可原样上传。").font(.caption).foregroundColor(.secondary)
+                    }
+                }
             }
-        }
+        }.transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
 
     private var editSection: some View {
         Section("编辑") {
-            if original["Name"] != nil { TextField("Name（显示名称）", text: $name).softGroupedRow(top: true) }
-            if original["Author"] != nil { TextField("Author", text: $author).softGroupedRow(top: original["Name"] == nil) }
-            TextField("Package（包标识）", text: $package).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: original["Name"] == nil && original["Author"] == nil)
-            TextField("Version", text: $version).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
-            TextField("Maintainer", text: $maintainer).softGroupedRow()
-            Text("Description（多行可编辑）").font(.caption).softGroupedRow()
-            TextEditor(text: $description).frame(minHeight: 85).softGroupedRow()
-            if original["Section"] != nil { TextField("Section", text: $section).softGroupedRow() }
-            if original["Priority"] != nil { TextField("Priority", text: $priority).softGroupedRow() }
-            if original["Homepage"] != nil { TextField("Homepage", text: $homepage).textInputAutocapitalization(.never).softGroupedRow() }
-            Text("其他 control 字段原样保留；仅已存在的可选字段允许修改。空值或不合法格式将被拒绝。").font(.caption).foregroundColor(.secondary).softGroupedRow(bottom: true)
-        }
+            SoftGroupRows {
+                if original["Name"] != nil { SoftGroupRow("name") { TextField("Name（显示名称）", text: $name) } }
+                SoftGroupRow("package") { TextField("Package（包标识）", text: $package).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("deb-package") }
+                SoftGroupRow("version") { TextField("Version", text: $version).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("deb-version") }
+                SoftGroupRow("description-label") { Text("Description（多行可编辑）").font(.caption) }
+                SoftGroupRow("description") { TextEditor(text: $description).frame(minHeight: 85) }
+                SoftGroupRow("maintainer") { TextField("Maintainer", text: $maintainer) }
+                if ["Author", "Section", "Priority", "Homepage"].contains(where: { original[$0] != nil }) {
+                    SoftGroupRow("more") {
+                        Button { UIRules.withoutAnimation { moreExpanded.toggle() } } label: {
+                            HStack { Text("更多字段"); Spacer(); Image(systemName: moreExpanded ? "chevron.up" : "chevron.down").font(.caption) }
+                                .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("deb-more-fields")
+                    }
+                    if moreExpanded {
+                        if original["Author"] != nil { SoftGroupRow("author") { TextField("Author", text: $author).accessibilityIdentifier("deb-author") } }
+                        if original["Section"] != nil { SoftGroupRow("section") { TextField("Section", text: $section) } }
+                        if original["Priority"] != nil { SoftGroupRow("priority") { TextField("Priority", text: $priority) } }
+                        if original["Homepage"] != nil { SoftGroupRow("homepage") { TextField("Homepage", text: $homepage).textInputAutocapitalization(.never) } }
+                    }
+                }
+                SoftGroupRow("preserved") { Text("其他 control 字段原样保留；仅已存在的可选字段允许修改。空值或不合法格式将被拒绝。").font(.caption).foregroundColor(.secondary) }
+            }
+        }.disabled(busy).transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
 
     private var differencesSection: some View {
         Section("变更对照") {
-            if differences.isEmpty { Text("尚无修改").foregroundColor(.secondary).softGroupedRow(top: true) }
             ForEach(differences.indices, id: \.self) { index in
-                differenceRow(differences[index]).softGroupedRow(top: index == differences.startIndex)
+                differenceRow(differences[index]).softGroupedRow(top: index == differences.startIndex, bottom: index == differences.indices.last)
             }
-            Button("生成新的 deb（验证后保存）") { Task { await generate() } }.disabled(busy || differences.isEmpty).softGroupedRow(bottom: true)
         }
     }
 

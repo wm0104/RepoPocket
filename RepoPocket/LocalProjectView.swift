@@ -334,13 +334,20 @@ struct LocalProjectView: View {
                     if let reason = commitBlockedReason { SoftGroupRow("reason") { Text(reason).font(.caption).foregroundStyle(.secondary) } }
                 }
                 SoftGroupRow("sync") {
-                    HStack(spacing: 16) {
+                    HStack(spacing: 0) {
                         Button { syncing = "pull" } label: {
-                            Text("拉取远端（仅快进）").frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
-                        }
+                            VStack(spacing: 4) {
+                                Label("拉取", systemImage: "arrow.down")
+                                Text("远端 · 仅快进").font(.caption).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                        }.accessibilityLabel("拉取远端（仅快进）")
+                        Divider().frame(height: 32)
                         Button { syncing = "push" } label: {
-                            Text("推送本地提交").frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
-                        }
+                            VStack(spacing: 4) {
+                                Label("推送", systemImage: "arrow.up")
+                                Text("本地提交").font(.caption).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                        }.accessibilityLabel("推送本地提交")
                     }.buttonStyle(.borderless).disabled(busy || !state.fresh || snapshot.history.remote.isEmpty)
                 }
                 SoftGroupRow("merge") {

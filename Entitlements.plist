@@ -12,6 +12,8 @@
 	</array>
 	<key>get-task-allow</key>
 	<false/>
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>TROLLTROLL.com.wm0104.RepoPocket</string>

@@ -18,6 +18,8 @@ struct LocalProjectImportView: View {
     @State private var generation = AccountStore.generation
     @State private var selectedRepository: Repository?
     @State private var manual = false
+    @State private var enteringPath = false
+    @State private var folderPath = ""
     private var repositoryName: String? {
         guard let url = try? LocalGitRules.remote(remote) else { return nil }
         return String(url.dropFirst("https://github.com/".count).dropLast(4))
@@ -37,7 +39,12 @@ struct LocalProjectImportView: View {
                     SoftGroupRow("picker") {
                     Button(folderButtonTitle) { picker = WorkspaceImportRequest(kind: .folder) }
                     }
+                    SoftGroupRow("path") {
+                        Button("使用 Filza 文件夹路径…") { enteringPath = true }
+                            .accessibilityIdentifier("localgit.import-path")
+                    }
                     if let folder { SoftGroupRow("folder") { Label("已选：" + folder.name, systemImage: "folder").foregroundStyle(.secondary) } }
+                    if let path = folder?.directPath { SoftGroupRow("original-path") { Text(path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) } }
                     if clone { SoftGroupRow("help") { Text("选择存放仓库的文件夹，克隆时会在里面新建子文件夹。").font(.caption).foregroundStyle(.secondary) } }
                   }
                 }.disabled(busy || preview != nil)
@@ -111,6 +118,14 @@ struct LocalProjectImportView: View {
                 }.id(request.id)
             }
             .onDisappear { job?.cancel() }
+            .alert("关联项目文件夹", isPresented: $enteringPath) {
+                TextField("Filza 复制的绝对路径", text: $folderPath).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button("检查目录") {
+                    do { folder = try store.preparePath(folderPath); preview = nil; message = "" }
+                    catch { message = error.localizedDescription }
+                }
+                Button("取消", role: .cancel) {}
+            } message: { Text("粘贴目录路径后先检查，再确认关联原目录；不会复制或覆盖原文件。") }
         }
     }
     private func acceptPicker(_ url: URL) {
@@ -155,7 +170,7 @@ struct LocalProjectImportView: View {
                 if associationFailed {
                     // Keep the failed private metadata; retry in a fresh location.
                     self.folder = LocalGitProject(id:folder.id,name:folder.name,bookmark:folder.bookmark,
-                        identity:folder.identity,metadataID:UUID(),usesPrivateGit:true)
+                        identity:folder.identity,metadataID:UUID(),usesPrivateGit:true,directPath:folder.directPath)
                 }
                 if !(error is CancellationError) { message = error.localizedDescription }
             }

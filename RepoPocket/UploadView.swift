@@ -10,9 +10,7 @@ struct UploadView: View {
     let initialFile: URL?
     @State private var canWrite = false
     @State private var accessGeneration = UUID()
-    @State private var showDebEditor = false
-    @State private var editingQueueID: UUID?
-    @State private var editorFile: URL?
+    @State private var editingItem: PendingRepoItem?
     @State private var submitAfterDismiss = false
     @State private var initialFileLoaded = false
     @State private var alertText = ""
@@ -26,6 +24,19 @@ struct UploadView: View {
     @State private var confirmQueueDelete = false
     @State private var pendingDeletion: PendingRepoItem?
     @State private var targetPicker: RepositoryTarget?
+    @State private var destinationFolder: String?
+    @State private var destination: UploadDestination?
+    @State private var targetGeneration = UUID()
+    @State private var branchExpanded = false
+    @State private var optionsExpanded = false
+    @State private var pendingReplacement: PendingRepoItem?
+    @State private var confirmReplacement = false
+
+    private struct UploadDestination {
+        let target: RepositoryTarget
+        let files: [String: String]
+        let directories: Set<String>
+    }
 
     init(api: GitHub, initialRepo: String = "", directory: String = "", initialBranch: String = "", initialFile: URL? = nil, openedFromFolder: Bool = false) {
         self.api = api
@@ -34,6 +45,7 @@ struct UploadView: View {
         self.openedFromFolder = openedFromFolder
         _repo = State(initialValue: initialRepo)
         _branch = State(initialValue: initialBranch)
+        _destinationFolder = State(initialValue: openedFromFolder && !initialRepo.isEmpty ? directory : nil)
     }
     @State private var note = "Upload via RepoPocket"
     @State private var local: URL?
@@ -168,37 +180,63 @@ struct UploadView: View {
                     }
                 }
             }
-            .sheet(item: $targetPicker, onDismiss: { if pendingDeletion != nil { confirmQueueDelete = true } }) { target in
+            .sheet(item: $targetPicker, onDismiss: {
+                if pendingDeletion != nil { confirmQueueDelete = true }
+                if pendingReplacement != nil { confirmReplacement = true }
+            }) { target in
                 NavigationStack {
-                    TargetPickerView(api: api, repo: target.repo, branch: target.head, path: target.path, filesOnly: choosingDelete) { folder, entry in
+                    TargetPickerView(api: api, repo: target.repo, branch: target.head, path: target.path, filesOnly: choosingDelete, foldersOnly: choosingItem == nil && !choosingDelete) { folder, entry in
+                        guard !busy else { return }
                         busy = true
+                        let generation = targetGeneration
                         Task { @MainActor in
                             defer { busy = false; targetPicker = nil }
                             do {
                                 let head = try await api.workspaceHead(target.repo, branch: target.branch)
+                                guard targetPicker?.id == target.id, generation == targetGeneration, api.isCurrentSession else { throw CancellationError() }
                                 guard head == target.head else { throw AppError(text: "选择期间远端已变化，请重新选择") }
                                 if choosingDelete {
                                     guard let entry else { return }
                                     pendingDeletion = PendingRepoItem(local: nil, size: 0, path: entry.path, sha: entry.sha, head: head)
                                     // Confirmation is presented only after the picker sheet dismisses.
                                 } else if let index = queue.firstIndex(where: { $0.id == choosingItem }) {
-                                    queue[index].select(folder: folder, replacementPath: entry?.path, sha: entry?.sha, head: head)
+                                    if let entry {
+                                        var replacement = queue[index]
+                                        replacement.select(folder: folder, replacementPath: entry.path, sha: entry.sha, head: head)
+                                        pendingReplacement = replacement
+                                    } else {
+                                        let selected = try await readDestination(folder: folder)
+                                        guard targetPicker?.id == target.id else { throw CancellationError() }
+                                        try selectTarget(at: index, destination: selected)
+                                    }
+                                } else {
+                                    let selected = try await readDestination(folder: folder)
+                                    guard targetPicker?.id == target.id else { throw CancellationError() }
+                                    destinationFolder = folder; destination = selected
+                                    try inheritMissingTargets(selected)
                                 }
-                            } catch { alertText = error.localizedDescription }
+                            } catch { if !RefreshFailure.isCancellation(error) { alertText = error.localizedDescription } }
                         }
-                    }
-                    .toolbar { Button("取消") { targetPicker = nil } }
+                    }.disabled(busy)
+                    .toolbar { Button("取消") { targetPicker = nil }.disabled(false) }
                 }
             }
             .confirmationDialog("加入远端删除？", isPresented: $confirmQueueDelete, titleVisibility: .visible) {
                 Button("确认加入删除", role: .destructive) { if let item = pendingDeletion { if let id = choosingItem { removePending(id) }; queue.append(item) }; pendingDeletion = nil }
                 Button("取消", role: .cancel) { pendingDeletion = nil }
             } message: { Text(pendingDeletion?.path ?? "") }
-            .sheet(isPresented: $showDebEditor) {
-                DebEditorView(api: api, initialFile: editorFile) { generated in
-                    adoptGeneratedDeb(generated, replacing: editingQueueID)
-                    showDebEditor = false
+            .confirmationDialog("替换现有文件？", isPresented: $confirmReplacement, titleVisibility: .visible) {
+                Button("确认替换", role: .destructive) {
+                    if let replacement = pendingReplacement { Task { await acceptReplacement(replacement) } }
+                    pendingReplacement = nil
                 }
+                Button("取消", role: .cancel) { pendingReplacement = nil }
+            } message: { Text(pendingReplacement?.path ?? "") }
+            .sheet(item: $editingItem) { item in
+                DebEditorView(api: api, initialFile: item.local, onUseForUpload: { generated in
+                    adoptGeneratedDeb(generated, replacing: item.id)
+                    editingItem = nil
+                })
             }
             .task {
                 guard !initialFileLoaded else { return }; initialFileLoaded = true
@@ -238,40 +276,94 @@ struct UploadView: View {
         queue.removeAll { $0.id == id }
     }
     private var commitSection: some View {
-        Section("提交到仓库") {
-            if openedFromFolder {
-                LabeledContent("仓库", value: repo).softGroupedRow(top: true)
-                LabeledContent("目录", value: directory.isEmpty ? "/" : directory).softGroupedRow()
-            } else {
-                TextField("仓库链接", text: $repo).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
-            }
-            Text("普通提交可多选、继续追加；每项选择目标，删除仅在最后确认后提交。发行版支持多附件；TrollFools 为单插件。") .font(.caption).softGroupedRow()
-            ForEach(queue) { item in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(item.local?.lastPathComponent ?? "远端删除").font(.headline)
-                    Text(item.path ?? "尚未选择目标").font(.caption).textSelection(.enabled)
-                }.softGroupedRow()
-                Button(item.local == nil ? "重新选择删除文件" : "选择 / 更改目标") {
-                    choosingItem = item.id; choosingDelete = item.local == nil
-                    Task { await openTargetPicker() }
-                }.disabled(repo.isEmpty).softGroupedRow()
-                if item.local?.pathExtension.lowercased() == "deb" {
-                    Button("编辑包信息") { beginEditing(item) }.disabled(busy).softGroupedRow()
+        Group {
+            Section("提交到仓库") {
+                SoftGroupRows {
+                    SoftGroupRow("repo") {
+                        if openedFromFolder { LabeledContent("仓库", value: repo) }
+                        else { TextField("仓库链接", text: $repo).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    }
+                    SoftGroupRow("directory") {
+                        Button {
+                            choosingItem = nil; choosingDelete = false
+                            Task { await openTargetPicker() }
+                        } label: {
+                            LabeledContent("默认目录", value: destinationFolder.map { $0.isEmpty ? "/" : $0 } ?? "请选择")
+                                .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                        }.disabled(repo.isEmpty).accessibilityIdentifier("upload-directory")
+                    }
+                    SoftGroupRow("branch") {
+                        Button { UIRules.withoutAnimation { branchExpanded.toggle() } } label: {
+                            HStack {
+                                Text("分支"); Spacer()
+                                Text(destination?.target.branch ?? (branch.isEmpty ? "默认分支" : branch)).foregroundStyle(.secondary)
+                                Image(systemName: branchExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                            }.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("upload-branch")
+                    }
+                    if branchExpanded {
+                        SoftGroupRow("branch-input") { TextField("留空使用默认分支", text: $branch).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    }
                 }
-                Button("移除此待处理项", role: .destructive) { removePending(item.id) }.softGroupedRow()
             }
-            Button("添加远端删除") { choosingItem = nil; choosingDelete = true; Task { await openTargetPicker() } }.disabled(repo.isEmpty || !canWrite).softGroupedRow()
-            TextField("提交说明", text: $note).softGroupedRow()
-            DisclosureGroup("分支") {
-                TextField("留空使用默认分支", text: $branch).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .softGroupedRow()
-            }.softGroupedRow()
-            Button("检查提交权限") { Task { await checkAccess() } }.disabled(repo.isEmpty).softGroupedRow()
-            Button("预览提交") {
-                if let reason = RepoQueue.readiness(queue, repo: repo, message: note) { alertText = reason }
-                else { confirmCommit = true }
-            }.disabled(busy || !canWrite).softGroupedRow(bottom: true)
-        }.disabled(busy)
+            if !queue.isEmpty {
+                Section("待提交 · \(queue.count) 个项目") {
+                    SoftGroupRows {
+                        for item in queue {
+                            SoftGroupRow(item.id.uuidString) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(item.local?.lastPathComponent ?? "远端删除").font(.headline)
+                                        Text(item.path ?? (automaticReplacement(item) == nil ? "请选择上传目录" : "同名文件已存在，需确认替换"))
+                                            .font(.caption).foregroundStyle(item.path == nil ? .secondary : .primary).textSelection(.enabled)
+                                            .accessibilityIdentifier("upload-target-" + (item.local?.lastPathComponent ?? item.id.uuidString))
+                                    }
+                                    Spacer(minLength: 8)
+                                    Menu {
+                                        Button(item.local == nil ? "重新选择删除文件" : "更改位置") {
+                                            choosingItem = item.id; choosingDelete = item.local == nil
+                                            Task { await openTargetPicker() }
+                                        }.disabled(repo.isEmpty)
+                                        if item.local?.pathExtension.lowercased() == "deb" {
+                                            Button("编辑包信息") { beginEditing(item) }
+                                        }
+                                        Button("移除此待处理项", role: .destructive) { removePending(item.id) }
+                                    } label: { Image(systemName: "ellipsis.circle").frame(minWidth: 44, minHeight: 44) }
+                                        .accessibilityLabel("文件操作：" + (item.local?.lastPathComponent ?? "远端删除"))
+                                }
+                            }
+                            if let replacement = automaticReplacement(item) {
+                                SoftGroupRow(item.id.uuidString + "-replace") {
+                                    Button("确认替换同名文件…") { pendingReplacement = replacement; confirmReplacement = true }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Section {
+                SoftGroupRows {
+                    SoftGroupRow("options") {
+                        Button { UIRules.withoutAnimation { optionsExpanded.toggle() } } label: {
+                            HStack { Text("更多选项"); Spacer(); Image(systemName: optionsExpanded ? "chevron.up" : "chevron.down").font(.caption) }
+                                .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                    if optionsExpanded {
+                        SoftGroupRow("message") { TextField("提交说明", text: $note) }
+                        SoftGroupRow("delete") { Button("添加远端删除") { choosingItem = nil; choosingDelete = true; Task { await openTargetPicker() } }.disabled(repo.isEmpty || !canWrite) }
+                        SoftGroupRow("access") { Button("检查提交权限") { Task { await checkAccess() } }.disabled(repo.isEmpty) }
+                    }
+                    if !canWrite { SoftGroupRow("permission") { Text("未确认仓库写权限，暂不能提交。").font(.caption).foregroundStyle(.secondary) } }
+                    SoftGroupRow("preview") {
+                        Button("预览提交") {
+                            if let reason = RepoQueue.readiness(queue, repo: repo, message: note) { alertText = reason }
+                            else { confirmCommit = true }
+                        }.disabled(!canWrite).accessibilityIdentifier("upload-preview")
+                    }
+                }
+            }
+        }.disabled(busy).transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
     private var trollSection: some View {
         Section("发布 TrollFools 插件") {
@@ -305,7 +397,7 @@ struct UploadView: View {
     }
     private func beginEditing(_ item: PendingRepoItem) {
         guard item.local?.pathExtension.lowercased() == "deb" else { return }
-        editingQueueID = item.id; editorFile = item.local; showDebEditor = true
+        editingItem = item
     }
     private func adoptGeneratedDeb(_ source: URL, replacing id: UUID? = nil) {
         var pendingDir: URL?
@@ -336,10 +428,11 @@ struct UploadView: View {
             pendingDir = nil
             if bytes > 10 * 1024 * 1024 { mode = 1 }
             if mode == 2 { mode = 0 }
-            // Never infer repository root; the user must explicitly choose a target.
             if mode != 0 { invalidateTarget() }
-            if mode == 0 { queue.append(PendingRepoItem(local: copy, size: bytes)); local = nil; bytes = 0 }
-            alertText = "新 deb 已选中。提交仓库前请选择目标目录；也可选择 Release 附件。"
+            if mode == 0 {
+                queue.append(PendingRepoItem(local: copy, size: bytes)); local = nil; bytes = 0
+                Task { await prepareInheritedTargets() }
+            }
         } catch {
             if let pendingDir { try? FileManager.default.removeItem(at: pendingDir) }
             alertText = error.localizedDescription
@@ -350,16 +443,85 @@ struct UploadView: View {
         local = nil; bytes = 0; progress = 0
         // Only clears the local selection; never deletes a remote file or uploaded asset.
     }
-    private func openTargetPicker() async {
+    @MainActor private func openTargetPicker() async {
         busy = true; defer { busy = false }
         do {
-            let resolved = try await api.resolvedBranch(repo, branch: branch)
-            let head = try await api.workspaceHead(repo, branch: resolved)
-            targetPicker = RepositoryTarget(repo: repo, branch: resolved, path: "", head: head)
-        } catch { alertText = error.localizedDescription }
+            let generation = targetGeneration, requestedRepo = repo, requestedBranch = branch
+            let resolved = try await api.resolvedBranch(requestedRepo, branch: requestedBranch)
+            let head = try await api.workspaceHead(requestedRepo, branch: resolved)
+            guard generation == targetGeneration, requestedRepo == repo, requestedBranch == branch, api.isCurrentSession else { throw CancellationError() }
+            let item = queue.first { $0.id == choosingItem }
+            let folder = item?.path.map { ($0 as NSString).deletingLastPathComponent } ?? destinationFolder ?? ""
+            targetPicker = RepositoryTarget(repo: requestedRepo, branch: resolved, path: folder, head: head)
+        } catch { if !RefreshFailure.isCancellation(error) { alertText = error.localizedDescription } }
     }
     private func invalidateTarget() {
+        targetGeneration = UUID(); destination = nil; destinationFolder = nil
+        pendingReplacement = nil; pendingDeletion = nil; targetPicker = nil
         for i in queue.indices { queue[i].path = nil; queue[i].sha = nil; queue[i].head = nil }
+    }
+    @MainActor private func readDestination(folder: String) async throws -> UploadDestination {
+        let generation = targetGeneration, requestedRepo = repo, requestedBranch = branch
+        let name = try RepositoryInput.parse(requestedRepo)
+        let resolved = try await api.resolvedBranch(name, branch: requestedBranch)
+        let head = try await api.workspaceHead(name, branch: resolved)
+        let endpoint = try GitHub.repoPath(name)
+        let commit = try await api.decoded(GitCommitInfo.self, endpoint + "/git/commits/" + GitHub.component(head))
+        let tree = try await api.decoded(GitTreeInfo.self, endpoint + "/git/trees/" + GitHub.component(commit.tree.sha), query: [.init(name: "recursive", value: "1")])
+        guard !tree.truncated, tree.tree.count <= 20000,
+              tree.tree.allSatisfy({ $0.type == "tree" || ($0.type == "blob" && ["100644", "100755"].contains($0.mode)) }) else { throw AppError(text: "不安全或截断的远端树，未绑定上传目标") }
+        let directories = Set(tree.tree.filter { $0.type == "tree" }.map(\.path))
+        guard folder.isEmpty || directories.contains(folder) else { throw AppError(text: "目标目录已不存在，请重新选择上传位置") }
+        let files = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.sha) })
+        guard generation == targetGeneration, requestedRepo == repo, requestedBranch == branch, api.isCurrentSession else { throw CancellationError() }
+        guard try await api.workspaceHead(name, branch: resolved) == head else { throw AppError(text: "核验期间远端已变化，请重试选择目标") }
+        guard generation == targetGeneration, api.isCurrentSession else { throw CancellationError() }
+        return UploadDestination(target: RepositoryTarget(repo: name, branch: resolved, path: folder, head: head), files: files, directories: directories)
+    }
+    private func inheritMissingTargets(_ selected: UploadDestination) throws {
+        for i in queue.indices where queue[i].local != nil && queue[i].path == nil {
+            _ = try queue[i].inheritTarget(folder: selected.target.path, head: selected.target.head, files: selected.files, directories: selected.directories)
+        }
+    }
+    @MainActor private func prepareInheritedTargets() async {
+        guard let folder = destinationFolder else { return }
+        busy = true; defer { busy = false }
+        do {
+            let selected = try await readDestination(folder: folder)
+            destination = selected
+            try inheritMissingTargets(selected)
+        } catch { if !RefreshFailure.isCancellation(error) { alertText = error.localizedDescription } }
+    }
+    private func automaticReplacement(_ item: PendingRepoItem) -> PendingRepoItem? {
+        guard item.path == nil, let local = item.local, let destination else { return nil }
+        let path = (destination.target.path.isEmpty ? "" : destination.target.path + "/") + local.lastPathComponent
+        guard let sha = destination.files[path] else { return nil }
+        var replacement = item
+        replacement.select(folder: destination.target.path, replacementPath: path, sha: sha, head: destination.target.head)
+        return replacement
+    }
+    private func selectTarget(at index: Int, destination selected: UploadDestination) throws {
+        let inherited = try queue[index].inheritTarget(folder: selected.target.path, head: selected.target.head, files: selected.files, directories: selected.directories)
+        if !inherited, let file = queue[index].local {
+            let path = (selected.target.path.isEmpty ? "" : selected.target.path + "/") + file.lastPathComponent
+            if let sha = selected.files[path] {
+                var replacement = queue[index]
+                replacement.select(folder: selected.target.path, replacementPath: path, sha: sha, head: selected.target.head)
+                pendingReplacement = replacement
+            }
+        }
+    }
+    @MainActor private func acceptReplacement(_ replacement: PendingRepoItem) async {
+        let generation = targetGeneration, requestedRepo = repo, requestedBranch = branch
+        busy = true; defer { busy = false }
+        do {
+            let resolved = try await api.resolvedBranch(requestedRepo, branch: requestedBranch)
+            let head = try await api.workspaceHead(requestedRepo, branch: resolved)
+            guard generation == targetGeneration, api.isCurrentSession else { throw CancellationError() }
+            guard head == replacement.head, let path = replacement.path, let sha = replacement.sha,
+                  let index = queue.firstIndex(where: { $0.id == replacement.id }) else { throw AppError(text: "目标已变化，请重新确认替换") }
+            queue[index].select(folder: (path as NSString).deletingLastPathComponent, replacementPath: path, sha: sha, head: head)
+        } catch { if !RefreshFailure.isCancellation(error) { alertText = error.localizedDescription } }
     }
     private func checkAccess() async {
         busy = true; defer { busy = false }
@@ -394,6 +556,7 @@ struct UploadView: View {
                         if let notice = checked.notice { alertText = notice }
                     } catch { try? FileManager.default.removeItem(at: folder); throw error }
                 }
+                await prepareInheritedTargets()
                 return
             }
             guard let source = sources.first else { return }

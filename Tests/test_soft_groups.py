@@ -54,11 +54,16 @@ assert ui.count('top: e.id == entries.first?.id, bottom: e.id == entries.last?.i
 for marker in ['Text(binding.repo + " · " + binding.branch)', 'TextField("提交说明", text: $commitMessage)']:
     row = next(line for line in workspace.splitlines() if marker in line)
     assert '.softGroupedRow()' in row, row
-for marker in ['LabeledContent("目录",', 'Text(r.draft ?', 'Text("附件："',
-               'Button("公开此 Release")', 'ShareLink("分享下载链接"',
-               'Button("检查提交权限")']:
+for marker in ['Text(r.draft ?', 'Text("附件："',
+               'Button("公开此 Release")', 'ShareLink("分享下载链接"']:
     row = next(line for line in upload.splitlines() if marker in line)
     assert '.softGroupedRow()' in row, row
+# Dynamic upload groups now delegate their first/last edges to the unchanged shared rows.
+commit_group = upload.split('private var commitSection:', 1)[1].split('private var trollSection:', 1)[0]
+assert 'SoftGroupRows {' in commit_group
+for row in ['directory', 'branch', 'options', 'access', 'preview']:
+    assert 'SoftGroupRow("' + row + '")' in commit_group
+assert '.softGroupedRow(' not in commit_group
 assert 'bottom: local == nil' in upload
 assert 'bottom: !(bytes > 10 * 1024 * 1024 && mode == 0)' in upload
 assert 'ReleaseEntryView(api: api, initialRepo: repo, initialBranch: branch)' in upload
@@ -187,9 +192,11 @@ assert 'bottom: markerReady || state.busy' in release
 assert 'bottom: state.error.isEmpty && state.valid' in release
 assert 'top: !state.busy && state.error.isEmpty, bottom: true' in release
 assert 'Divider()' not in detail_ui  # all detail rows use the same full-width separator
-assert 'originalKeys, id: \\.self' in source('DebEditorView.swift')
-assert 'bottom: key == originalKeys.last' in source('DebEditorView.swift')
-assert 'top: original["Name"] == nil && original["Author"] == nil' in source('DebEditorView.swift')
+deb = source('DebEditorView.swift')
+for start, end in [('originalSection', 'editSection'), ('editSection', 'differencesSection')]:
+    group = deb.split('private var ' + start + ':', 1)[1].split('private var ' + end + ':', 1)[0]
+    assert 'SoftGroupRows {' in group and '.softGroupedRow(' not in group
+    assert 'UIRules.withoutAnimation' in group and '$0.disablesAnimations = true' in group
 assert 'top: repository.id == filteredRepositories.first?.id' in source('RepositorySections.swift')
 assert 'bottom: repository.id == filteredRepositories.last?.id' in source('RepositorySections.swift')
 for file in ['AccountManagement.swift', 'DebEditorView.swift', 'DesktopViews.swift',
@@ -263,11 +270,11 @@ for loading, count, error, ready, expanded, searching, advanced, matches, sha_ta
     if advanced: rows += [(False, False)] * (2 + int(ready and sha_target))
     rows += [(False, True)]
     edges_ok(rows)
-for name, author, section, priority, homepage in itertools.product((False, True), repeat=5):
-    rows = ([(True, False)] if name else []) + ([(not name, False)] if author else [])
-    rows += [(not name and not author, False)] + [(False, False)] * 4
-    rows += [(False, False)] * (section + priority + homepage) + [(False, True)]
-    edges_ok(rows)
+# Optional/folded DEB rows use the same shared edge calculation in every state.
+for name, author, section, priority, homepage, expanded in itertools.product((False, True), repeat=6):
+    count = int(name) + 6 + int(author or section or priority or homepage)
+    if expanded: count += author + section + priority + homepage
+    edges_ok([(i == 0, i == count - 1) for i in range(count)])
 
 # cc62549 local allowance is ONLY UI rendering. Preserve the exact historic
 # logic and shared decoration, not a broad regex normalization of whole files.
@@ -539,7 +546,7 @@ for file, marker in [
         assert current.split('    private func load() async {')[-1] == old.split('    private func load() async {')[-1]
     else:
         assert current.split(marker, 1)[1] == old.split(marker, 1)[1], file
-print('PASS feature-page matrices: release pagination/status/attachments, direct management entry and 32 optional deb field combinations; native branch/SHA expansion boundaries; exact cc62549 business/shared-style protection')
+print('PASS feature-page matrices: release pagination/status/attachments, direct management entry and 64 optional/folded deb field combinations; native branch/SHA expansion boundaries; exact cc62549 business/shared-style protection')
 
 # Byte-exact operation bodies for mixed UI/logic files: rendering may move, API
 # calls/cancellation/permission and destructive confirmation logic may not.
@@ -609,6 +616,18 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'target.generation == AccountStore.generation' in body
             assert 'confirmation' not in body and 'secondDelete' not in body
             assert 'deleteManagedRelease' in body
+            continue
+        if file == 'UploadView.swift' and signature in (
+            'private func beginEditing(_ item: PendingRepoItem)',
+            'private func adoptGeneratedDeb(_ source: URL, replacing id: UUID? = nil)',
+            'private func openTargetPicker() async',
+            'private func invalidateTarget()',
+        ):
+            # Approved upload target inheritance and single-item DEB presentation.
+            # Real Swift rules: test_upload_destination; real screens: UploadEditorTests.
+            # All other upload operations retain their byte-exact historical guard.
+            expected = '@MainActor ' + signature if signature == 'private func openTargetPicker() async' else signature
+            assert expected in current, signature
             continue
         if file == 'UploadView.swift' and signature == 'private func select(_ result: Result<[URL], Error>) async':
             # TrollFools plugins are capped before and after preparation, while

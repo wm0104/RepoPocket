@@ -377,6 +377,7 @@ struct WorkspaceView: View {
     @State private var pull: WorkspacePull?
     @State private var pullChoices: [String: Bool] = [:]
     @State private var resolvingPull = false
+    @State private var conflictScale = 1.0
     @State private var checkPending: WorkspacePull?
     @State private var pendingDelete: URL?
     @State private var pendingDetach: URL?
@@ -661,11 +662,12 @@ Section("本地变更预览 / 勾选提交") {
                     List {
                         if let pending = pull, let binding = binding {
                             Text("同文件双改或删除/修改冲突不会自动覆盖。请逐项选择；取消不会改变工作区。二进制或大文本仅显示哈希。").softGroupedRow(top: true, bottom: true)
+                            ContentZoomControls(scale: $conflictScale).frame(maxWidth: .infinity, alignment: .trailing).softGroupedRow(top: true, bottom: true)
                             ForEach(pending.conflicts, id: \.self) { path in
                                 Section(path) {
-                                    ScrollView(.horizontal) { Text("基线：" + (binding.snapshot.texts[path] ?? binding.snapshot.hashes[path] ?? "已删除")).fixedSize(horizontal: true, vertical: false) }.softGroupedRow(top: true)
-                                    ScrollView(.horizontal) { Text("本地：" + (pending.local.texts[path] ?? pending.local.hashes[path] ?? "已删除")).fixedSize(horizontal: true, vertical: false) }.softGroupedRow()
-                                    ScrollView(.horizontal) { Text("远端：" + (pending.binding.snapshot.texts[path] ?? pending.binding.snapshot.hashes[path] ?? "已删除")).fixedSize(horizontal: true, vertical: false) }.softGroupedRow()
+                                    ScrollView(.horizontal) { Text("基线：" + (binding.snapshot.texts[path] ?? binding.snapshot.hashes[path] ?? "已删除")).font(Font(CodeMetrics.font(scale: conflictScale))).fixedSize(horizontal: true, vertical: false) }.softGroupedRow(top: true)
+                                    ScrollView(.horizontal) { Text("本地：" + (pending.local.texts[path] ?? pending.local.hashes[path] ?? "已删除")).font(Font(CodeMetrics.font(scale: conflictScale))).fixedSize(horizontal: true, vertical: false) }.softGroupedRow()
+                                    ScrollView(.horizontal) { Text("远端：" + (pending.binding.snapshot.texts[path] ?? pending.binding.snapshot.hashes[path] ?? "已删除")).font(Font(CodeMetrics.font(scale: conflictScale))).fixedSize(horizontal: true, vertical: false) }.softGroupedRow()
                                     Button { pullChoices[path] = false } label: { Label("保留本地", systemImage: pullChoices[path] == false ? "checkmark.circle.fill" : "circle") }.softGroupedRow()
                                     Button { pullChoices[path] = true } label: { Label("采用远端", systemImage: pullChoices[path] == true ? "checkmark.circle.fill" : "circle") }.softGroupedRow(bottom: true)
                                 }.font(.system(.caption, design: .monospaced))

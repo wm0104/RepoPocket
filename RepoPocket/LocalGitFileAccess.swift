@@ -3,6 +3,29 @@ import CryptoKit
 
 enum LocalGitFileAccess {
     static let textLimit = 1024 * 1024
+    static func pastedDirectory(_ text: String) throws -> URL {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.count >= 2, (value.first == "\"" && value.last == "\"" || value.first == "'" && value.last == "'") {
+            value.removeFirst(); value.removeLast()
+        }
+        guard !value.contains("\0"), !value.contains("\n"), !value.contains("\r") else { throw LocalGitError(text: "请只粘贴一个项目文件夹的绝对路径。") }
+        let url: URL
+        if value.hasPrefix("file:") {
+            guard let parsed = URL(string: value), parsed.isFileURL, parsed.path.hasPrefix("/"),
+                  parsed.host == nil || parsed.host == "" || parsed.host == "localhost",
+                  parsed.query == nil, parsed.fragment == nil else { throw LocalGitError(text: "只支持此设备上的文件夹路径。") }
+            url = parsed
+        } else {
+            guard value.hasPrefix("/") else { throw LocalGitError(text: "请粘贴 Filza 复制的完整路径，例如 /var/mobile/Documents/项目。") }
+            url = URL(fileURLWithPath: value, isDirectory: true)
+        }
+        let root = url.resolvingSymlinksInPath().standardizedFileURL
+        var directory: ObjCBool = false
+        guard root.path != "/", FileManager.default.fileExists(atPath: root.path, isDirectory: &directory), directory.boolValue else {
+            throw LocalGitError(text: "路径不存在或不是项目文件夹，请重新复制目录路径。")
+        }
+        return root
+    }
     static func searchEntries(root: URL, check: () throws -> Void = {}) throws -> [LocalGitSearchEntry] {
         try check()
         let expected = try identity(root)
@@ -138,12 +161,19 @@ enum LocalGitFileAccess {
     }
     static func withRoot<T>(_ project: LocalGitProject, internalRoot: URL, operation: (URL) throws -> T) throws -> T {
         var stale = false
-        let url = try URL(resolvingBookmarkData: project.bookmark, options: [.withoutUI], relativeTo: nil, bookmarkDataIsStale: &stale)
+        let url: URL
+        if let path = project.directPath {
+            guard path.hasPrefix("/"), path != "/", !path.contains("\0"), !path.contains("\n"), !path.contains("\r") else {
+                throw LocalGitError(text: "项目路径记录无效，请重新选择原文件夹。")
+            }
+            url = URL(fileURLWithPath: path, isDirectory: true)
+        }
+        else { url = try URL(resolvingBookmarkData: project.bookmark, options: [.withoutUI], relativeTo: nil, bookmarkDataIsStale: &stale) }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let resolved = url.resolvingSymlinksInPath().standardizedFileURL
         let owned = internalRoot.resolvingSymlinksInPath().standardizedFileURL
-        guard !stale, scoped || resolved.path == owned.path || resolved.path.hasPrefix(owned.path + "/"),
+        guard !stale, project.directPath != nil || scoped || resolved.path == owned.path || resolved.path.hasPrefix(owned.path + "/"),
               try identity(url) == project.identity else { throw LocalGitError(text: "原目录授权失效或身份变化，请重新选择同一个原文件夹；不会创建替代目录。") }
         return try operation(url)
     }

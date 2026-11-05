@@ -59,8 +59,9 @@ actor LocalGitEngine {
         return try await file(project: parent, internalRoot: internalRoot, generation: generation) { root in
             let target = root.appendingPathComponent(child, isDirectory: true)
             return LocalGitProject(id: UUID(), name: child,
-                bookmark: try target.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil),
-                identity: try LocalGitFileAccess.identity(target), metadataID: UUID(), usesPrivateGit: false)
+                bookmark: parent.directPath == nil ? try target.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil) : Data(),
+                identity: try LocalGitFileAccess.identity(target), metadataID: UUID(), usesPrivateGit: false,
+                directPath: parent.directPath == nil ? nil : target.resolvingSymlinksInPath().standardizedFileURL.path)
         }
     }
     func importFiles(_ sources: LocalGitImportSources, project: LocalGitProject, internalRoot: URL,
