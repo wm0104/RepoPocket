@@ -24,15 +24,9 @@ xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl status_bar "$DEVICE" override --time 9:41 --batteryState charged --batteryLevel 100
 # Let Xcode embed Simulator entitlements before signing. An unsigned simulator
 # cannot exercise CredentialStore (errSecMissingEntitlement / -34018).
-SIGNING_ARGUMENTS=()
+SIGNING_ARGUMENTS=("CODE_SIGN_ENTITLEMENTS=$PWD/Scripts/Simulator.entitlements")
 case "${RP_STYLE_TEST_SCOPE:-all}" in
-  upload-viewer) TEST_ARGUMENTS=(
-    -only-testing:RepoPocketStyleUITests/UploadEditorTests
-    -only-testing:RepoPocketStyleUITests/ContentZoomTests
-    -only-testing:RepoPocketStyleUITests/ReadingZoomTests
-    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testCompactLocalProjectKeepsMetadataAndImportsAccessible
-  ) ;;
-  all|release-editor)
+  all|release-editor|upload-viewer)
     # ShareInboxStore.live() needs a real app-group container, not a picker mock.
     mkdir -p preview-build
     python3 - <<'PY_INBOX_ENTITLEMENTS'
@@ -133,6 +127,12 @@ xcrun simctl io "$DEVICE" recordVideo --codec=h264 screenshots/local-git-interac
 RECORDING_PID=$!
 TEST_STATUS=0
 case "${RP_STYLE_TEST_SCOPE:-all}" in
+  upload-viewer) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/UploadEditorTests
+    -only-testing:RepoPocketStyleUITests/ContentZoomTests
+    -only-testing:RepoPocketStyleUITests/ReadingZoomTests
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testCompactLocalProjectKeepsMetadataAndImportsAccessible
+  ) ;;
   release-editor) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/ReleaseEditorTests) ;;
   branch-merge) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalMergePreviewUsesCurrentBranchAndDoesNotPush

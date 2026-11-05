@@ -2,9 +2,11 @@
 from contextlib import redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import re
 import runpy
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,6 +21,42 @@ NAMES = {'release-editor-filled', 'release-editor-inbox', 'release-editor-attach
 
 
 class ReleaseEditorLifecycleTests(unittest.TestCase):
+    def test_upload_viewer_runner_selects_all_three_real_test_classes(self):
+        bash = str(Path('C:/Program Files/Git/bin/bash.exe')) if os.name == 'nt' else shutil.which('bash')
+        if not bash or not Path(bash).is_file():
+            self.skipTest('Bash is required to execute the production test selector')
+        runner = (ROOT / 'Scripts/run_style_preview.sh').read_text()
+        cases = re.findall(r'case "\$\{RP_STYLE_TEST_SCOPE:-all\}" in\n.*?\nesac', runner, re.S)
+        result = subprocess.run([bash, '-c', 'set -euo pipefail\nRP_STYLE_TEST_SCOPE=upload-viewer\n' + cases[-1] + '\nprintf "%s\\n" "${TEST_ARGUMENTS[@]}"'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(set(result.stdout.splitlines()), {
+            '-only-testing:RepoPocketStyleUITests/UploadEditorTests',
+            '-only-testing:RepoPocketStyleUITests/ContentZoomTests',
+            '-only-testing:RepoPocketStyleUITests/ReadingZoomTests',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testCompactLocalProjectKeepsMetadataAndImportsAccessible'})
+
+    def test_runner_signing_arguments_are_nonempty_and_upload_has_real_inbox_entitlement(self):
+        bash = str(Path('C:/Program Files/Git/bin/bash.exe')) if os.name == 'nt' else shutil.which('bash')
+        if not bash or not Path(bash).is_file():
+            self.skipTest('Bash is required to execute production signing argument selection')
+        runner = (ROOT / 'Scripts/run_style_preview.sh').read_text()
+        initial = 'SIGNING_ARGUMENTS=' + runner.split('SIGNING_ARGUMENTS=', 1)[1].split('\n', 1)[0]
+        case = re.findall(r'case "\$\{RP_STYLE_TEST_SCOPE:-all\}" in\n.*?\nesac', runner, re.S)[0]
+        for scope in ['upload-viewer', 'maintenance-regressions']:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); (root / 'Scripts').mkdir()
+                shutil.copy(ROOT / 'Scripts/Simulator.entitlements', root / 'Scripts/Simulator.entitlements')
+                env = os.environ.copy(); env['RP_STYLE_TEST_SCOPE'] = scope
+                env['PYTHON_BIN'] = sys.executable.replace('\\', '/')
+                script = 'set -euo pipefail\npython3() { "$PYTHON_BIN" "$@"; }\n' + initial + '\n' + case + '\nprintf "%s\\n" "${SIGNING_ARGUMENTS[@]}"'
+                result = subprocess.run([bash, '-c', script], cwd=root, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(result.stdout.strip().startswith('CODE_SIGN_ENTITLEMENTS='), result.stdout)
+                if scope == 'upload-viewer':
+                    import plistlib
+                    entitlements = plistlib.loads((root / 'preview-build/style-preview.entitlements').read_bytes())
+                    self.assertEqual(entitlements['com.apple.security.application-groups'], ['group.com.wm0104.RepoPocket.shared'])
+
     def test_upload_viewer_scope_exports_real_regression_attachments(self):
         names = {'deb-first-open-common-fields', 'upload-inherited-preview', 'deb-original-expanded',
                  'deb-more-fields-expanded', 'upload-explicit-replacement', 'upload-multiple-independent-targets',
@@ -108,7 +146,7 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
         expected = plistlib.loads(original)
         expected['com.apple.security.application-groups'] = ['group.com.wm0104.RepoPocket.shared']
         self.assertEqual(result, expected)
-        self.assertIn('all|release-editor)', runner)
+        self.assertIn('all|release-editor|upload-viewer)', runner)
         self.assertIn('"${SIGNING_ARGUMENTS[@]}" build-for-testing', runner)
 
     def test_fixture_uses_real_editor_inbox_and_fail_closed_network(self):

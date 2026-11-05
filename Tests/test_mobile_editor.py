@@ -12,6 +12,18 @@ class MobileEditorTests(unittest.TestCase):
     def source(self, name):
         return (ROOT / 'RepoPocket' / name).read_text(encoding='utf-8')
 
+    def head_source(self, github):
+        return github.split('    func workspaceHead(', 1)[1].split('\n    }', 1)[0] + '\n    }\n'
+
+    def test_native_search_fixture_does_not_include_neighboring_api_methods(self):
+        source = '''    func workspaceHead(_ repo: String) async throws -> String {
+        return "head"
+    }
+    func uploadDestinationTree() { decoded(query: []) }
+    func associateWorkspace() {}
+'''
+        self.assertEqual(self.head_source(source), '_ repo: String) async throws -> String {\n        return "head"\n    }\n')
+
     def test_shared_editor_uses_native_find_and_guarded_edit_commands(self):
         view = self.source('SourceCodeView.swift')
         surface = self.source('SourceTextSurface.swift')
@@ -60,7 +72,7 @@ class MobileEditorTests(unittest.TestCase):
         models = self.source('WorkspaceRemote.swift').split('struct GitObject:', 1)[1].split('extension LocalStore {', 1)[0]
         github = self.source('GitHub.swift')
         component = github.split('    static func component(', 1)[1].split('    private func url(', 1)[0]
-        head = github.split('    func workspaceHead(', 1)[1].split('    func associateWorkspace(', 1)[0]
+        head = self.head_source(github)
         fixture = r'''
 import Foundation
 struct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }
