@@ -632,6 +632,8 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             # Real Swift rules: test_upload_destination; real screens: UploadEditorTests.
             # All other upload operations retain their byte-exact historical guard.
             expected = '@MainActor ' + signature if signature == 'private func openTargetPicker() async' else signature
+            if signature.startswith('private func adoptGeneratedDeb('):
+                expected += ' -> String?'
             assert expected in current, signature
             continue
         if file == 'UploadView.swift' and signature == 'private func select(_ result: Result<[URL], Error>) async':
