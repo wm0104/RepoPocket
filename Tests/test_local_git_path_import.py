@@ -10,9 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LocalGitPathImportTests(unittest.TestCase):
-    def test_trollstore_package_can_access_the_explicitly_selected_directory(self):
+    def test_launch_diagnostic_keeps_the_pre_filza_signing_policy(self):
         entitlements = plistlib.loads((ROOT / 'Entitlements.plist').read_bytes())
-        self.assertIs(entitlements.get('com.apple.private.security.no-sandbox'), True)
+        self.assertNotIn('com.apple.private.security.no-sandbox', entitlements)
         self.assertNotIn('platform-application', entitlements)
         self.assertIs(entitlements['get-task-allow'], False)
 
