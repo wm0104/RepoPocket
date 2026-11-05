@@ -91,8 +91,7 @@ final class UploadEditorTests: XCTestCase {
         let secondTarget = app.staticTexts["upload-target-upload-fixture-two.txt"]
         reveal(secondTarget, in: app)
         XCTAssertEqual(secondTarget.label, "debs/upload-fixture-two.txt")
-        let menu = app.buttons["文件操作：upload-fixture-one.txt"]
-        reveal(menu, in: app); menu.tap(); app.buttons["更改位置"].tap()
+        chooseFileAction("更改位置", file: "upload-fixture-one.txt", in: app)
         let parent = app.buttons["上级目录"]
         XCTAssertTrue(parent.waitForExistence(timeout: 10)); parent.tap()
         app.buttons["上传到此文件夹"].tap()
@@ -171,9 +170,21 @@ final class UploadEditorTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", path), object: target)], timeout: 15), .completed, app.debugDescription)
     }
     private func openEditor(_ app: XCUIApplication) {
-        let menu = app.buttons["文件操作：upload-editor-fixture.deb"]
-        reveal(menu, in: app); menu.tap()
-        app.buttons["编辑包信息"].tap()
+        chooseFileAction("编辑包信息", file: "upload-editor-fixture.deb", in: app)
+    }
+    private func chooseFileAction(_ title: String, file: String, in app: XCUIApplication) {
+        let menu = app.buttons["文件操作：" + file]
+        // SwiftUI exposes the labelled Menu wrapper separately from its native button.
+        let buttons = menu.children(matching: .button)
+        let button = buttons.firstMatch
+        reveal(button, in: app)
+        XCTAssertEqual(buttons.count, 1, menu.debugDescription)
+        XCTAssertTrue(button.isHittable, menu.debugDescription)
+        button.tap()
+        let action = app.buttons[title]
+        XCTAssertTrue(action.waitForExistence(timeout: 5), "File menu must actually open: " + app.debugDescription)
+        XCTAssertTrue(action.isHittable, app.debugDescription)
+        action.tap()
     }
     private func assertReadOnly(_ app: XCUIApplication) {
         app.buttons["upload-fixture-check"].tap()

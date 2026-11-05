@@ -89,6 +89,17 @@ class ContentZoomIntegrationTests(unittest.TestCase):
         self.assertIn('ContentZoomControls(scale: $scale)', community)
         self.assertNotIn('scaleEffect', community)
 
+    def test_native_zoom_regressions_measure_unique_stable_content(self):
+        reading = (ROOT / 'StyleUITests/ReadingZoomTests.swift').read_text(encoding='utf-8')
+        controls = (ROOT / 'StyleUITests/ContentZoomTests.swift').read_text(encoding='utf-8')
+        self.assertIn('controls.height, 44 - 0.000001', controls)
+        self.assertIn('app.scrollViews["community-markdown-reader"]', reading)
+        self.assertIn('reader.staticTexts', reading)
+        self.assertNotIn('number(baseline, "height") * 1.5', reading)
+        self.assertIn('stableFrame(sentinel)', reading)
+        self.assertIn('baseline.width * 2', reading)
+        self.assertIn('resetFrame.width, baseline.width', reading)
+
     @unittest.skipUnless(shutil.which('swiftc'), 'Production Swift rules execute on macOS')
     def test_production_zoom_steps_clamp_and_reset_without_roundoff_drift(self):
         fixture = '''

@@ -14,8 +14,9 @@ struct ReadingZoomStylePreview: View {
                 NavigationLink("HTML 正文") {
                     VStack(spacing: 0) {
                         ContentZoomControls(scale: $scale).frame(maxWidth: .infinity, alignment: .trailing).padding(.horizontal)
-                        ReadmeHTMLView(html: "<p>ZOOM_SENTINEL</p><pre>" + String(repeating: "abcdefgh", count: 24) + "TAIL</pre>" + String(repeating: "<p>滚动正文，验证缩放不重新加载。</p>", count: 50), baseURL: nil,
+                        ReadmeHTMLView(html: "<p><span style=\"white-space:nowrap\">ZOOM_SENTINEL</span></p><pre>" + String(repeating: "abcdefgh", count: 24) + "TAIL</pre>" + String(repeating: "<p>滚动正文，验证缩放不重新加载。</p>", count: 50), baseURL: nil,
                             scrolling: true, scale: scale, height: .constant(0), onReady: { loads += 1 }) { _ in }
+                            .accessibilityIdentifier("reading-zoom-web")
                         Button("检查阅读布局") { revision += 1 }.frame(minHeight: 44)
                         Text("loads=\(loads)|" + report).font(.caption2).accessibilityIdentifier("reading-zoom-report")
                         ReadingZoomProbe(revision: revision, report: $report).frame(height: 0)
