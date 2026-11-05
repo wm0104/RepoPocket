@@ -48,6 +48,8 @@ jobs:
           bash Scripts/build_native_git.sh iphoneos
       - name: Test native local Git backend
         run: python3 Tests/test_local_git_native.py
+      - name: Test Filza foreground refresh and explicit remote association
+        run: python3 Tests/test_local_git_external_refresh.py
       - name: Test original-folder persistence and editing
         run: python3 Tests/test_local_git_store.py
       - name: Test explicit TrollStore project paths and directory identity

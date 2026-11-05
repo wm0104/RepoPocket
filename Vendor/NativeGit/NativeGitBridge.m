@@ -504,6 +504,39 @@ static git_reference *RPSafeUpstream(git_repository *repo,git_reference *head,BO
     if (rc<0) {RPRequire(!required,@"origin 的同名远端分支不可用，请先检查仓库。");return NULL;}
     return upstream;
 }
+static NSDictionary *RPConfigureRemote(git_repository *repo, NSDictionary *q, RPGitResources *c) {
+    NSString *url=RPString(q,@"remote");
+    RPRequire(RPAllowedRemote(url),@"仅支持 GitHub HTTPS 仓库地址。");
+    NSDictionary *status=RPStatus(repo,c); RPWritable(repo,status); RPExpected(status,q);
+    git_reference *head=RPHead(repo,c); RPLockHead(repo,head,c);
+    git_config *config=NULL,*local=NULL;
+    RPCheck(git_repository_config(&config,repo),@"无法读取仓库配置。"); KEEP(config,git_config_free);
+    RPCheck(git_config_open_level(&local,config,GIT_CONFIG_LEVEL_LOCAL),@"本地仓库配置不可写。"); KEEP(local,git_config_free);
+    git_transaction *tx=NULL;
+    RPCheck(git_config_lock(&tx,local),@"配置被其他工具锁定，请稍后重试。"); KEEP(tx,git_transaction_free);
+    RPLeaseCapture(@(git_repository_path(repo)),@"config.lock",YES,c);
+    git_config *latest=NULL;
+    RPCheck(git_repository_config_snapshot(&latest,repo),@"无法核对最新仓库配置。"); KEEP(latest,git_config_free);
+    git_config_iterator *entries=NULL; git_config_entry *entry=NULL;
+    RPCheck(git_config_iterator_glob_new(&entries,latest,"^remote\\.origin\\."),@"无法核对 origin 配置。"); KEEP(entries,git_config_iterator_free);
+    RPRequire(git_config_next(&entry,entries)==GIT_ITEROVER,@"origin 已存在或已被其他工具修改，未覆盖；请重新检查。");
+    NSString *branch=@(git_reference_shorthand(head));
+    NSString *remoteKey=[NSString stringWithFormat:@"branch.%@.remote",branch];
+    NSString *mergeKey=[NSString stringWithFormat:@"branch.%@.merge",branch];
+    const char *value=NULL;
+    int rc=git_config_get_string(&value,latest,remoteKey.UTF8String);
+    RPRequire(rc==GIT_ENOTFOUND || (rc==0 && strcmp(value,"origin")==0),@"当前分支已关联其他远端，未覆盖原配置。");
+    rc=git_config_get_string(&value,latest,mergeKey.UTF8String);
+    RPRequire(rc==GIT_ENOTFOUND || (rc==0 && strcmp(value,git_reference_name(head))==0),@"当前分支已跟踪其他分支，未覆盖原配置。");
+    RPCheck(git_config_set_string(local,"remote.origin.url",url.UTF8String),@"无法保存远端地址。");
+    RPCheck(git_config_set_string(local,"remote.origin.fetch","+refs/heads/*:refs/remotes/origin/*"),@"无法保存远端映射。");
+    RPCheck(git_config_set_string(local,remoteKey.UTF8String,"origin"),@"无法保存分支跟踪配置。");
+    RPCheck(git_config_set_string(local,mergeKey.UTF8String,git_reference_name(head)),@"无法保存分支跟踪配置。");
+    RPExpected(RPStatus(repo,c),q);
+    RPRequire(!RPIsCancelled(q[@"requestID"]),@"关联已取消，未保存配置。");
+    RPCheck(git_transaction_commit(tx),@"保存关联失败，请重新检查远端设置。");
+    return @{@"head":status[@"head"]};
+}
 static NSDictionary *RPHistory(git_repository *repo, NSDictionary *q, RPGitResources *c) {
     // Count OIDs to exhaustion, but only materialize metadata for the requested page.
     NSInteger offset = 0, limit = 30;
@@ -558,12 +591,17 @@ static NSDictionary *RPHistory(git_repository *repo, NSDictionary *q, RPGitResou
     RPRequire([headID isEqual:RPOID(git_reference_target(current))] && [reference isEqual:@(git_reference_name(current))],
               @"本地提交或分支已变化，请下拉刷新历史后重试。");
     NSString *remoteURL = @""; git_remote *remote = NULL;
-    if (git_remote_lookup(&remote,repo,"origin")==0) {
+    int remoteResult=git_remote_lookup(&remote,repo,"origin");
+    NSString *remoteIssue=@"";
+    if (remoteResult==0) {
         KEEP(remote,git_remote_free);
         if (git_remote_url(remote) && RPAllowedRemote(@(git_remote_url(remote)))) remoteURL = @(git_remote_url(remote));
-    }
+        else remoteIssue=@"origin 不是受支持的 GitHub HTTPS 地址，未修改原配置；请先在原工具确认。";
+    } else if (remoteResult==GIT_ENOTFOUND) remoteIssue=@"未配置 origin 远端，关联 GitHub 仓库后才能拉取或推送；本地提交不受影响。";
+    else RPCheck(remoteResult,@"读取 origin 远端失败，请检查仓库配置。");
     return @{@"commits":commits, @"totalCount":@(total), @"offset":@(offset), @"head":headID, @"reference":reference,
-             @"shallow":(shallow != 0) ? @YES : @NO, @"ahead":@(ahead), @"behind":@(behind), @"tracking":@(tracked), @"remote":remoteURL};
+             @"shallow":(shallow != 0) ? @YES : @NO, @"ahead":@(ahead), @"behind":@(behind), @"tracking":@(tracked), @"remote":remoteURL,
+             @"remoteMissing":remoteResult==GIT_ENOTFOUND ? @YES : @NO, @"remoteIssue":remoteIssue.length ? remoteIssue : (id)NSNull.null};
 }
 typedef struct {
     size_t deltas, comparisons;
@@ -826,7 +864,8 @@ static NSDictionary *RPPullSummary(git_repository *repo, const git_oid *before, 
 static NSDictionary *RPPull(git_repository *repo, NSMutableDictionary *q, RPGitResources *c) {
     NSDictionary *status = RPStatus(repo,c); RPWritable(repo,status);
     RPRequire([status[@"files"] count]==0, @"请先提交本地修改，再拉取；不会自动覆盖、暂存或清理文件。");
-    RPExpected(status,q);RPSafeUpstream(repo,RPHead(repo,c),YES,c);
+    // Newly associated repositories have tracking config but no fetched refs yet.
+    RPExpected(status,q);
     RPFetch(repo,q,c);
     git_reference *head = RPHead(repo,c), *upstream = RPSafeUpstream(repo,head,YES,c);
     RPExpected(@{@"head":RPOID(git_reference_target(head)),@"reference":@(git_reference_name(head))},q);
@@ -1408,7 +1447,7 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
             if ([op isEqual:@"clone"] || [op isEqual:@"associate"]) result = RPCreate(op,q,c);
             else {
                 git_repository *repo = RPOpen(q, c);
-                if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"] || [op isEqual:@"createBranch"] || [op isEqual:@"switchBranch"] || [op isEqual:@"deleteBranch"] || [op isEqual:@"renameBranch"] || [op isEqual:@"mergePreview"] || [op isEqual:@"mergeBranch"]) RPScanBudget(repo,requestID,c);
+                if ([op isEqual:@"status"] || [op isEqual:@"inspect"] || [op isEqual:@"commit"] || [op isEqual:@"pull"] || [op isEqual:@"push"] || [op isEqual:@"createBranch"] || [op isEqual:@"switchBranch"] || [op isEqual:@"deleteBranch"] || [op isEqual:@"renameBranch"] || [op isEqual:@"mergePreview"] || [op isEqual:@"mergeBranch"] || [op isEqual:@"configureRemote"]) RPScanBudget(repo,requestID,c);
                 if ([op isEqual:@"status"] || [op isEqual:@"inspect"]) result = RPStatus(repo, c);
                 else if ([op isEqual:@"diff"]) result = RPDiff(repo, q, c);
                 else if ([op isEqual:@"pullDiff"]) result = RPPullDiff(repo, q, c);
@@ -1421,6 +1460,7 @@ char *rp_git_execute(const char *operation, const char *requestJSON) {
                 else if ([op isEqual:@"deleteBranch"]) result = RPDeleteBranch(repo,q,c);
                 else if ([op isEqual:@"renameBranch"]) result = RPRenameBranch(repo,q,c);
                 else if ([op isEqual:@"history"]) result = RPHistory(repo,q,c);
+                else if ([op isEqual:@"configureRemote"]) result = RPConfigureRemote(repo,q,c);
                 else if ([op isEqual:@"commitDetail"]) result = RPCommitDetail(repo,q,c);
                 else if ([op isEqual:@"fetch"]) { RPFetch(repo,q,c); result = RPHistory(repo,q,c); }
                 else if ([op isEqual:@"pull"]) result = RPPull(repo,q,c);

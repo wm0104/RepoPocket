@@ -4,6 +4,9 @@ struct LocalProjectView: View {
     @ObservedObject var api: GitHub
     @ObservedObject var store: LocalGitRegistry
     let project: LocalGitProject
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var visible = false
+    @State private var externalRefreshPending = false
     @StateObject private var state = LocalProjectState()
     @StateObject private var importer = LocalGitImportState()
     @State private var importTarget: String?
@@ -88,7 +91,13 @@ struct LocalProjectView: View {
                 }
             }
         }.listStyle(.insetGrouped).navigationTitle(project.name).adaptiveWorkspaceLayout()
-        .task { await check() }
+        .task { visible = true; await check(); refreshExternalChanges() }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { externalRefreshPending = true; refreshExternalChanges() }
+        }
+        .onChange(of: busy) { if !$0 { refreshExternalChanges() } }
+        .onChange(of: sheet?.id) { if $0 == nil { refreshExternalChanges() } }
+        .onChange(of: syncing) { if $0 == nil { refreshExternalChanges() } }
         .refreshable { await check(force: true) }
         .toolbar { Menu {
             Button("项目信息") { sheet = .info }.disabled(state.snapshot == nil || busy)
@@ -108,7 +117,7 @@ struct LocalProjectView: View {
                 .toolbar { Button("关闭") { choosingImportTarget = false } }
             }.appSheetCornerRadius()
         }
-        .onDisappear { state.cancel(); importer.cancel(); resetHistoryPages() }
+        .onDisappear { visible = false; state.cancel(); importer.cancel(); resetHistoryPages() }
     }
     private var projectSheets: some View {
         projectList
@@ -124,7 +133,18 @@ struct LocalProjectView: View {
                             Section { SoftGroupRows {
                                 SoftGroupRow("branch") { LabeledContent("当前分支", value: snapshot.status.branch) }
                                 SoftGroupRow("head") { Text(snapshot.status.head).font(.caption.monospaced()).textSelection(.enabled) }
-                                SoftGroupRow("remote") { Text(snapshot.history.remote.isEmpty ? "未配置远端仓库" : snapshot.history.remote).font(.caption).textSelection(.enabled) }
+                                SoftGroupRow("remote") { Text(snapshot.history.remoteIssue ?? (snapshot.history.remote.isEmpty ? "未配置远端仓库" : snapshot.history.remote)).font(.caption).textSelection(.enabled) }
+                                if snapshot.history.remoteMissing == true {
+                                    SoftGroupRow("configure-remote") {
+                                        NavigationLink("关联 GitHub 仓库…") {
+                                            LocalProjectRemoteView(api: api, project: project, metadata: store.metadata(project), internalRoot: store.internalRoot,
+                                                status: snapshot.status, generation: generation, isValid: { valid }) {
+                                                sheet = nil; state.filesChanged()
+                                                Task { await check(force: true) }
+                                            }
+                                        }
+                                    }
+                                }
                             } }
                         }
                     }.navigationTitle("项目信息").adaptiveWorkspaceLayout().toolbar { Button("关闭") { sheet = nil } }
@@ -361,6 +381,15 @@ struct LocalProjectView: View {
                     }.disabled(busy || !state.fresh || !valid)
                         .accessibilityIdentifier("localgit.merge")
                 }
+                if snapshot.history.remote.isEmpty {
+                    SoftGroupRow("remote-unavailable") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(snapshot.history.remoteIssue ?? "没有可用的 GitHub HTTPS 远端，暂时不能拉取或推送；本地提交不受影响。")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button("查看远端设置…") { sheet = .info }.disabled(busy || !state.fresh || !valid)
+                        }
+                    }
+                }
                 if let build, valid {
                     SoftGroupRow("build") {
                         NavigationLink("查看本次构建") { WorkflowRunsView(api: api, repo: build.repo, branch: build.branch, headSHA: build.sha) }
@@ -496,6 +525,13 @@ struct LocalProjectView: View {
             return sizes
         }
         return LocalGitSnapshot(status:status,history:history)
+    }
+    private func refreshExternalChanges() {
+        guard externalRefreshPending, visible, scenePhase == .active, !busy, sheet == nil,
+              !pendingCommit, syncing == nil, valid else { return }
+        externalRefreshPending = false
+        state.filesChanged()
+        Task { await check(force: true) }
     }
     private func check(force:Bool=false) async {
         guard !importer.busy else { return }
