@@ -69,6 +69,12 @@ class BrowserRollbackTests(unittest.TestCase):
         # account/host/error guards. Normalize only those exact additions before
         # comparing the complete historic write/download implementation.
         normalized = api_new[:added_start].replace(approved, historic)
+        # Upload's parsed immutable tree snapshot keeps the decoder private;
+        # all pre-existing account/transport/write methods remain byte-exact.
+        upload_start = normalized.index('    func uploadDestinationTree(')
+        upload_end = normalized.index('    func associateWorkspace(', upload_start)
+        self.assertEqual(normalized[upload_start:upload_end].count('    func '), 1)
+        normalized = normalized[:upload_start] + normalized[upload_end:]
         # Only the new remote-branch rename and delete methods are excluded; their
         # permission, protected/default/current branch and acknowledgement tests are separate.
         deletion_start = normalized.index('    /// Local-facing rename becomes create-then-delete on GitHub:')

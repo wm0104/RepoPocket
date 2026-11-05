@@ -658,6 +658,16 @@ final class GitHub: ObservableObject {
     func workspaceHead(_ repo: String, branch: String) async throws -> String {
         try await decoded(GitReference.self, Self.repoPath(repo) + "/git/ref/heads/" + Self.filePath(branch)).object.sha
     }
+    func uploadDestinationTree(_ repo: String, head: String) async throws -> (files: [String: String], directories: Set<String>) {
+        let endpoint = try Self.repoPath(repo)
+        let commit = try await decoded(GitCommitInfo.self, endpoint + "/git/commits/" + Self.component(head))
+        let tree = try await decoded(GitTreeInfo.self, endpoint + "/git/trees/" + Self.component(commit.tree.sha), query: [.init(name: "recursive", value: "1")])
+        guard !tree.truncated, tree.tree.count <= 20000,
+              tree.tree.allSatisfy({ $0.type == "tree" || ($0.type == "blob" && ["100644", "100755"].contains($0.mode)) }) else { throw AppError(text: "不安全或截断的远端树，未绑定上传目标") }
+        let files = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.sha) })
+        let directories = Set(tree.tree.filter { $0.type == "tree" }.map(\.path))
+        return (files, directories)
+    }
     func associateWorkspace(_ folder: URL, repo: String, branch: String, revision: String = "") async throws -> WorkspaceBinding {
         let repo = try RepositoryInput.parse(repo)
         let branch = try await resolvedBranch(repo, branch: branch.trimmingCharacters(in: .whitespacesAndNewlines))

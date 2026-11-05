@@ -465,18 +465,12 @@ struct UploadView: View {
         let name = try RepositoryInput.parse(requestedRepo)
         let resolved = try await api.resolvedBranch(name, branch: requestedBranch)
         let head = try await api.workspaceHead(name, branch: resolved)
-        let endpoint = try GitHub.repoPath(name)
-        let commit = try await api.decoded(GitCommitInfo.self, endpoint + "/git/commits/" + GitHub.component(head))
-        let tree = try await api.decoded(GitTreeInfo.self, endpoint + "/git/trees/" + GitHub.component(commit.tree.sha), query: [.init(name: "recursive", value: "1")])
-        guard !tree.truncated, tree.tree.count <= 20000,
-              tree.tree.allSatisfy({ $0.type == "tree" || ($0.type == "blob" && ["100644", "100755"].contains($0.mode)) }) else { throw AppError(text: "不安全或截断的远端树，未绑定上传目标") }
-        let directories = Set(tree.tree.filter { $0.type == "tree" }.map(\.path))
-        guard folder.isEmpty || directories.contains(folder) else { throw AppError(text: "目标目录已不存在，请重新选择上传位置") }
-        let files = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.sha) })
+        let tree = try await api.uploadDestinationTree(name, head: head)
+        guard folder.isEmpty || tree.directories.contains(folder) else { throw AppError(text: "目标目录已不存在，请重新选择上传位置") }
         guard generation == targetGeneration, requestedRepo == repo, requestedBranch == branch, api.isCurrentSession else { throw CancellationError() }
         guard try await api.workspaceHead(name, branch: resolved) == head else { throw AppError(text: "核验期间远端已变化，请重试选择目标") }
         guard generation == targetGeneration, api.isCurrentSession else { throw CancellationError() }
-        return UploadDestination(target: RepositoryTarget(repo: name, branch: resolved, path: folder, head: head), files: files, directories: directories)
+        return UploadDestination(target: RepositoryTarget(repo: name, branch: resolved, path: folder, head: head), files: tree.files, directories: tree.directories)
     }
     private func inheritMissingTargets(_ selected: UploadDestination) throws {
         for i in queue.indices where queue[i].local != nil && queue[i].path == nil {

@@ -292,6 +292,11 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
              'ReleasePublishPlan.swift', 'ReleaseTransfers.swift']:
     current = source(file)
     if file == 'GitHub.swift':
+        # The upload UI consumes a narrow parsed tree snapshot, not the private decoder.
+        upload_start = current.index('    func uploadDestinationTree(')
+        upload_end = current.index('    func associateWorkspace(', upload_start)
+        assert current[upload_start:upload_end].count('    func ') == 1
+        current = current[:upload_start] + current[upload_end:]
         # Remote branch deletion has focused native safety/transport fixtures;
         # exclude only that newly added method, never its historic neighbors.
         deletion_start = current.index('    func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {')
