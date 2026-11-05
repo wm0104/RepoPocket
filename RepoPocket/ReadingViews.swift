@@ -56,7 +56,8 @@ struct CommunityMarkdown: View {
             NavigationStack {
                 ScrollView {
                     CommunityMarkdown(text: text, baseURL: baseURL, imageBaseURL: imageBaseURL, api: api, reader: true).padding()
-                }.navigationTitle("正文").navigationBarTitleDisplayMode(.inline)
+                }.accessibilityIdentifier("community-markdown-reader")
+                    .navigationTitle("正文").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showReader = false } } }
             }
         }
