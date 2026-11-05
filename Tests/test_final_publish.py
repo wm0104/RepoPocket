@@ -50,9 +50,15 @@ class FinalPublishTests(unittest.TestCase):
         for path in ROOT.joinpath('RepoPocket').glob('*.swift'):
             text = path.read_text()
             self.assertNotIn('willEnterForegroundNotification', text)
-            # Root update checks and the foreground-only cancellation receipt poll
-            # are the only lifecycle observers; no workspace scanning on resume.
-            self.assertEqual('scenePhase' in text, path.name in ('RepoPocketApp.swift', 'WorkflowViews.swift'), path.name)
+            # External local Git edits need a guarded recheck; other workspaces stay inert.
+            self.assertEqual('scenePhase' in text, path.name in ('RepoPocketApp.swift', 'WorkflowViews.swift', 'LocalProjectView.swift'), path.name)
+            if path.name == 'LocalProjectView.swift':
+                refresh = text.split('private func refreshExternalChanges()', 1)[1].split('private func check(', 1)[0]
+                for guard in ('externalRefreshPending', 'visible', 'scenePhase == .active', '!busy', 'sheet == nil', '!pendingCommit', 'syncing == nil', 'valid'):
+                    self.assertIn(guard, refresh)
+                self.assertIn('await check(force: true)', refresh)
+                self.assertNotIn('sync(', refresh)
+                self.assertNotIn('configureRemote', refresh)
             if path.name == 'WorkflowViews.swift':
                 self.assertEqual(text.count('scenePhase'), 4)
                 self.assertIn('@Environment(\\.scenePhase) private var scenePhase', text)

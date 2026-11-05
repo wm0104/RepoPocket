@@ -1,4 +1,4 @@
-"""Foreground is inert; scans only first-load/manual/actual operations."""
+"""Remote workspaces stay inert; local Git may recheck external edits on return."""
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -8,9 +8,14 @@ for source in Path(REPO_ROOT, 'RepoPocket').glob('*.swift'):
     s=source.read_text()
     for forbidden in ['willEnterForegroundNotification', 'didBecomeActiveNotification']:
         assert forbidden not in s, source
-    # Workspace scans remain inert; only root update checks and the visible
-    # workflow's bounded cancellation acknowledgement poll observe lifecycle.
-    assert ('scenePhase' in s) == (source.name in ('RepoPocketApp.swift', 'WorkflowViews.swift')), source
+    # Only the visible local Git project may recheck edits made in Filza.
+    assert ('scenePhase' in s) == (source.name in ('RepoPocketApp.swift', 'WorkflowViews.swift', 'LocalProjectView.swift')), source
+    if source.name == 'LocalProjectView.swift':
+        refresh = s.split('private func refreshExternalChanges()', 1)[1].split('private func check(', 1)[0]
+        for guard in ('externalRefreshPending', 'visible', 'scenePhase == .active', '!busy', 'sheet == nil', '!pendingCommit', 'syncing == nil', 'valid'):
+            assert guard in refresh, guard
+        assert 'await check(force: true)' in refresh
+        assert 'sync(' not in refresh and 'configureRemote' not in refresh
     if source.name == 'WorkflowViews.swift':
         assert s.count('scenePhase') == 4
         assert '@Environment(\\.scenePhase) private var scenePhase' in s
@@ -48,4 +53,4 @@ import re
 build = re.search(r'CURRENT_PROJECT_VERSION: "([^"]+)"', Path(REPO_ROOT, "project.yml").read_text()).group(1)
 assert build == '1.2.0'
 assert f'CFBundleVersion\' "$APP/Info.plist")" = "{build}"' in Path(REPO_ROOT, ".github/workflows/build.yml").read_text()
-print('PASS manual-only foreground contract, stable Text, explicit safety reason, no blocking overlay, atomic scan/reconciliation, operation busy gates and internal build12')
+print('PASS inert remote workspaces, guarded local Git foreground recheck, stable Text, atomic scan/reconciliation and operation busy gates')
