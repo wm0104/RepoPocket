@@ -136,6 +136,65 @@ do {
         (self.work / 'other.txt').unlink()
         return self.result('status')
 
+    def test_external_edits_are_seen_after_an_initial_clean_scan(self):
+        self.assertEqual(self.result('status')['files'], [])
+        changed = self.change()
+        self.assertEqual({row['path'] for row in changed['files']}, {'代码.py', 'new 空.txt', 'other.txt'})
+        self.assertEqual(changed['head'], self.head)
+
+    def test_associate_origin_preserves_files_index_history_and_does_not_fetch(self):
+        self.change()
+        index = (self.work / '.git/index').read_bytes()
+        files = {p.name: p.read_bytes() for p in self.work.iterdir() if p.is_file()}
+        before = self.result('history')
+        self.assertIs(before['remoteMissing'], True)
+        self.result('configureRemote', expectedHead=self.head, remote='https://github.com/fixture/repo.git')
+        self.assertEqual(self.git('remote', 'get-url', 'origin'), 'https://github.com/fixture/repo.git')
+        self.assertEqual(self.git('config', 'branch.main.remote'), 'origin')
+        self.assertEqual(self.git('config', 'branch.main.merge'), 'refs/heads/main')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.head)
+        self.assertEqual((self.work / '.git/index').read_bytes(), index)
+        self.assertEqual({p.name: p.read_bytes() for p in self.work.iterdir() if p.is_file()}, files)
+        self.assertEqual(self.git('for-each-ref', 'refs/remotes'), '')
+        self.assertIs(self.result('history')['remoteMissing'], False)
+
+    def test_associate_origin_rejects_stale_invalid_locked_and_existing_configuration(self):
+        config = self.work / '.git/config'
+        original = config.read_bytes()
+        for values in [dict(expectedHead='0'*40, remote='https://github.com/fixture/repo.git'),
+                       dict(expectedHead=self.head, remote='https://example.com/fixture/repo.git')]:
+            self.assertIs(self.call('configureRemote', **values)['ok'], False)
+            self.assertEqual(config.read_bytes(), original)
+        lock = self.work / '.git/config.lock'
+        lock.write_text('other tool')
+        self.assertIs(self.call('configureRemote', expectedHead=self.head, remote='https://github.com/fixture/repo.git')['ok'], False)
+        self.assertEqual(lock.read_text(), 'other tool')
+        lock.unlink()
+        for key, value in [('remote.origin.url', 'git@github.com:fixture/repo.git'),
+                           ('remote.origin.pushurl', 'https://github.com/fixture/other.git'),
+                           ('branch.main.remote', 'upstream'), ('branch.main.merge', 'refs/heads/other')]:
+            config.write_bytes(original)
+            self.git('config', key, value)
+            before = config.read_bytes()
+            self.assertIs(self.call('configureRemote', expectedHead=self.head, remote='https://github.com/fixture/repo.git')['ok'], False)
+            self.assertEqual(config.read_bytes(), before)
+
+    def test_ssh_origin_is_not_misreported_as_missing(self):
+        self.git('remote', 'add', 'origin', 'git@github.com:fixture/repo.git')
+        history = self.result('history')
+        self.assertIs(history['remoteMissing'], False)
+        self.assertEqual(history['remote'], '')
+        self.assertIn('HTTPS', history['remoteIssue'])
+
+    def test_first_pull_after_association_fetches_missing_tracking_ref(self):
+        remote = Path(self.temp.name) / 'origin.git'
+        self.git('clone', '--bare', str(self.work), str(remote))
+        self.result('configureRemote', expectedHead=self.head, remote=remote.as_uri())
+        self.assertEqual(self.git('for-each-ref', 'refs/remotes'), '')
+        result = self.result('pull', expectedHead=self.head, expectedRemote=remote.as_uri())
+        self.assertEqual(result['head'], self.head)
+        self.assertIs(self.result('history')['tracking'], True)
+
     def commit(self, status, paths):
         selected = [row for row in status['files'] if row['path'] in paths]
         return self.call('commit', expectedHead=status['head'], files=selected,

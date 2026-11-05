@@ -102,6 +102,8 @@ struct LocalGitHistory: Codable {
     let behind: Int
     let tracking: Bool
     let remote: String
+    var remoteMissing: Bool? = nil
+    var remoteIssue: String? = nil
 }
 struct LocalGitDocument { let text: String; let fingerprint: String }
 struct LocalGitPullSummary: Codable {
