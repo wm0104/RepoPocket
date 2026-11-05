@@ -76,6 +76,45 @@ final class UploadEditorTests: XCTestCase {
         assertReadOnly(app)
     }
 
+    func testEditedCollidingDebCanCancelAndConfirmReplacementAfterEditorDismissal() {
+        let app = launch(collision: true)
+        openEditor(app)
+        let version = app.textFields["deb-version"]
+        XCTAssertTrue(version.waitForExistence(timeout: 10))
+        version.tap()
+        let introduction = app.buttons["Continue"]
+        if introduction.waitForExistence(timeout: 2) { introduction.tap() }
+        version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "2.0\n")
+        let generate = app.buttons["deb-generate"]
+        reveal(generate, in: app); generate.tap()
+        let use = app.buttons["使用新 deb 提交 / 发布"]
+        reveal(use, in: app); use.tap()
+        let notice = app.alerts["提示"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "The result must be presented after the editor closes")
+        XCTAssertFalse(app.navigationBars["编辑 deb 包信息"].exists)
+        notice.buttons["好"].tap()
+        let replace = app.buttons["确认替换同名文件…"]
+        reveal(replace, in: app); replace.tap()
+        XCTAssertTrue(app.buttons["确认替换"].waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["取消"].tap()
+        XCTAssertTrue(replace.waitForExistence(timeout: 5), "Cancel must leave the collision unconfirmed")
+        replace.tap()
+        let confirm = app.buttons["确认替换"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
+        assertTarget(app, "debs/upload-editor-fixture.deb")
+        openEditor(app)
+        XCTAssertTrue(version.waitForExistence(timeout: 10))
+        XCTAssertEqual(version.value as? String, "2.0", "Confirmation must retain the edited file")
+        app.buttons["关闭"].tap()
+        let preview = app.buttons["upload-preview"]
+        reveal(preview, in: app); preview.tap()
+        XCTAssertTrue(app.navigationBars["确认原子提交"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["替换：debs/upload-editor-fixture.deb"].exists)
+        XCTAssertTrue(app.staticTexts["原 SHA：cccccccccccccccccccccccccccccccccccccccc"].exists)
+        app.buttons["取消"].tap()
+        assertReadOnly(app)
+    }
+
     func testMultipleFilesInheritFolderAndOneCanMoveIndependently() {
         let app = launch()
         assertTarget(app, "debs/upload-editor-fixture.deb")
@@ -174,13 +213,9 @@ final class UploadEditorTests: XCTestCase {
     }
     private func chooseFileAction(_ title: String, file: String, in app: XCUIApplication) {
         let menu = app.buttons["文件操作：" + file]
-        // SwiftUI exposes the labelled Menu wrapper separately from its native button.
-        let buttons = menu.children(matching: .button)
-        let button = buttons.firstMatch
-        reveal(button, in: app)
-        XCTAssertEqual(buttons.count, 1, menu.debugDescription)
-        XCTAssertTrue(button.isHittable, menu.debugDescription)
-        button.tap()
+        // The Menu's AX wrapper reports non-hittable; test its visible touch target and real menu result.
+        reveal(menu, in: app, coordinateTap: true)
+        menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let action = app.buttons[title]
         XCTAssertTrue(action.waitForExistence(timeout: 5), "File menu must actually open: " + app.debugDescription)
         XCTAssertTrue(action.isHittable, app.debugDescription)
@@ -192,7 +227,7 @@ final class UploadEditorTests: XCTestCase {
         let clean = NSPredicate { _, _ in audit.label.hasPrefix("writes=0; rejected=0; reads=") && !audit.label.contains("reads=0;") && audit.label.hasSuffix("pending=0") }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: clean, object: nil)], timeout: 5), .completed, app.debugDescription)
     }
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, coordinateTap: Bool = false) {
         for attempt in 0..<20 {
             let scroll = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
             let frame = scroll.frame.intersection(app.frame)
@@ -200,14 +235,14 @@ final class UploadEditorTests: XCTestCase {
             let keyboard = app.keyboards.firstMatch
             let bottom = min(frame.maxY - 30, keyboard.exists ? keyboard.frame.minY - 20 : frame.maxY - 30)
             let viewport = CGRect(x: frame.minX, y: top, width: frame.width, height: max(60, bottom - top))
-            if element.exists && element.isHittable && viewport.contains(CGPoint(x: element.frame.midX, y: element.frame.midY)) { return }
+            if element.exists && (element.isHittable || coordinateTap) && viewport.contains(element.frame) { return }
             let up = element.exists ? element.frame.midY > viewport.midY : attempt < 10
             let origin = app.coordinate(withNormalizedOffset: .zero)
             let high = origin.withOffset(CGVector(dx: viewport.maxX - 12, dy: viewport.minY + 10))
             let low = origin.withOffset(CGVector(dx: viewport.maxX - 12, dy: viewport.maxY - 10))
             (up ? low : high).press(forDuration: 0.05, thenDragTo: up ? high : low)
         }
-        XCTAssertTrue(element.isHittable, app.debugDescription)
+        XCTFail("Could not reveal the complete interaction target: " + app.debugDescription)
     }
     private func screenshot(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())

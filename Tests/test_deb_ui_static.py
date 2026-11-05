@@ -24,6 +24,10 @@ assert 'dir.appendingPathComponent(source.lastPathComponent)' in d
 assert 'Button("编辑包信息")' in u
 assert 'item.local?.pathExtension.lowercased() == "deb"' in u
 assert 'queue[index].replaceLocal(copy' in u
+adoption = u.split('    private func adoptGeneratedDeb(', 1)[1].split('    private func clearSelection(', 1)[0]
+assert 'alertText =' not in adoption, 'Adopting an edited deb must not present an alert while its editor sheet is dismissing'
+assert '.sheet(item: $editingItem, onDismiss:' in u
+assert 'editorNotice = adoptGeneratedDeb(generated, replacing: item.id)' in u
 assert '.sheet(isPresented: $confirmCommit, onDismiss:' in u
 assert 'RepoQueue.readiness(queue' in u
 assert 'submitAfterDismiss = true; confirmCommit = false' in u

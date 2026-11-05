@@ -11,6 +11,7 @@ struct UploadView: View {
     @State private var canWrite = false
     @State private var accessGeneration = UUID()
     @State private var editingItem: PendingRepoItem?
+    @State private var editorNotice = ""
     @State private var submitAfterDismiss = false
     @State private var initialFileLoaded = false
     @State private var alertText = ""
@@ -232,15 +233,18 @@ struct UploadView: View {
                 }
                 Button("取消", role: .cancel) { pendingReplacement = nil }
             } message: { Text(pendingReplacement?.path ?? "") }
-            .sheet(item: $editingItem) { item in
+            .sheet(item: $editingItem, onDismiss: {
+                guard !editorNotice.isEmpty else { return }
+                alertText = editorNotice; editorNotice = ""
+            }) { item in
                 DebEditorView(api: api, initialFile: item.local, onUseForUpload: { generated in
-                    adoptGeneratedDeb(generated, replacing: item.id)
+                    editorNotice = adoptGeneratedDeb(generated, replacing: item.id) ?? ""
                     editingItem = nil
                 })
             }
             .task {
                 guard !initialFileLoaded else { return }; initialFileLoaded = true
-                if let initialFile { adoptGeneratedDeb(initialFile) }
+                if let initialFile { alertText = adoptGeneratedDeb(initialFile) ?? "" }
             }
 
             .task(id: repo) { await loadWriteAccess() }
@@ -399,7 +403,7 @@ struct UploadView: View {
         guard item.local?.pathExtension.lowercased() == "deb" else { return }
         editingItem = item
     }
-    private func adoptGeneratedDeb(_ source: URL, replacing id: UUID? = nil) {
+    private func adoptGeneratedDeb(_ source: URL, replacing id: UUID? = nil) -> String? {
         var pendingDir: URL?
         do {
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -420,8 +424,7 @@ struct UploadView: View {
                 queue[index].replaceLocal(copy, size: size.int64Value)
                 pendingDir = nil
                 if let old { try? FileManager.default.removeItem(at: old.deletingLastPathComponent()) }
-                alertText = "已原位替换队列 deb；原目标路径、SHA 与 HEAD 保留。"
-                return
+                return "已原位替换队列 deb；原目标路径、SHA 与 HEAD 保留。"
             }
             clearSelection()
             local = copy; bytes = size.int64Value
@@ -435,8 +438,9 @@ struct UploadView: View {
             }
         } catch {
             if let pendingDir { try? FileManager.default.removeItem(at: pendingDir) }
-            alertText = error.localizedDescription
+            return error.localizedDescription
         }
+        return nil
     }
     private func clearSelection() {
         if let old = local { try? FileManager.default.removeItem(at: old.deletingLastPathComponent()) }
