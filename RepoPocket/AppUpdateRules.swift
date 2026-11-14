@@ -51,6 +51,12 @@ struct AppUpdateRelease: Decodable {
     }
 }
 enum AppUpdateRules {
+    static func skippedKey(_ accountID: String) -> String { "RepoPocket.update.skipped." + accountID }
+    /// A version the user already dismissed stays quiet until a newer release appears.
+    static func shouldOfferStartupPrompt(version: String, skipped: String?) -> Bool {
+        guard let skipped, !skipped.isEmpty else { return true }
+        return skipped != version
+    }
     static func conciseCheckError(_ error: Error) -> String {
         let reason = error.localizedDescription
         if reason.contains("速率") || reason.contains("过于频繁") { return "请求过于频繁，请稍后再试" }

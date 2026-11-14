@@ -65,4 +65,13 @@ enum RefreshFailure {
         let e = error as NSError
         return e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled
     }
+    /// The system cellular-data prompt and flaky links can drop a first attempt;
+    /// those failures deserve one silent retry instead of re-asking the user.
+    static func isTransient(_ error: Error) -> Bool {
+        let e = error as NSError
+        guard e.domain == NSURLErrorDomain else { return false }
+        return [NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost,
+                NSURLErrorTimedOut, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost,
+                NSURLErrorDataNotAllowed].contains(e.code)
+    }
 }

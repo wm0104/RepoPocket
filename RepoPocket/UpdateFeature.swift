@@ -6,6 +6,20 @@ import ZIPFoundation
     @Published var checking = false
     @Published var message = ""
     @Published var release: AppUpdateRelease?
+    @Published private(set) var startupRelease: AppUpdateRelease?
+    func dismissStartupUpdate() { startupRelease = nil }
+    /// Dismissing the startup card by button, close, or swipe remembers the version so the
+    /// same release is not offered again on every launch. Manual checks still show it.
+    func skipAndDismissStartupRelease(accountID: String) {
+        if let version = startupRelease?.tag_name {
+            UserDefaults.standard.set(version, forKey: AppUpdateRules.skippedKey(accountID))
+        }
+        dismissStartupUpdate()
+    }
+    private var startupPromptOffered: Bool {
+        get { AppUpdateSessionRules.startupPromptOffered }
+        set { AppUpdateSessionRules.startupPromptOffered = newValue }
+    }
     @Published var downloaded: URL?
     @Published var downloading = false
     @Published var progress: Double = 0
@@ -23,9 +37,11 @@ import ZIPFoundation
         guard api.canCheckAppUpdate, api.isCurrentSession, !checking, !downloading else { return }
         let key = "RepoPocket.update.lastCheck." + api.accountID
         let now = Date()
-        let last = UserDefaults.standard.object(forKey: key) as? Date
+        let probe = AppUpdateSessionRules.isUpdateProbe(installedVersion().0)
+        let last = probe ? nil : UserDefaults.standard.object(forKey: key) as? Date
         guard autoRules.claim(now: now, last: last) else { return }
-        UserDefaults.standard.set(now, forKey: key)
+        // A probe must neither inherit nor reset the official app's per-account cooldown.
+        if !probe { UserDefaults.standard.set(now, forKey: key) }
         await check(api: api, automatic: true)
     }
     private let noticeSleep: (UInt64) async throws -> Void
@@ -80,10 +96,20 @@ import ZIPFoundation
             if try AppUpdateRules.isNewer(value, local: local, localBuild: build) {
                 release = value
                 message = ""
-            } else { release = nil; if !automatic { showTransient("已是最新版本", duration: UpdateNoticeRules.latestNanoseconds) } }
+                if automatic, !startupPromptOffered {
+                    startupPromptOffered = true
+                    let skipped = UserDefaults.standard.string(forKey: AppUpdateRules.skippedKey(api.accountID))
+                    if AppUpdateRules.shouldOfferStartupPrompt(version: value.tag_name, skipped: skipped) {
+                        startupRelease = value
+                    }
+                }
+            } else {
+                release = nil; startupRelease = nil
+                if !automatic { showTransient("已是最新版本", duration: UpdateNoticeRules.latestNanoseconds) }
+            }
         } catch { if generation == token, accountGeneration == AccountStore.generation, !automatic { showTransient(AppUpdateRules.conciseCheckError(error)) } }
     }
-    func ignore() { generation = UUID(); release = nil; showTransient("本次不更新。") }
+    func ignore() { generation = UUID(); release = nil; startupRelease = nil; showTransient("本次不更新。") }
     func cancelDownload() {
         generation = UUID(); clearNotice()
         downloadTask?.cancel(); downloadSession?.invalidateAndCancel()

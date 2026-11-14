@@ -27,18 +27,53 @@ struct AccountRootView: View {
     @StateObject private var api = GitHub()
     @StateObject private var gitCore = GitCore()
     @StateObject private var updateChecker = UpdateChecker()
+    @EnvironmentObject private var accountPresentation: AccountPresentation
+    @State private var selectedTab = 0
+    @State private var startupSheetVisible = false
+    @State private var startupSheetQueued = false
     var body: some View {
-            TabView {
-                RepositoriesView(api: api).tabItem { Label("仓库", systemImage: "shippingbox") }
-                GitWorkspaceView().environmentObject(gitCore).tabItem { Label("Git", systemImage: "arrow.triangle.branch") }
-                WorkspaceView(api: api).tabItem { Label("本地", systemImage: "folder.badge.gearshape") }
-                UploadView(api: api).tabItem { Label("提交 / 发布", systemImage: "arrow.up.doc") }
-                SettingsView(api: api, updateChecker: updateChecker).tabItem { Label("设置", systemImage: "gear") }
+            TabView(selection: $selectedTab) {
+                RepositoriesView(api: api).tabItem { Label("仓库", systemImage: "shippingbox") }.tag(0)
+                GitWorkspaceView().environmentObject(gitCore).tabItem { Label("Git", systemImage: "arrow.triangle.branch") }.tag(1)
+                WorkspaceView(api: api).tabItem { Label("本地", systemImage: "folder.badge.gearshape") }.tag(2)
+                UploadView(api: api).tabItem { Label("提交 / 发布", systemImage: "arrow.up.doc") }.tag(3)
+                SettingsView(api: api, updateChecker: updateChecker).tabItem { Label("设置", systemImage: "gear") }.tag(4)
             }
             .task { await updateChecker.automaticCheck(api: api) }
+            // Ask the system for network access during launch, not mid-Token or mid-check.
+            .task { await NetworkWarmup.runOnceIfNeeded() }
+            .onReceive(updateChecker.$startupRelease) { release in
+                guard release != nil, !startupSheetQueued else { return }
+                startupSheetQueued = true
+            }
+            .task(id: startupSheetQueued) { await queueStartupSheet() }
+            .sheet(isPresented: $startupSheetVisible, onDismiss: {
+                // Swiping the sheet away counts as skipping this version, like 暂不更新.
+                updateChecker.skipAndDismissStartupRelease(accountID: api.accountID)
+                startupSheetQueued = false
+            }) {
+                if let release = updateChecker.startupRelease {
+                    StartupUpdateCard(api: api, checker: updateChecker, release: release) {
+                        updateChecker.dismissStartupUpdate()
+                        selectedTab = 4
+                    }
+                }
+            }
             .alert("提示", isPresented: Binding(get: { !api.message.isEmpty }, set: { if !$0 { api.message = "" } })) {
                 Button("好", role: .cancel) { api.message = "" }
             } message: { Text(api.message) }
+    }
+
+    // Reads of other observable objects stay out of body: during view evaluation a
+    // missing or mid-transition dependency would trap, and this path must never do that.
+    private func queueStartupSheet() async {
+        guard startupSheetQueued else { return }
+        // Let an existing system presentation finish its native dismissal first.
+        do { try await Task.sleep(nanoseconds: 500_000_000) } catch { return }
+        guard !Task.isCancelled, startupSheetQueued, updateChecker.startupRelease != nil,
+              api.isCurrentSession, api.message.isEmpty,
+              !accountPresentation.showing, DownloadStore.shared.picker == nil else { return }
+        startupSheetVisible = true
     }
 }
 
@@ -577,7 +612,11 @@ struct SettingsView: View {
     }
     private func verify() async {
         busy = true; defer { busy = false }
-        do { let credential = token; token = ""; try await api.addAccount(token: credential) }
+        let credential = token
+        do {
+            try await TokenVerification.submit(credential) { try await api.addAccount(token: $0) }
+            token = ""
+        }
         catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
 }

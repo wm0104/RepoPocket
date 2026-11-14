@@ -320,5 +320,12 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
     rendering = ['workspaceManagement(', 'bindingSection(', 'outputSection(']
     for signature, body in old.items():
         if any(token in signature for token in rendering): continue
+        if file == 'RepoPocketApp.swift' and signature == 'private func verify() async':
+            # Intentional fix: the pasted Token must survive a failed verification, and the
+            # first attempt dropped by the system network prompt is retried once.
+            assert 'TokenVerification.submit(credential)' in current.get(signature, ''), signature
+            assert 'let credential = token; token = ""' not in current.get(signature, ''), signature
+            assert 'token = ""' in current.get(signature, ''), signature
+            continue
         assert current.get(signature) == body, (file, signature)
 print('PASS byte-exact baseline operation bodies: account, navigation/API actions, local/remote workspace, upload, release and destructive guards')

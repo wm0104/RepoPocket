@@ -39,11 +39,19 @@ struct AccountManagementView: View {
                             SecureField("粘贴你自己的 Token", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
                             Button("验证并安全保存") {
                                 guard !busy else { return }
-                                let credential = token; token = ""; busy = true
+                                let credential = token
+                                busy = true
                                 verification = Task { @MainActor in
                                     defer { busy = false }
-                                    do { try await api.addAccount(token: credential); accounts = AccountStore.accounts; close() }
-                                    catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+                                    do {
+                                        try await TokenVerification.submit(credential) { try await api.addAccount(token: $0) }
+                                        token = ""
+                                        accounts = AccountStore.accounts
+                                        close()
+                                    } catch {
+                                        // Keep the pasted Token so a retry needs no re-typing.
+                                        if !Task.isCancelled { self.error = error.localizedDescription }
+                                    }
                                 }
                             }.disabled(busy || token.isEmpty).softGroupedRow()
                             if busy { ProgressView().softGroupedRow() }

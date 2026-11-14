@@ -84,6 +84,8 @@ jobs:
         run: python3 Tests/test_final_publish.py
       - name: Test TrollStore install encoding, fallbacks and update probe eligibility
         run: python3 Tests/test_trollstore_update.py
+      - name: Test Swift source structure before compiling
+        run: python3 Tests/test_swift_structure.py
       - name: Select Xcode 15.4
         run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
       - name: Generate Xcode project
@@ -99,11 +101,11 @@ jobs:
           set -euo pipefail
           APP=build/Build/Products/Release-iphoneos/RepoPocket.app
           test -d "$APP"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0.3"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0.4"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "2"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "3"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           codesign --force --sign - --entitlements Entitlements.plist "$APP"
           codesign --verify --deep --strict "$APP"
@@ -111,19 +113,19 @@ jobs:
           mkdir -p dist/Payload
           cp -R "$APP" dist/Payload/
           cd dist
-          zip -qry RepoPocket-1.0.3.ipa Payload
-          unzip -t RepoPocket-1.0.3.ipa
+          zip -qry RepoPocket-1.0.4.ipa Payload
+          unzip -t RepoPocket-1.0.4.ipa
           mkdir verify
-          unzip -q RepoPocket-1.0.3.ipa -d verify
+          unzip -q RepoPocket-1.0.4.ipa -d verify
           codesign --verify --deep --strict verify/Payload/RepoPocket.app
-          shasum -a 256 RepoPocket-1.0.3.ipa > RepoPocket-1.0.3.ipa.sha256
-          shasum -a 256 -c RepoPocket-1.0.3.ipa.sha256
+          shasum -a 256 RepoPocket-1.0.4.ipa > RepoPocket-1.0.4.ipa.sha256
+          shasum -a 256 -c RepoPocket-1.0.4.ipa.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: RepoPocket-1.0.3
+          name: RepoPocket-1.0.4
           path: |
-            dist/RepoPocket-1.0.3.ipa
-            dist/RepoPocket-1.0.3.ipa.sha256
+            dist/RepoPocket-1.0.4.ipa
+            dist/RepoPocket-1.0.4.ipa.sha256
           retention-days: 30
       - name: Package optional update probe
         if: ${{ inputs.build_update_probe }}
@@ -133,7 +135,8 @@ jobs:
           mkdir -p probe/Payload
           cp -R build/Build/Products/Release-iphoneos/RepoPocket.app "$APP"
           /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.0.3-rc.1' "$APP/Info.plist"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "2"
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 4' "$APP/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "4"
           codesign --force --sign - --entitlements Entitlements.plist "$APP"
           codesign --verify --deep --strict "$APP"
           cd probe
@@ -142,6 +145,7 @@ jobs:
           mkdir verify
           unzip -q RepoPocket-1.0.3-rc.1.ipa -d verify
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' verify/Payload/RepoPocket.app/Info.plist)" = "1.0.3-rc.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' verify/Payload/RepoPocket.app/Info.plist)" = "4"
           codesign --verify --deep --strict verify/Payload/RepoPocket.app
           shasum -a 256 RepoPocket-1.0.3-rc.1.ipa > RepoPocket-1.0.3-rc.1.ipa.sha256
           shasum -a 256 -c RepoPocket-1.0.3-rc.1.ipa.sha256
