@@ -93,12 +93,36 @@ import Foundation
             self.assertTrue((ROOT/'RepoPocket'/name).exists(), 'Missing page: ' + name)
         app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text(encoding='utf-8')
         self.assertIn('LocalProjectsView(api: api, store: localGit)', app)
-        self.assertNotIn('GitWorkspaceView().environmentObject', app)
+        self.assertFalse((ROOT/'RepoPocket/GitWorkspaceView.swift').exists())
+        for path in (ROOT/'RepoPocket').glob('*.swift'):
+            self.assertNotIn('GitWorkspaceView', path.read_text(encoding='utf-8'), path.name)
         for path in (ROOT/'RepoPocket').glob('LocalProject*.swift'):
             source = path.read_text(encoding='utf-8')
             self.assertNotIn('.swipeActions', source)
             self.assertNotIn('Timer.', source)
             self.assertNotIn('WorkspaceStore', source)
+
+    def test_repository_picker_reuses_group_rows_without_changing_lifecycle(self):
+        page = (ROOT/'RepoPocket/LocalGitPickers.swift').read_text(encoding='utf-8')
+        page = page.split('struct LocalGitBranchPicker:', 1)[0]
+        group = page.split('Section("当前账号可访问的仓库") {', 1)[1].split('if busy { ProgressView', 1)[0]
+        for text in ['let matches = visible', 'SoftGroupRows {', 'for repository in matches',
+                     'SoftGroupRow("repository:" + String(repository.id))', 'SoftGroupRow("empty")',
+                     'if matches.isEmpty && !busy && failure.isEmpty',
+                     'query.isEmpty ? "暂无可访问仓库" : "没有匹配的仓库"',
+                     'Button { select(repository); dismiss() }', 'repository.private == true',
+                     'repository.default_branch']:
+            self.assertIn(text, page)
+        self.assertNotIn('.softGroupedRow(', group)
+        self.assertNotIn('visible.first', page)
+        self.assertNotIn('visible.last', page)
+        for text in ['localizedCaseInsensitiveContains(query)', '.searchable(text: $query',
+                     '.refreshable { await load() }', 'guard !attempted else',
+                     'Button("重试") { Task { await load() } }',
+                     'guard !busy, api.isCurrentSession else', 'api.cachedCollection(.owned)',
+                     'Task.checkCancellation()', 'guard api.isCurrentSession else',
+                     '!RefreshFailure.isCancellation(error)']:
+            self.assertIn(text, page)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift runs scheduling fixture on macOS')
     def test_empty_results_coalesce_scroll_and_cancellation_preserves_selection(self):

@@ -58,7 +58,18 @@ jobs:
           bash Scripts/build_native_git.sh iphonesimulator
           brew install xcodegen
           xcodegen generate
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
+          set -o pipefail
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build 2>&1 | tee preview-build.log
+      - name: Show compiler diagnostics
+        if: failure()
+        run: |
+          grep -n ': error:' preview-build.log | head -40 || tail -100 preview-build.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: preview-build-log
+          path: preview-build.log
+          retention-days: 7
       - name: Exercise shipping local Git and code surfaces
         run: bash Scripts/run_style_preview.sh
       - uses: actions/upload-artifact@v4
