@@ -200,7 +200,7 @@ struct AppUpdateSection: View {
                 Text("应用更新")
                 Spacer()
                 Menu {
-                    Link("官方发行版页", destination: URL(string: "https://github.com/wm0104/RepoPocket/releases")!)
+                    InAppLinkButton(url: URL(string: "https://github.com/wm0104/RepoPocket/releases")!, api: nil) { Text("官方发行版页") }
                     if let release = checker.release, let ipa = release.ipaURL {
                         Button("复制可信下载链接") { UIPasteboard.general.url = ipa }
                     }
@@ -226,7 +226,7 @@ struct AppUpdateSection: View {
                     Button("下载更新") { authorizeDownload() }.disabled(checker.checking || authorizing || checker.downloading || openingTrollStore).softGroupedRow()
                 } else {
                     Text("暂无可安装的 IPA，请到发行版页下载。").font(.caption).softGroupedRow()
-                    Link("前往下载", destination: release.html_url).softGroupedRow()
+                    InAppLinkButton(url: release.html_url, api: nil) { Text("前往下载") }.softGroupedRow()
                 }
             } else {
                 Button(checker.checking ? "检查中…" : "检查更新") { Task { await checker.check(api: api) } }.disabled(checker.checking || checker.downloading).softGroupedRow()

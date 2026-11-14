@@ -79,7 +79,7 @@ import Combine
                                 }
                             }.disabled(busy || token.isEmpty).softGroupedRow()
                             if busy { ProgressView().softGroupedRow() }
-                            Link("在 GitHub 创建 Token", destination: URL(string: "https://github.com/settings/tokens")!).softGroupedRow(bottom: error.isEmpty)
+                            InAppLinkButton(url: URL(string: "https://github.com/settings/tokens")!, api: api) { Text("在 GitHub 创建 Token") }.softGroupedRow(bottom: error.isEmpty)
                             if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.red).softGroupedRow(bottom: true) }
                         }.navigationTitle("添加 / 更新账号").onDisappear { token = "" }
                     }.softGroupedRow()

@@ -106,15 +106,14 @@ struct FileReadingView: View {
     let repo: String
     let branch: String
     var api: GitHub? = nil
-    @State private var markdown = true
     @State private var renderedHTML: String?
+    @State private var htmlAttempted = false
     @State private var htmlHeight: CGFloat = 0
     @State private var readingLink: ReadingLink?
     private var isMarkdown: Bool { ["md", "markdown", "mdown"].contains((path as NSString).pathExtension.lowercased()) }
     var body: some View {
         VStack(spacing: 0) {
-          if isMarkdown { Toggle("Markdown 排版", isOn: $markdown).padding(.horizontal).padding(.vertical, 8) }
-          if !isMarkdown || !markdown { SourceCodeView(text: text, filename: path) }
+          if !isMarkdown { SourceCodeView(text: text, filename: path) }
           else if let renderedHTML {
             ScrollView {
               ReadmeHTMLView(html: renderedHTML,
@@ -126,9 +125,11 @@ struct FileReadingView: View {
                                guard let safe = CommunityRules.webURL(url.absoluteString) else { return }
                                readingLink = ReadingLink(url: safe)
                              })
+                .padding(.horizontal, 16)
                 .frame(height: max(htmlHeight, 1))
             }
           }
+          else if !htmlAttempted { ProgressView("排版中…").frame(maxWidth: .infinity, minHeight: 160) }
           else { ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                     CommunityMarkdown(text: text, baseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: false),
@@ -138,13 +139,16 @@ struct FileReadingView: View {
         }.navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
         // Multi-language READMEs use native HTML that MarkdownUI shows literally; GitHub's own
         // renderer keeps it. Fall back to the local renderer when signed out or offline.
-        .task(id: markdown) {
-            guard isMarkdown, markdown, api?.isCurrentSession == true, renderedHTML == nil else { return }
-            let html = try? await FileMarkdownRenderer.html(text, repo: repo)
-            guard !Task.isCancelled, let html, !html.isEmpty else { return }
-            renderedHTML = html
+        .task(id: text) {
+            guard isMarkdown, api?.isCurrentSession == true, renderedHTML == nil else { return }
+            let fragment = try? await FileMarkdownRenderer.html(text, repo: repo)
+            guard !Task.isCancelled else { return }
+            htmlAttempted = true
+            guard let fragment, !fragment.isEmpty else { return }
+            // Bare fragment: ReadmeHTMLView wraps it in the shared document shell itself.
+            renderedHTML = fragment
         }
-        .onChange(of: text) { _ in renderedHTML = nil }
+        .onChange(of: text) { _ in renderedHTML = nil; htmlAttempted = false }
         .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
     }
 }

@@ -138,7 +138,12 @@ import Foundation
         precondition(GitHubLinkRules.target(URL(string: "https://github.com/a/b/blob/main/x%2Fy.md")!) == nil)
         precondition(GitHubLinkRules.target(URL(string: "https://github.com/a/b/tree/main/..%2F..%2Fx")!) == nil)
         precondition(GitHubLinkRules.target(URL(string: "https://github.com/a/b/tree/main/%2E%2E%2Fsecret")!) == nil)
-        precondition(GitHubLinkRules.target(URL(string: "https://github.com/a")!) == nil)
+        // Single-segment links are accounts; site sections stay on the web.
+        precondition(GitHubLinkRules.target(URL(string: "https://github.com/octocat")!) == .user(login: "octocat"))
+        precondition(GitHubLinkRules.target(URL(string: "https://github.com/orgs/github")!) == .user(login: "github"))
+        precondition(GitHubLinkRules.target(URL(string: "https://github.com/settings")!) == nil)
+        precondition(GitHubLinkRules.target(URL(string: "https://github.com/topics")!) == nil)
+        precondition(GitHubLinkRules.target(URL(string: "https://github.com/a/b")!) == .repository(owner: "a", repo: "b"))
         precondition(GitHubLinkRules.target(URL(string: "https://github.com/")!) == nil)
         precondition(GitHubLinkRules.repositoryName(URL(string: "https://github.com/a/b/tree/main")!) == "a/b")
         // Dot segments are either rejected or collapsed by URL, never escaping the repository.

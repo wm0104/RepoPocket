@@ -10,10 +10,13 @@ enum GitHubLinkTarget: Equatable {
     case commit(owner: String, repo: String, sha: String)
     case releases(owner: String, repo: String)
     case runs(owner: String, repo: String)
+    case user(login: String)
 
     var fullName: String {
         let names: (String, String)
         switch self {
+        case .user:
+            return ""
         case let .repository(owner, repo), let .releases(owner, repo), let .runs(owner, repo):
             names = (owner, repo)
         case let .file(owner, repo, _, _), let .directory(owner, repo, _, _), let .commit(owner, repo, _),
@@ -59,7 +62,16 @@ enum GitHubLinkRules {
 
     /// `branches` only matters for blob/tree links whose ref may contain slashes.
     static func target(_ url: URL, branches: [String] = []) -> GitHubLinkTarget? {
-        guard let repo = repositoryName(url), let parts = segments(url) else { return nil }
+        guard let parts = segments(url) else { return nil }
+        // One segment is a user or organisation profile; two or more must name a repository.
+        if parts.count == 1 {
+            guard !reservedSitePaths.contains(parts[0].lowercased()), validLogin(parts[0]) else { return nil }
+            return GitHubLinkTarget.user(login: parts[0])
+        }
+        if parts.count == 2, parts[0].lowercased() == "orgs", validLogin(parts[1]) {
+            return GitHubLinkTarget.user(login: parts[1])
+        }
+        guard let repo = repositoryName(url) else { return nil }
         let names = repo.split(separator: "/").map(String.init)
         guard names.count == 2 else { return nil }
         let owner = names[0], name = names[1]
@@ -103,6 +115,20 @@ enum GitHubLinkRules {
         return (segments[0..<depth].joined(separator: "/"), segments.dropFirst(depth).joined(separator: "/"))
     }
 
+    /// Site sections that are not accounts, so they must not open a profile screen.
+    static let reservedSitePaths: Set<String> = [
+        "about", "account", "apps", "collections", "contact", "customer-stories", "dashboard",
+        "education", "enterprise", "events", "explore", "features", "git-guides", "issues",
+        "join", "login", "marketplace", "mobile", "new", "notifications", "organizations",
+        "pricing", "pulls", "readme", "resources", "search", "security", "settings", "site",
+        "solutions", "sponsors", "team", "topics", "trending", "users"
+    ]
+    /// GitHub logins are alphanumeric with single hyphens, at most 39 characters.
+    static func validLogin(_ text: String) -> Bool {
+        guard (1...39).contains(text.count), !text.hasPrefix("-"), !text.hasSuffix("-"),
+              !text.contains("--"), text.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }) else { return false }
+        return true
+    }
     static func isSHA(_ text: String) -> Bool {
         (7...40).contains(text.count) && text.allSatisfy { $0.isHexDigit }
     }
