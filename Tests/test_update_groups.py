@@ -15,6 +15,18 @@ style = Path(REPO_ROOT, 'RepoPocket/WorkspaceSelectionUI.swift').read_text()
 
 
 class UpdateGroupTests(unittest.TestCase):
+    def test_shared_background_defaults_do_not_inherit_list_transition_animation(self):
+        self.assertIn('animateBackground: Bool = false, separatorInset:', style)
+        self.assertIn('init(animateBackground: Bool = false,', style)
+        self.assertIn('transaction.animation = nil', style)
+        self.assertIn('transaction.disablesAnimations = true', style)
+
+    def test_lifecycle_preview_builds_multiple_sections(self):
+        preview = (REPO_ROOT / 'RepoPocket/SoftGroupLifecycleStylePreview.swift').read_text()
+        self.assertIn('@ViewBuilder private var rows: some View', preview)
+        self.assertIn('Form { rows }', preview)
+        self.assertIn('List { rows }', preview)
+
     def test_each_concrete_row_is_decorated_once(self):
         group = body.split('        Group {',1)[1].split('        }.downloadCompletionNotice',1)[0]
         rows = [line.strip() for line in group.splitlines()

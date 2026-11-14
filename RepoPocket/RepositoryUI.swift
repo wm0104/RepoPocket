@@ -23,6 +23,11 @@ actor AvatarPipeline {
         return cache
     }()
     private var pending: [URL: Task<UIImage?, Never>] = [:]
+    private var pendingIDs: [URL: UUID] = [:]
+    private var refreshGeneration: UUID?
+    private var refreshTasks: [URL: Task<UIImage?, Never>] = [:]
+    private let completedRefreshLimit = 192
+    private var completedRefreshURLs: Set<URL> = []
     private var active = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private let session: URLSession = {
@@ -35,15 +40,46 @@ actor AvatarPipeline {
         configuration.urlCredentialStorage = nil
         return URLSession(configuration: configuration, delegate: AvatarRedirectPolicy(), delegateQueue: nil)
     }()
-    func image(for url: URL) async -> UIImage? {
-        if let image = cache.object(forKey: url as NSURL) { return image }
-        if let task = pending[url] { return await task.value }
-        let task = Task { await self.fetch(url) }
+    func image(for url: URL, refreshID: UUID? = nil) async -> UIImage? {
+        if let refreshID {
+            if refreshGeneration != refreshID {
+                refreshGeneration = refreshID
+                refreshTasks.removeAll()
+                completedRefreshURLs.removeAll()
+            }
+            if let task = refreshTasks[url] { return await task.value }
+            if completedRefreshURLs.contains(url) { return cache.object(forKey: url as NSURL) }
+        } else {
+            if let image = cache.object(forKey: url as NSURL) { return image }
+            if let task = pending[url] { return await task.value }
+        }
+        let previous = pending[url]
+        let requestID = UUID()
+        pendingIDs[url] = requestID
+        let task = Task {
+            // Serialize generations without cancelling shared work for recycled rows.
+            if let previous { _ = await previous.value }
+            let image = await self.fetch(url, revalidate: refreshID != nil)
+            if let image { cache.setObject(image, forKey: url as NSURL, cost: 120 * 120 * 4) }
+            if pendingIDs[url] == requestID {
+                pending[url] = nil
+                pendingIDs[url] = nil
+            }
+            if let refreshID, refreshGeneration == refreshID {
+                // Keep only URL markers, never completed tasks/images outside NSCache.
+                refreshTasks[url] = nil
+                // Dedup is bounded to 192 completed URLs; evicted URLs may revalidate again.
+                if completedRefreshURLs.count == completedRefreshLimit,
+                   let evicted = completedRefreshURLs.first {
+                    completedRefreshURLs.remove(evicted)
+                }
+                completedRefreshURLs.insert(url)
+            }
+            return image ?? cache.object(forKey: url as NSURL)
+        }
         pending[url] = task
-        let image = await task.value
-        pending[url] = nil
-        if let image { cache.setObject(image, forKey: url as NSURL, cost: 120 * 120 * 4) }
-        return image
+        if refreshID != nil { refreshTasks[url] = task }
+        return await task.value
     }
     private func acquire() async {
         if active < 4 { active += 1; return }
@@ -53,11 +89,12 @@ actor AvatarPipeline {
         if waiters.isEmpty { active -= 1 }
         else { waiters.removeFirst().resume() }
     }
-    private func fetch(_ url: URL) async -> UIImage? {
+    private func fetch(_ url: URL, revalidate: Bool) async -> UIImage? {
         await acquire()
         defer { release() }
         do {
-            let (data, response) = try await session.data(from: url)
+            let request = URLRequest(url: url, cachePolicy: revalidate ? .reloadRevalidatingCacheData : .useProtocolCachePolicy)
+            let (data, response) = try await session.data(for: request)
             guard let response = response as? HTTPURLResponse, response.statusCode == 200,
                   data.count <= 4 * 1024 * 1024 else { return nil }
             // Force thumbnail decoding off the main actor instead of lazy UIImage(data:).
@@ -79,15 +116,21 @@ actor AvatarPipeline {
 final class AvatarLoader: ObservableObject {
     @Published private(set) var image: UIImage?
     private var currentURL: URL?
-    func load(_ raw: String?) async {
+    private var currentRefreshID: UUID?
+    private var requestID = UUID()
+    func load(_ raw: String?, refreshID: UUID? = nil) async {
+        guard !Task.isCancelled else { return }
         let url = RepositoryPresentationRules.avatarURL(raw)
-        if url == currentURL, image != nil { return }
+        if url == currentURL, image != nil, refreshID == currentRefreshID { return }
+        if url != currentURL { image = nil }
         currentURL = url
-        if image != nil { image = nil }
+        currentRefreshID = refreshID
+        let requestID = UUID()
+        self.requestID = requestID
         guard let url else { return }
-        let decoded = await AvatarPipeline.shared.image(for: url)
-        guard !Task.isCancelled, currentURL == url else { return }
-        image = decoded
+        let decoded = await AvatarPipeline.shared.image(for: url, refreshID: refreshID)
+        guard !Task.isCancelled, currentURL == url, self.requestID == requestID else { return }
+        if let decoded { image = decoded }
     }
 }
 
@@ -96,6 +139,7 @@ struct GitHubAvatar: View {
     var size: CGFloat = 40
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var loader = AvatarLoader()
+    @State private var refreshID: UUID?
     var body: some View {
         Group {
             if let image = loader.image { Image(uiImage: image).resizable().scaledToFill() }
@@ -105,7 +149,11 @@ struct GitHubAvatar: View {
         .clipShape(Circle())
         .accessibilityHidden(true)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: loader.image != nil)
-        .task(id: url) { await loader.load(url) }
+        .task(id: [url, refreshID?.uuidString]) { await loader.load(url, refreshID: refreshID) }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("RepoPocket.avatarRefreshRequested"))) { notification in
+            guard let token = notification.object as? UUID else { return }
+            refreshID = token
+        }
     }
 }
 

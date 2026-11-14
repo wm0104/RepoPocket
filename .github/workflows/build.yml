@@ -1,8 +1,14 @@
 name: Build IPA
-run-name: 更新：复制链接与原生页面
+# Manual runs can name their purpose; keep an honest branch fallback when omitted.
+run-name: ${{ inputs.run_title || github.event.head_commit.message || format('Build IPA · {0}', github.ref_name) }}
 on:
   workflow_dispatch:
     inputs:
+      run_title:
+        description: Optional title for this workflow run
+        type: string
+        required: false
+        default: ''
       fork_people_only:
         description: Build the alternative fork people view
         type: boolean
@@ -46,13 +52,41 @@ jobs:
         run: python3 Tests/test_local_git_store.py
       - name: Test local project page lifecycle
         run: python3 Tests/test_local_git_ui.py
+      - name: Test exact local history count and bounded pagination
+        run: python3 Tests/test_local_history_pagination.py
+      - name: Test local branch rename without remote changes
+        run: python3 Tests/test_local_branch_rename.py
+      - name: Test remote branch rename keeps commits
+        run: python3 Tests/test_remote_branch_rename.py
       - name: Test long press file deletion and native ZIP completion
         run: python3 Tests/test_file_feedback.py
       - name: Test frozen file sheet requests and dismissal lifecycle
         run: python3 Tests/test_local_file_presentation.py
       - name: Test language-aware code and automatic text reading
         run: python3 Tests/test_source_code.py
+      - name: Test mobile editor, directory search and exact pushed builds
+        run: python3 Tests/test_mobile_editor.py
+      - name: Test recursive local project file search
+        run: python3 Tests/test_local_project_search.py
 
+      - name: Test local branch creation, safe checkout and first push
+        run: python3 Tests/test_local_branches.py
+      - name: Test guarded local and remote branch deletion
+        run: python3 Tests/test_branch_deletion.py
+      - name: Test local ordinary and squash branch merge
+        run: python3 Tests/test_local_git_merge.py
+      - name: Test protected remote pull request squash merge
+        run: python3 Tests/test_remote_branch_merge.py
+      - name: Test separate local and remote merge entries
+        run: python3 Tests/test_branch_merge_entry.py
+      - name: Test workflow dispatch requests and confirmation lifecycle
+        run: python3 Tests/test_workflow_dispatch.py
+      - name: Test upstream activity baselines and branch selection
+        run: python3 Tests/test_upstream_watch.py
+      - name: Test bounded README image recovery
+        run: python3 Tests/test_readme_image_recovery.py
+      - name: Test explicit avatar cache revalidation
+        run: python3 Tests/test_avatar_refresh.py
       - name: Copy link entry points
         run: python3 Tests/test_copy_link_menu.py
       - name: Test build workflow entry points
@@ -81,6 +115,8 @@ jobs:
         run: python3 Tests/test_workflow_selection.py
       - name: Test README rendering, badge document and raw format fallback
         run: python3 Tests/test_readme_rendering.py
+      - name: Test file-page Markdown HTML rendering and local fallback
+        run: python3 Tests/test_markdown_file_render.py
       - name: Test original baseline historic commit and disk download regressions
         run: python3 Tests/test_workspace_baseline.py
       - name: Test production local checkbox and strict commit eligibility
@@ -109,6 +145,8 @@ jobs:
         run: python3 Tests/test_app_update.py
       - name: Test production update notice lifecycle mocks
         run: python3 Tests/test_update_notice.py
+      - name: Test app-entry update notification, 15-minute window and settings version row
+        run: python3 Tests/test_update_notification.py
       - name: Test dynamic update group boundaries and production Swift corner geometry
         run: python3 Tests/test_update_groups.py
       - name: Test production GitHub repository links and shared input contracts
@@ -185,16 +223,16 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.7"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.8"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.1.7"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.1.8"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.1.7"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.1.7"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.1.8"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.1.8"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
           codesign --display --entitlements :- "$EXT"

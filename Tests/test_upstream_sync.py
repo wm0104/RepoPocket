@@ -68,7 +68,7 @@ class UpstreamSyncSourceTests(unittest.TestCase):
         self.assertEqual(view.count('.alert('), 0)
         self.assertIn('titleVisibility: .visible', view)
         self.assertIn('SoftGroupRow(', view)
-        self.assertIn('softGroupedRow', view)
+        self.assertIn('SoftGroupRows {', view)
         self.assertNotIn('LinearGradient', FEATURE)
         self.assertNotIn('.font(.system', FEATURE)
         self.assertNotIn('Color.red', FEATURE)
@@ -84,6 +84,75 @@ class UpstreamSyncSourceTests(unittest.TestCase):
         # No preselected upstream: both fields start empty and are user driven.
         self.assertIn('@Published var upstreamRepository = ""', FEATURE)
         self.assertIn('@Published var upstreamBranch = ""', FEATURE)
+
+    def test_preview_and_writes_are_mutually_exclusive(self):
+        for start, end in [('func loadPreview(', 'func propose('),
+                           ('func merge(api:', 'func apply(api:'),
+                           ('func apply(api:', 'func restore(')]:
+            operation = block(FEATURE, start, end)
+            self.assertIn('guard !busy, !loading', operation, start)
+        source = block(FEATURE, '@ViewBuilder private var sourceSection:',
+                       '@ViewBuilder private var previewSection:')
+        self.assertIn('.disabled(state.busy || state.loading)', source)
+        self.assertIn('!state.loading', block(FEATURE, 'private var canMerge:', 'private var mergeTitle:'))
+
+    def test_preview_does_not_overwrite_a_new_source(self):
+        preview = block(FEATURE, 'func loadPreview(', 'func propose(')
+        self.assertEqual(preview.count('UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch)) == target'), 2)
+        self.assertNotIn('upstreamRepository = target.repository', preview)
+        self.assertNotIn('upstreamBranch = target.branch', preview)
+
+    def test_dynamic_sections_have_one_boundary_calculation(self):
+        preview = block(FEATURE, '@ViewBuilder private var previewSection:',
+                        '@ViewBuilder private var mergeSection:')
+        self.assertEqual(preview.count('SoftGroupRows(animateBackground: false) {'), 1)
+        self.assertNotIn('.softGroupedRow(', preview)
+        for row in ['"commit-" + commit.id', '"file-" + file.id', '"files-note"']:
+            self.assertIn('SoftGroupRow(' + row, preview)
+        result = FEATURE.split('@ViewBuilder private var resultSection:', 1)[1]
+        self.assertIn('SoftGroupRow("busy")', result)
+        self.assertNotIn('.softGroupedRow(', result)
+
+    def test_compact_preview_and_receipt_keep_safety_feedback_visible(self):
+        view = FEATURE.split('struct UpstreamSyncView: View {', 1)[1]
+        for name in ('commitsExpanded', 'filesExpanded', 'receiptExpanded'):
+            self.assertIn('@State private var ' + name + ' = false', view)
+        self.assertIn('UIRules.withoutAnimation { commitsExpanded = false; filesExpanded = false; receiptExpanded = false }', view)
+        preview = block(FEATURE, '@ViewBuilder private var previewSection:', '@ViewBuilder private var mergeSection:')
+        result = FEATURE.split('@ViewBuilder private var resultSection:', 1)[1]
+        for section in (preview, result):
+            self.assertIn('SoftGroupRows(animateBackground: false)', section)
+            self.assertIn('.transaction { $0.animation = nil; $0.disablesAnimations = true }', section)
+            self.assertNotIn('withAnimation', section)
+            self.assertNotIn('.clipShape', section)
+        for name in ('commitsExpanded', 'filesExpanded'):
+            self.assertIn('UIRules.withoutAnimation { ' + name + '.toggle() }', preview)
+            self.assertIn('if ' + name + ' {', preview)
+        self.assertIn('UIRules.withoutAnimation { receiptExpanded.toggle() }', result)
+        self.assertIn('if receiptExpanded {', result)
+        self.assertGreaterEqual(preview.count('minHeight: 44'), 2)
+        self.assertIn('minHeight: 44', result)
+        # Warnings stay outside expanded list/details guards, not behind a tap.
+        self.assertLess(preview.index('比较结果共'), preview.index('if commitsExpanded {'))
+        self.assertGreater(preview.index('SoftGroupRow("files-note")'), preview.index('if filesExpanded {'))
+        for token in ('Text("合并成功，目标分支尚未改变。")', 'if state.stage == .conflict',
+                      'if !state.error.isEmpty', 'if state.stage == .applied'):
+            self.assertIn(token, result)
+        self.assertIn('func testUpstreamPreviewDisclosureKeepsZeroSingleManyAndTruncatedRowsStable()',
+                      (ROOT/'StyleUITests/StyleBoundaryTests.swift').read_text())
+
+    @unittest.skipUnless(shutil.which('swiftc'), 'Production async state runs on macOS CI')
+    def test_production_state_rejects_overlapping_and_stale_previews(self):
+        source = FEATURE.split('struct UpstreamSyncView: View {', 1)[0]
+        source += (ROOT / 'RepoPocket/RepositoryInput.swift').read_text()
+        source += (ROOT / 'RepoPocket/DesktopModels.swift').read_text()
+        source += (ROOT / 'Tests/Fixtures/UpstreamSyncHarness.swift').read_text()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'Harness.swift'
+            path.write_text(source)
+            binary = str(Path(folder) / 'harness')
+            subprocess.run(['swiftc', '-parse-as-library', str(path), '-o', binary], check=True, timeout=120)
+            subprocess.run([binary], check=True, timeout=30)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Production rules run on macOS CI')
     def test_request_shapes_and_answers_network_free(self):

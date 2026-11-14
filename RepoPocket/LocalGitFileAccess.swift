@@ -3,6 +3,34 @@ import CryptoKit
 
 enum LocalGitFileAccess {
     static let textLimit = 1024 * 1024
+    static func searchEntries(root: URL, check: () throws -> Void = {}) throws -> [LocalGitSearchEntry] {
+        try check()
+        let expected = try identity(root)
+        var pending = [""], entries: [LocalGitSearchEntry] = []
+        while let directory = pending.popLast() {
+            try check()
+            let folder = directory.isEmpty ? root : try path(root: root, relative: directory)
+            let children = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            guard children.count <= 2000 else { throw LocalGitError(text: "单个目录超过 2000 项，未进行不完整搜索。请按目录浏览。") }
+            for child in children {
+                try check()
+                guard child.lastPathComponent.lowercased() != ".git" else { continue }
+                let relative = (directory.isEmpty ? "" : directory + "/") + child.lastPathComponent
+                let info = try FileManager.default.attributesOfItem(atPath: child.path)
+                guard let type = info[.type] as? FileAttributeType, type == .typeDirectory || type == .typeRegular else { continue }
+                _ = try path(root: root, relative: relative)
+                guard entries.count < 20000, relative.split(separator: "/").count <= 256 else {
+                    throw LocalGitError(text: "项目目录过大或层级过深，未进行不完整搜索。请按目录浏览。")
+                }
+                let entry = LocalGitSearchEntry(path: relative, directory: type == .typeDirectory)
+                entries.append(entry)
+                if entry.directory { pending.append(relative) }
+            }
+        }
+        try check()
+        guard try identity(root) == expected else { throw LocalGitError(text: "项目目录已变化，请重新授权原目录。") }
+        return entries.sorted { $0.directory != $1.directory ? $0.directory : $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
     static func identity(_ root: URL) throws -> String {
         let values = try FileManager.default.attributesOfItem(atPath: root.path)
         guard values[.type] as? FileAttributeType == .typeDirectory,
@@ -55,6 +83,23 @@ enum LocalGitFileAccess {
             if let permissions = attributes[.posixPermissions] { try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: coordinated.path) }
         }
     }
+    static func create(root: URL, directory: String, name: String, folder: Bool) throws {
+        let child = try LocalGitRules.child(name)
+        let parent = directory.isEmpty ? root : try path(root: root, relative: directory)
+        let expected = try identity(parent)
+        try coordinate(parent, writing: true) { coordinated in
+            let current = directory.isEmpty ? root : try path(root: root, relative: directory)
+            guard coordinated.standardizedFileURL == parent.standardizedFileURL, try identity(current) == expected else {
+                throw LocalGitError(text: "目标文件夹已变化，请刷新后重试。")
+            }
+            let target = current.appendingPathComponent(child)
+            guard (try? FileManager.default.attributesOfItem(atPath: target.path)) == nil else {
+                throw LocalGitError(text: "已有同名文件或文件夹，未覆盖。")
+            }
+            if folder { try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false) }
+            else { try Data().write(to: target, options: .withoutOverwriting) }
+        }
+    }
     static func replaceBinary(root: URL, path: String, source: URL, expected: String) throws {
         let target = try self.path(root: root, relative: path)
         let info = try FileManager.default.attributesOfItem(atPath: source.path)
@@ -101,5 +146,26 @@ enum LocalGitFileAccess {
         guard !stale, scoped || resolved.path == owned.path || resolved.path.hasPrefix(owned.path + "/"),
               try identity(url) == project.identity else { throw LocalGitError(text: "原目录授权失效或身份变化，请重新选择同一个原文件夹；不会创建替代目录。") }
         return try operation(url)
+    }
+}
+
+struct LocalGitSearchEntry: Identifiable {
+    let path: String
+    let directory: Bool
+    var id: String { path }
+    var name: String { (path as NSString).lastPathComponent }
+    func matches(_ query: String) -> Bool {
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !term.isEmpty && path.localizedStandardContains(term)
+    }
+}
+
+final class LocalGitSearchJob: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+    func check() throws {
+        lock.lock(); let stopped = cancelled; lock.unlock()
+        if stopped { throw CancellationError() }
     }
 }

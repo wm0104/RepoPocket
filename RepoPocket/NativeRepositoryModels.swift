@@ -37,6 +37,33 @@ enum CommunityMutationRules {
     }
 }
 struct WorkflowRuns: Decodable { let workflow_runs: [WorkflowRun] }
+struct WorkflowCancellationState {
+    private(set) var requested = false
+    private(set) var waiting = false
+    private(set) var message = ""
+    mutating func begin() -> Bool {
+        guard !requested else { return false }
+        requested = true
+        return true
+    }
+    mutating func accepted() {
+        waiting = true
+        message = "GitHub 已接受取消请求，正在等待运行结束；清理可能需要几分钟，无需重复取消。"
+    }
+    mutating func uncertain(_ reason: String) {
+        waiting = true
+        message = reason + "\n尚未确认取消结果，正在刷新核实；请勿重复发送取消请求。"
+    }
+    mutating func observe(status: String, conclusion: String?) {
+        guard requested, status == "completed" else { return }
+        waiting = false
+        message = conclusion == "cancelled" ? "运行已取消。" : "运行已结束：" + WorkflowStatusPresentation(status: status, conclusion: conclusion).title + "。"
+    }
+    mutating func stopWaiting() {
+        waiting = false
+        message = "尚未确认运行结束。GitHub 可能仍在清理，请稍后刷新核实；不会重复发送取消请求。"
+    }
+}
 struct WorkflowStatusPresentation {
     let title: String
     let symbol: String
@@ -60,6 +87,13 @@ struct WorkflowRun: Decodable, Identifiable {
     let id: Int
     let name: String?
     let display_title: String?
+    let head_commit: HeadCommit?
+    struct HeadCommit: Decodable { let message: String? }
+    var title: String {
+        let subject = head_commit?.message?.components(separatedBy: .newlines).first
+        return [display_title, subject, name].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty }) ?? "Workflow"
+    }
     let run_number: Int
     let head_branch: String?
     let head_sha: String
@@ -70,7 +104,7 @@ struct WorkflowRun: Decodable, Identifiable {
     let updated_at: String?
     let event: String?
     let actor: Actor?
-    struct Actor: Decodable { let login: String }
+    struct Actor: Decodable { let login: String; let avatar_url: String? }
 }
 struct WorkflowJobs: Decodable { let jobs: [WorkflowJob] }
 struct WorkflowArtifacts: Decodable { let artifacts: [WorkflowArtifact]; let total_count: Int? }

@@ -6,10 +6,12 @@ struct SourceTextSurface: UIViewRepresentable {
     let filename: String
     let editable: Bool
     let dark: Bool
+    var findRequest = 0
     func makeUIView(context: Context) -> SourceTextContainer { SourceTextContainer() }
     func updateUIView(_ view: SourceTextContainer, context: Context) {
         view.changed = { text = $0 }
         view.configure(text: text, filename: filename, editable: editable, dark: dark)
+        view.find(request: findRequest)
     }
     static func dismantleUIView(_ view: SourceTextContainer, coordinator: ()) { view.cancelHighlight() }
 }
@@ -57,7 +59,7 @@ final class SourceNativeTextView: UITextView {
     }
 }
 
-final class SourceTextContainer: UIView, UITextViewDelegate {
+final class SourceTextContainer: UIView, UITextViewDelegate, UIFindInteractionDelegate {
     let textView = SourceNativeTextView(frame: .zero, textContainer: nil)
     let horizontal = UIScrollView()
     private let gutter = SourceLineGutter()
@@ -68,6 +70,11 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
     private var coloring = false
     private var highlight: Task<Void, Never>?
     private var lineStarts = [0]
+    private var lastFindRequest = 0
+    private var undoButton: UIButton?
+    private var redoButton: UIButton?
+    private lazy var codeKeyboard = makeCodeKeyboard()
+    private lazy var viewportFind = UIFindInteraction(sessionDelegate: self)
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .systemBackground
@@ -81,6 +88,8 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
         textView.textContainerInset = UIEdgeInsets(top: 12, left: 8, bottom: 20, right: 12)
         textView.textContainer.lineFragmentPadding = 0
         textView.accessibilityLabel = "代码正文"
+        textView.isFindInteractionEnabled = true
+        addInteraction(viewportFind)
         gutter.owner = self; gutter.isUserInteractionEnabled = false
         horizontal.accessibilityIdentifier = "代码横向滚动"
         horizontal.showsVerticalScrollIndicator = false
@@ -104,16 +113,100 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
         let recolor = !configured || self.filename != filename || self.dark != dark || textView.text != text
         if textView.text != text { textView.text = text; rebuildLines(); textView.invalidateSourceGeometry() }
         self.filename = filename; self.dark = dark
+        if textView.isEditable != editable { viewportFind.dismissFindNavigator() }
         textView.isEditable = editable; textView.isSelectable = true
+        if textView.inputAccessoryView !== (editable ? codeKeyboard : nil) {
+            textView.inputAccessoryView = editable ? codeKeyboard : nil
+            textView.reloadInputViews()
+        }
         configured = true
         if recolor { scheduleHighlight() }
     }
     func textViewDidChange(_ textView: UITextView) {
         guard !coloring else { return }
         rebuildLines(); self.textView.invalidateSourceGeometry(); changed?(textView.text); scheduleHighlight()
+        updateUndoButtons()
+    }
+    func find(request: Int) {
+        guard request != lastFindRequest else { return }; lastFindRequest = request
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil else { return }
+            self.viewportFind.presentFindNavigator(showingReplace: textView.isEditable)
+        }
+    }
+    // Keep the native find panel inside the phone viewport, not the wide code canvas.
+    func findInteraction(_ interaction: UIFindInteraction, sessionFor view: UIView) -> UIFindSession? {
+        (textView as UIFindInteractionDelegate).findInteraction(interaction, sessionFor: textView)
+    }
+    func findInteraction(_ interaction: UIFindInteraction, didBegin session: UIFindSession) {
+        (textView as UIFindInteractionDelegate).findInteraction?(interaction, didBegin: session)
+    }
+    func findInteraction(_ interaction: UIFindInteraction, didEnd session: UIFindSession) {
+        (textView as UIFindInteractionDelegate).findInteraction?(interaction, didEnd: session)
+    }
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        guard textView.isEditable, textView.markedTextRange == nil,
+              !viewportFind.isFindNavigatorVisible, textView.findInteraction?.isFindNavigatorVisible != true, text == "\n",
+              let edit = SourceEditRules.newline(textView.text ?? "", selection: range), edit.replacement != "\n" else { return true }
+        apply(edit); return false
+    }
+    private func apply(_ edit: SourceTextEdit) {
+        guard textView.isEditable, textView.markedTextRange == nil,
+              let start = textView.position(from: textView.beginningOfDocument, offset: edit.range.location),
+              let end = textView.position(from: start, offset: edit.range.length),
+              let range = textView.textRange(from: start, to: end) else { return }
+        textView.replace(range, withText: edit.replacement)
+        textView.selectedRange = edit.selection
+        textViewDidChange(textView)
+    }
+    private func updateUndoButtons() {
+        undoButton?.isEnabled = textView.undoManager?.canUndo == true
+        redoButton?.isEnabled = textView.undoManager?.canRedo == true
+    }
+    private func makeCodeKeyboard() -> UIView {
+        let bar = UIInputView(frame: CGRect(x: 0, y: 0, width: 320, height: 44), inputViewStyle: .keyboard)
+        let scroll = UIScrollView(frame: bar.bounds)
+        scroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]; scroll.showsHorizontalScrollIndicator = false
+        let row = UIStackView(); row.axis = .horizontal; row.spacing = 2
+        row.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(scroll); scroll.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 4),
+            row.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -4),
+            row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+            row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+            row.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)
+        ])
+        func button(_ title: String, symbol: String? = nil, action: @escaping (SourceTextContainer) -> Void) -> UIButton {
+            let button = UIButton(type: .system)
+            if let symbol { button.setImage(UIImage(systemName: symbol), for: .normal) }
+            else { button.setTitle(title, for: .normal); button.titleLabel?.font = .monospacedSystemFont(ofSize: 17, weight: .medium) }
+            button.accessibilityLabel = title
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+            button.addAction(UIAction { [weak self] _ in
+                guard let self, self.textView.isEditable, self.textView.markedTextRange == nil else { return }
+                action(self); self.updateUndoButtons()
+            }, for: .touchUpInside)
+            row.addArrangedSubview(button); return button
+        }
+        undoButton = button("撤销", symbol: "arrow.uturn.backward") { $0.textView.undoManager?.undo() }
+        redoButton = button("重做", symbol: "arrow.uturn.forward") { $0.textView.undoManager?.redo() }
+        for unindent in [false, true] {
+            _ = button(unindent ? "减少缩进" : "缩进四个空格", symbol: unindent ? "decrease.indent" : "increase.indent") { owner in
+                if let edit = SourceEditRules.indent(owner.textView.text ?? "", selection: owner.textView.selectedRange, unindent: unindent) { owner.apply(edit) }
+            }
+        }
+        for symbol in ["{", "}", "(", ")", "[", "]", "\"", "'", "/", ":", ";", "=", "<", ">", "-", "_"] {
+            _ = button(symbol) { owner in owner.textView.insertText(symbol) }
+        }
+        _ = button("收起键盘", symbol: "keyboard.chevron.compact.down") { $0.textView.resignFirstResponder() }
+        updateUndoButtons()
+        return bar
     }
     func textViewDidChangeSelection(_ textView: UITextView) {
-        guard textView.isFirstResponder, let range = textView.selectedTextRange else { return }
+        updateUndoButtons()
+        guard textView.isFirstResponder || viewportFind.isFindNavigatorVisible || textView.findInteraction?.isFindNavigatorVisible == true,
+              let range = textView.selectedTextRange else { return }
         let caret = textView.convert(textView.caretRect(for: range.end), to: horizontal)
         horizontal.scrollRectToVisible(CGRect(x: caret.minX - 12, y: horizontal.bounds.minY, width: caret.width + 24, height: 1), animated: false)
     }

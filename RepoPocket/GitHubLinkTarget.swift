@@ -27,7 +27,7 @@ enum GitHubLinkTarget: Equatable {
     }
 }
 
-/// Pure link rules: GitHub destinations stay native, other hosts and unusable URLs return nil.
+/// Only supported GitHub content has a native destination; site and management pages stay web.
 enum GitHubLinkRules {
     static func isGitHub(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return false }
@@ -37,6 +37,7 @@ enum GitHubLinkRules {
     /// "owner/name" for links that start with a valid repository, nil otherwise.
     static func repositoryName(_ url: URL) -> String? {
         guard let parts = segments(url), parts.count >= 2,
+              !reservedSitePaths.contains(parts[0].lowercased()),
               let full = try? RepositoryInput.parse(parts[0] + "/" + parts[1]) else { return nil }
         return full
     }
@@ -63,7 +64,7 @@ enum GitHubLinkRules {
     /// `branches` only matters for blob/tree links whose ref may contain slashes.
     static func target(_ url: URL, branches: [String] = []) -> GitHubLinkTarget? {
         guard let parts = segments(url) else { return nil }
-        // One segment is a user or organisation profile; two or more must name a repository.
+        // Site prefixes are not repository owners, even when followed by more path segments.
         if parts.count == 1 {
             guard !reservedSitePaths.contains(parts[0].lowercased()), validLogin(parts[0]) else { return nil }
             return GitHubLinkTarget.user(login: parts[0])
@@ -81,27 +82,31 @@ enum GitHubLinkRules {
         switch kind {
         case "blob", "tree":
             let remainder = Array(rest.dropFirst())
-            guard !remainder.isEmpty else { return page }
+            guard !remainder.isEmpty else { return nil }
             let resolved = resolveRef(remainder, branches: branches)
             if kind == "blob" {
-                guard !resolved.path.isEmpty else { return page }
+                guard !resolved.path.isEmpty else { return nil }
                 return GitHubLinkTarget.file(owner: owner, repo: name, ref: resolved.ref, path: resolved.path)
             }
             return GitHubLinkTarget.directory(owner: owner, repo: name, ref: resolved.ref, path: resolved.path)
         case "issues", "pull":
-            guard rest.count > 1, let number = Int(rest[1]), number > 0, String(number) == rest[1] else { return page }
+            guard rest.count > 1, let number = Int(rest[1]), number > 0, String(number) == rest[1] else { return nil }
             if kind == "issues" { return GitHubLinkTarget.issue(owner: owner, repo: name, number: number) }
             return GitHubLinkTarget.pull(owner: owner, repo: name, number: number)
         case "commit":
-            guard rest.count > 1, isSHA(rest[1]) else { return page }
+            guard rest.count > 1, isSHA(rest[1]) else { return nil }
             return GitHubLinkTarget.commit(owner: owner, repo: name, sha: rest[1])
         case "releases":
+            guard rest.count == 1 || rest == ["releases", "latest"] ||
+                  (rest.count >= 3 && rest[1] == "tag") else { return nil }
             return GitHubLinkTarget.releases(owner: owner, repo: name)
         case "actions":
             // /actions and /actions/runs/<id> both open the native workflow runs screen.
+            guard rest.count == 1 || (rest.count >= 3 && rest[1] == "runs" && UInt64(rest[2]) != nil) ||
+                  (rest.count == 3 && rest[1] == "workflows") else { return nil }
             return GitHubLinkTarget.runs(owner: owner, repo: name)
         default:
-            return page
+            return nil
         }
     }
 
@@ -117,11 +122,11 @@ enum GitHubLinkRules {
 
     /// Site sections that are not accounts, so they must not open a profile screen.
     static let reservedSitePaths: Set<String> = [
-        "about", "account", "apps", "collections", "contact", "customer-stories", "dashboard",
+        "about", "account", "apps", "codespaces", "collections", "contact", "copilot", "customer-stories", "dashboard",
         "education", "enterprise", "events", "explore", "features", "git-guides", "issues",
-        "join", "login", "marketplace", "mobile", "new", "notifications", "organizations",
+        "join", "login", "logout", "marketplace", "mobile", "new", "notifications", "oauth", "organizations", "orgs",
         "pricing", "pulls", "readme", "resources", "search", "security", "settings", "site",
-        "solutions", "sponsors", "team", "topics", "trending", "users"
+        "sessions", "signup", "solutions", "sponsors", "team", "topics", "trending", "users"
     ]
     /// GitHub logins are alphanumeric with single hyphens, at most 39 characters.
     static func validLogin(_ text: String) -> Bool {

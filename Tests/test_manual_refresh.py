@@ -6,8 +6,23 @@ w=Path(REPO_ROOT, 'RepoPocket/WorkspaceView.swift').read_text()
 a=Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text()
 for source in Path(REPO_ROOT, 'RepoPocket').glob('*.swift'):
     s=source.read_text()
-    for forbidden in ['scenePhase', 'willEnterForegroundNotification', 'didBecomeActiveNotification']:
+    for forbidden in ['willEnterForegroundNotification', 'didBecomeActiveNotification']:
         assert forbidden not in s, source
+    # Workspace scans remain inert; only root update checks and the visible
+    # workflow's bounded cancellation acknowledgement poll observe lifecycle.
+    assert ('scenePhase' in s) == (source.name in ('RepoPocketApp.swift', 'WorkflowViews.swift')), source
+    if source.name == 'WorkflowViews.swift':
+        assert s.count('scenePhase') == 4
+        assert '@Environment(\\.scenePhase) private var scenePhase' in s
+        polling = s.split('.task(id: cancellation.waiting && scenePhase == .active) {', 1)[1].split('        .task {', 1)[0]
+        assert 'guard cancellation.waiting, scenePhase == .active' in polling
+        assert 'for _ in 0..<60' in polling and 'Task.sleep(nanoseconds: 5_000_000_000)' in polling
+        assert 'try Task.checkCancellation()' in polling and 'await refreshRunStatus()' in polling
+        assert 'scan()' not in polling and 'communityMutation(' not in polling
+foreground=a.split('.onChange(of: scenePhase)', 1)[1].split('.task { await NetworkWarmup', 1)[0]
+assert foreground.count('appEntryCheck(api: api)') == 1
+for inert in ('scan()', 'refresh', 'load('):
+    assert inert not in foreground, inert
 assert '.onAppear' not in w
 assert '.task { if !hasScanned' in w and '.refreshable { await scan() }' in w
 assert 'Button("刷新变更") { Task { await scan() } }.disabled(busy)' in w
@@ -31,6 +46,6 @@ for signature in ['importItems(_ urls: [URL], zip: Bool)', 'downloadRemote()', '
 assert 'hasScanned = true' in scan  # no foreground reset/recreation identity
 import re
 build = re.search(r'CURRENT_PROJECT_VERSION: "([^"]+)"', Path(REPO_ROOT, "project.yml").read_text()).group(1)
-assert build == '1.1.7'
+assert build == '1.1.8'
 assert f'CFBundleVersion\' "$APP/Info.plist")" = "{build}"' in Path(REPO_ROOT, ".github/workflows/build.yml").read_text()
 print('PASS manual-only foreground contract, stable Text, explicit safety reason, no blocking overlay, atomic scan/reconciliation, operation busy gates and internal build12')

@@ -1,4 +1,4 @@
-"""Every github.com link opens a native screen; the pure rules execute on macOS via swiftc.
+"""Supported GitHub content stays native; account and unsupported pages use a browser.
 
 Xcode is not available on the development machine, so the classification rules are compiled
 from production sources by the macOS runner; the wiring is checked statically everywhere.
@@ -15,13 +15,27 @@ DESTINATION = (ROOT / 'RepoPocket/NativeLinkDestination.swift').read_text(encodi
 
 
 class NativeLinkWiringTests(unittest.TestCase):
-    def test_github_links_never_reach_the_web_view(self):
+    def test_only_supported_github_content_opens_native_screens(self):
         self.assertNotIn('private var nativeDestination', DESTINATION)
+        self.assertIn('if GitHubLinkRules.isGitHub(url), GitHubLinkRules.target(url) == nil {', DESTINATION)
         self.assertIn('if let api, GitHubLinkRules.isGitHub(url) {', DESTINATION)
         self.assertIn('ContainedWebPage(url: url, onClose: onClose).ignoresSafeArea()', DESTINATION)
-        self.assertEqual(DESTINATION.count('ContainedWebPage('), 3)
+        self.assertEqual(DESTINATION.count('ContainedWebPage('), 1)
         self.assertIn('NavigationStack {', DESTINATION)
         self.assertIn('ToolbarItem(placement: .cancellationAction) { Button("完成", action: onClose) }', DESTINATION)
+
+    def test_web_only_github_pages_bypass_native_routing_and_the_reading_open_url_handler(self):
+        browser = DESTINATION.split('private struct SystemBrowserPage: View {', 1)[1].split('struct ContainedWebPage:', 1)[0]
+        self.assertIn('UIApplication.shared.open(url, options: [:])', browser)
+        self.assertIn('if opened { onClose() }', browser)
+        self.assertNotIn('ReadingLinkDestination(', browser)
+        self.assertNotIn('openURL(', browser)
+        self.assertIn('Button("重试") { open() }', browser)
+        # Existing Token/OAuth management buttons share this route, including api == nil.
+        for name, url in [('AccountManagement.swift', 'https://github.com/settings/tokens'),
+                          ('DeviceOAuthView.swift', 'https://github.com/settings/developers')]:
+            source = (ROOT / 'RepoPocket' / name).read_text(encoding='utf-8')
+            self.assertIn('InAppLinkButton(url: URL(string: "' + url + '")!', source)
 
     def test_native_screens_are_reused_without_new_destinations(self):
         for token in ('BrowserView(api: api, repo: repo, path: "", branch: "")',
@@ -40,9 +54,10 @@ class NativeLinkWiringTests(unittest.TestCase):
         self.assertIn('guard let list = try? await api.branches(repo, page: page) else { break }', DESTINATION)
         self.assertIn('if list.count < 100 { break }', DESTINATION)
 
-    def test_web_page_is_only_the_last_resort_for_a_load_failure(self):
+    def test_native_file_failure_can_open_the_real_web_page_without_routing_back(self):
         loader = DESTINATION.split('private struct NativeLinkFileView: View {', 1)[1].split('struct ContainedWebPage:', 1)[0]
         self.assertIn('Button("在 GitHub 网页打开") { web = true }', loader)
+        self.assertIn('SystemBrowserPage(url: url, onClose: { web = false })', loader)
         self.assertNotIn('SFSafariViewController', loader)
 
 
@@ -80,14 +95,14 @@ import Foundation
               GitHubLinkTarget.file(owner: "a", repo: "b", ref: "main", path: "x.md"))
         check("https://github.com/a/b/blob/main/x%20y.md",
               GitHubLinkTarget.file(owner: "a", repo: "b", ref: "main", path: "x y.md"))
-        check("https://github.com/a/b/blob/main/", repo)
-        check("https://github.com/a/b/blob/main", repo)
+        check("https://github.com/a/b/blob/main/", nil)
+        check("https://github.com/a/b/blob/main", nil)
         check("https://github.com/a/b/tree/main/src",
               GitHubLinkTarget.directory(owner: "a", repo: "b", ref: "main", path: "src"))
         check("https://github.com/a/b/tree/main/src/",
               GitHubLinkTarget.directory(owner: "a", repo: "b", ref: "main", path: "src"))
         check("https://github.com/a/b/tree/main", GitHubLinkTarget.directory(owner: "a", repo: "b", ref: "main", path: ""))
-        check("https://github.com/a/b/tree/", repo)
+        check("https://github.com/a/b/tree/", nil)
         // branch names containing slashes use the longest known prefix, then the first segment
         check("https://github.com/a/b/blob/feature/x/docs/a.md",
               GitHubLinkTarget.file(owner: "a", repo: "b", ref: "feature/x", path: "docs/a.md"), branches: ["main", "feature/x"])
@@ -113,19 +128,32 @@ import Foundation
         check("https://github.com/a/b/pull/9", GitHubLinkTarget.pull(owner: "a", repo: "b", number: 9))
         check("https://github.com/a/b/pull/9/files", GitHubLinkTarget.pull(owner: "a", repo: "b", number: 9))
         check("https://github.com/a/b/pull/9/commits", GitHubLinkTarget.pull(owner: "a", repo: "b", number: 9))
-        check("https://github.com/a/b/issues/0", repo)
-        check("https://github.com/a/b/issues/abc", repo)
+        check("https://github.com/a/b/issues/0", nil)
+        check("https://github.com/a/b/issues/abc", nil)
         let sha = "5c4fee5a1b2c3d4e5f60718293a4b5c6d7e8f901"
         check("https://github.com/a/b/commit/" + sha, GitHubLinkTarget.commit(owner: "a", repo: "b", sha: sha))
         check("https://github.com/a/b/commit/5c4fee5", GitHubLinkTarget.commit(owner: "a", repo: "b", sha: "5c4fee5"))
-        check("https://github.com/a/b/commit/xyz", repo)
-        // 7) any other repository path stays on the native repository page
+        check("https://github.com/a/b/commit/xyz", nil)
+        // 7) Unsupported or write/settings pages must keep their real web destination.
         for text in ["https://github.com/a/b/settings", "https://github.com/a/b/wiki",
                      "https://github.com/a/b/issues", "https://github.com/a/b/pulls",
                      "https://github.com/a/b/tree", "https://github.com/a/b/discussions/1",
-                     "https://github.com/a/b/unknown/deep/path"] {
-            check(text, repo)
+                     "https://github.com/a/b/issues/new", "https://github.com/a/b/pull/new/main",
+                     "https://github.com/a/b/releases/new", "https://github.com/a/b/releases/edit/v1",
+                     "https://github.com/a/b/actions/new", "https://github.com/a/b/unknown/deep/path"] {
+            check(text, nil)
         }
+        // The Token bug: a reserved site prefix is never an owner, even with two+ segments.
+        for text in ["https://github.com/settings/tokens", "https://github.com/settings/personal-access-tokens/new",
+                     "https://github.com/SETTINGS/security", "https://github.com/settings/developers",
+                      "https://github.com/login/device", "https://github.com/login/oauth/authorize?client_id=x",
+                      "https://github.com/oauth/authorize?client_id=x", "https://github.com/logout",
+                     "https://github.com/sessions/two-factor", "https://github.com/orgs/github/settings",
+                     "https://github.com/organizations/new", "https://github.com/topics/swift"] {
+            check(text, nil)
+            precondition(GitHubLinkRules.repositoryName(URL(string: text)!) == nil, "site page became a repository: " + text)
+        }
+        check("https://github.com/a/b/settings/security", nil)
         // 8) non-GitHub hosts and unusable URLs have no native target
         precondition(GitHubLinkRules.target(URL(string: "https://gitlab.com/a/b")!) == nil)
         precondition(GitHubLinkRules.target(URL(string: "https://gist.github.com/a/b")!) == nil)

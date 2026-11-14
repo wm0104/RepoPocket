@@ -2,8 +2,11 @@
 cd "$(dirname "$0")/.."
 set -euo pipefail
 mkdir -p screenshots
-RUNTIME=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; r=[r for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable") and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-17")]; print(r[-1]["identifier"] if r else "")')
-test -n "$RUNTIME"
+SDK_VERSION=$(xcrun --sdk iphonesimulator --show-sdk-version)
+xcrun simctl list runtimes
+RUNTIME=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; version=lambda r: tuple(map(int,r["version"].split("."))); sdk=tuple(map(int,sys.argv[1].split("."))); r=[r for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable") and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-") and (17,)<=version(r)[:2]<=sdk[:2]]; print(max(r,key=version)["identifier"] if r else "")' "$SDK_VERSION")
+test -n "$RUNTIME" || { echo "No available iOS 17+ runtime supported by SDK $SDK_VERSION"; exit 1; }
+echo "UI runtime: $RUNTIME (SDK $SDK_VERSION)"
 DEVICE=$(xcrun simctl create RepoPocketStylePreview com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro "$RUNTIME")
 RECORDING_PID=""
 cleanup_preview() {
@@ -11,7 +14,7 @@ cleanup_preview() {
     kill -INT "$RECORDING_PID" 2>/dev/null || true
     wait "$RECORDING_PID" || true
   fi
-  xcrun simctl spawn "$DEVICE" log show --last 15m --style compact --predicate 'process == "RepoPocket" OR eventMessage CONTAINS "com.wm0104.RepoPocket"' > app-preview.log 2>&1 || true
+  xcrun simctl spawn "$DEVICE" log show --last 30m --style compact --predicate 'process == "RepoPocket" OR eventMessage CONTAINS "com.wm0104.RepoPocket"' > app-preview.log 2>&1 || true
   xcrun simctl shutdown "$DEVICE" 2>/dev/null || true
   xcrun simctl delete "$DEVICE" 2>/dev/null || true
 }
@@ -21,7 +24,7 @@ xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl status_bar "$DEVICE" override --time 9:41 --batteryState charged --batteryLevel 100
 # Let Xcode embed Simulator entitlements before signing. An unsigned simulator
 # cannot exercise CredentialStore (errSecMissingEntitlement / -34018).
-xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing > style-test-build.log 2>&1 || { tail -100 style-test-build.log; exit 1; }
+xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing 2>&1 | tee style-test-build.log || { tail -100 style-test-build.log; exit 1; }
 codesign --verify preview-build/Build/Products/Debug-iphonesimulator/RepoPocket.app
 xcrun simctl install "$DEVICE" preview-build/Build/Products/Debug-iphonesimulator/RepoPocket.app
 APP_CONTAINER=$(xcrun simctl get_app_container "$DEVICE" com.wm0104.RepoPocket data)
@@ -30,6 +33,19 @@ mkdir -p "$PREVIEW_ROOT"
 git -C "$PREVIEW_ROOT" init -b master
 git -C "$PREVIEW_ROOT" config user.name 'RepoPocket UI Test'
 git -C "$PREVIEW_ROOT" config user.email 'ui-test@repopocket.invalid'
+# A separate, clean repository exercises local merge without altering editor fixtures.
+MERGE_ROOT="$APP_CONTAINER/Documents/本地合并预览"
+mkdir -p "$MERGE_ROOT"
+git -C "$MERGE_ROOT" init -b target
+git -C "$MERGE_ROOT" config user.name 'RepoPocket UI Test'
+git -C "$MERGE_ROOT" config user.email 'ui-test@repopocket.invalid'
+printf '%s\n' 'before merge' > "$MERGE_ROOT/merge.txt"
+git -C "$MERGE_ROOT" add merge.txt
+git -C "$MERGE_ROOT" commit -m '合并测试基线'
+git -C "$MERGE_ROOT" checkout -b source
+printf '%s\n' 'after merge' > "$MERGE_ROOT/merge.txt"
+git -C "$MERGE_ROOT" commit -am '合并测试来源提交'
+git -C "$MERGE_ROOT" checkout target
 printf '%s\n' '# Python 示例' 'print("before")' > "$PREVIEW_ROOT/示例.py"
 git -C "$PREVIEW_ROOT" add --all
 git -C "$PREVIEW_ROOT" commit -m '初始 Python 示例'
@@ -93,7 +109,37 @@ xcrun simctl io "$DEVICE" recordVideo --codec=h264 screenshots/local-git-interac
 RECORDING_PID=$!
 TEST_STATUS=0
 case "${RP_STYLE_TEST_SCOPE:-all}" in
-  file-edit) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRemoteFileEditorConfirmationDoesNotRestoreKeyboard -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSourcePreviewAndEditorHorizontalScrolling) ;;
+  branch-merge) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalMergePreviewUsesCurrentBranchAndDoesNotPush
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRemoteMergeRequiresPreviewAndExplicitSquashConfirmation
+  ) ;;
+  maintenance-regressions) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSharedGroupCornersSurviveRefreshAndBackNavigation
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowLastCardToLoadMoreUsesCompactGap
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testCompactLocalProjectKeepsMetadataAndImportsAccessible
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalBranchCreationHasConfirmationAndRejectsInvalidName
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalHistoryCommitDetailAndFolding
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalImportDestinationClosesAtNestedFolder
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalGitHasFileAndFolderImport
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalWholeFolderImportsAllChildrenAndSelectsThem
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalFolderChangesAndSelectAll
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testUpstreamWatchLinkInputKeepsFormResponsiveAndBranchSelectionExplicit
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testUpstreamPreviewResolvesForkParentAndStaysOnResult
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testUpstreamPreviewFailureStaysOnFormWithError
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testUpstreamPreviewDisclosureKeepsZeroSingleManyAndTruncatedRowsStable
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowRunDetailsFoldWithoutHidingStatusBranchOrArtifacts
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryMoreReusesDisclosureAndRemovesConditionalTailRows
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowFiltersAndSelectionKeepGroupedRows
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowBatchDeleteKeepsOtherRowsAndRetriesFailures
+  ) ;;
+  review-regressions) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testAccountTokenAdditionStillWorksAfterSwitching
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testAccountTokenAdditionWorksWithoutSwitching
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBUsesExistingEditorAndSavesToProject
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReadmeBadgesAndInAppLink
+  ) ;;
+  file-edit) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRemoteFileEditorConfirmationDoesNotRestoreKeyboard -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSourcePreviewAndEditorHorizontalScrolling -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReadOnlySourceOffersNativeCurrentFileSearch -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testMobileEditorCreatesSavesAndGuardsUnsavedChanges -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch) ;;
   workflow-selection) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowFiltersAndSelectionKeepGroupedRows -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowBatchDeleteKeepsOtherRowsAndRetriesFailures) ;;
   all) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests) ;;
   profiles) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testIssueAndCommentAuthorsOpenTheirProfiles -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSettingsSocialAccountsAddEditDeleteAndPermissionRecovery) ;;
@@ -102,7 +148,7 @@ case "${RP_STYLE_TEST_SCOPE:-all}" in
   download-lifecycle) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryZIPCompletionIsNativeDismissibleAndReusable -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProjectFilesUseLongPressDeletionAndKeepPreview -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBUsesExistingEditorAndSavesToProject -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalFileSheetStaysClosedAfterInteractiveDismissal -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates) ;;
   *) echo 'Unknown UI test scope'; exit 1 ;;
 esac
-xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${TEST_ARGUMENTS[@]}" test-without-building > style-tests.log 2>&1 || {
+xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${TEST_ARGUMENTS[@]}" test-without-building 2>&1 | tee style-tests.log || {
   # The final test can otherwise hide earlier failures, including their AX hierarchy.
   python3 - style-tests.log <<'PY_FAILED_TESTS'
 from pathlib import Path

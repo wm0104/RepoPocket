@@ -1,11 +1,13 @@
 import Foundation
 
 struct AppUpdateSessionRules {
-    static let cooldown: TimeInterval = 6 * 60 * 60
+    /// App entry (launch and returning to the foreground) probes at most once per 15 minutes.
+    static let cooldown: TimeInterval = 15 * 60
     static let probeVersion = "1.0.3-rc.1"
-    static var startupPromptOffered = false
     static func isUpdateProbe(_ version: String) -> Bool { version == probeVersion }
     private(set) var attempted = false
+    /// A new app entry may probe again; the per-account timestamp still spaces checks by `cooldown`.
+    mutating func beginEntry() { attempted = false }
     mutating func claim(now: Date, last: Date?) -> Bool {
         guard !attempted else { return false }
         attempted = true

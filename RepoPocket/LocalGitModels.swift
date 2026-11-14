@@ -60,7 +60,29 @@ struct LocalGitStatus: Codable {
     let repoState: Int
     var canCommit: Bool { staged.isEmpty && repoState == 0 }
 }
-struct LocalGitDiff: Codable { let text: String; let binary: Bool; let truncated: Bool }
+struct LocalGitBranch: Codable, Identifiable {
+    let name: String
+    let reference: String
+    let head: String
+    let remote: Bool
+    let current: Bool
+    var id: String { reference }
+}
+struct LocalGitBranches: Codable {
+    let head: String
+    let reference: String
+    let local: [LocalGitBranch]
+    let remote: [LocalGitBranch]
+}
+struct LocalGitDiff: Codable {
+    let text: String
+    let binary: Bool
+    let truncated: Bool
+    let status: String?
+    let previousFilename: String?
+    let additions: Int?
+    let deletions: Int?
+}
 struct LocalGitCommit: Codable, Identifiable {
     let sha: String
     let message: String
@@ -70,6 +92,11 @@ struct LocalGitCommit: Codable, Identifiable {
 }
 struct LocalGitHistory: Codable {
     let commits: [LocalGitCommit]
+    var totalCount: Int? = nil
+    var offset: Int? = nil
+    var head: String? = nil
+    var reference: String? = nil
+    var shallow: Bool? = nil
     let ahead: Int
     let behind: Int
     let tracking: Bool
@@ -77,6 +104,8 @@ struct LocalGitHistory: Codable {
 }
 struct LocalGitDocument { let text: String; let fingerprint: String }
 struct LocalGitPullSummary: Codable {
+    let beforeSHA: String?
+    let afterSHA: String?
     let commits: Int
     let files: [File]
     let totalFiles: Int
@@ -121,7 +150,7 @@ enum LocalGitRules {
     }
     static func child(_ value: String) throws -> String {
         guard !value.isEmpty, value != ".", value != "..", value.lowercased() != ".git",
-              !value.contains("/"), !value.contains("\\"), !value.contains("\0") else { throw LocalGitError(text: "请输入不含路径分隔符的新文件夹名称。") }
+              !value.contains("/"), !value.contains("\\"), !value.contains("\0") else { throw LocalGitError(text: "请输入不含路径分隔符的文件或文件夹名称。") }
         return value
     }
 }

@@ -38,7 +38,7 @@ enum UpstreamSyncRules {
         var errorDescription: String? { text }
     }
 
-    /// A fully user-chosen upstream; nothing is preselected or hardcoded.
+    /// An upstream selected explicitly or resolved from confirmed fork metadata.
     struct Target: Equatable {
         let repository: String
         let branch: String
@@ -60,6 +60,20 @@ enum UpstreamSyncRules {
                 && value.lowercased() != current.lowercased()
                 && seen.insert(value.lowercased()).inserted
         }
+    }
+
+    static func initialSource(saved: String?, fork: Bool?, parent: Target?, source: Target?, current: String) -> Target? {
+        if let saved = decodeMemory(saved), saved.repository.caseInsensitiveCompare(current) != .orderedSame {
+            return Target(repository: saved.repository, branch: saved.branch)
+        }
+        guard fork == true else { return nil }
+        for reference in [parent, source].compactMap({ $0 }) {
+            guard let name = try? RepositoryInput.parse(reference.repository),
+                  name.caseInsensitiveCompare(current) != .orderedSame else { continue }
+            let branch = reference.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            return Target(repository: name, branch: DesktopRules.validBranch(branch) ? branch : "")
+        }
+        return nil
     }
 
     // MARK: - Paths
@@ -225,7 +239,7 @@ enum UpstreamSyncRules {
 
     /// One compare request; nothing is written here.
     func loadPreview(api: GitHub, repo: String, branch: String) async {
-        guard !loading else { return }
+        guard !busy, !loading else { return }
         let target: UpstreamSyncRules.Target
         do { target = try UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch) }
         catch { compare = nil; self.error = error.localizedDescription; return }
@@ -234,20 +248,22 @@ enum UpstreamSyncRules {
         do {
             let result = try await api.upstreamCompare(repo: repo, base: branch, upstream: target)
             try Task.checkCancellation()
-            guard api.isCurrentSession else { return }
+            guard api.isCurrentSession,
+                  (try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch)) == target else { return }
             compare = result
-            upstreamRepository = target.repository
-            upstreamBranch = target.branch
             stage = .preview; receipt = nil; pending = nil; mergeSHA = ""; appliedSHA = ""
             UserDefaults.standard.set(UpstreamSyncRules.encodeMemory(repository: target.repository, branch: target.branch),
                                       forKey: UpstreamSyncRules.memoryKey(account: api.accountID, repository: repo))
+            NotificationCenter.default.post(name: Notification.Name("RepoPocket.upstreamSourceSelected"), object: api.accountID)
         } catch {
-            guard api.isCurrentSession, !RefreshFailure.isCancellation(error) else { return }
+            guard api.isCurrentSession, !RefreshFailure.isCancellation(error),
+                  (try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch)) == target else { return }
             self.error = Self.failureText(error)
         }
     }
 
-    func propose(branch: String) -> Bool {
+    func propose() -> Bool {
+        guard !busy, !loading, stage == .preview, (compare?.ahead_by ?? 0) > 0 else { return false }
         guard let target = try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch) else {
             error = "请先填写有效的上游仓库与分支，并预览差异。"; return false
         }
@@ -260,7 +276,7 @@ enum UpstreamSyncRules {
     }
 
     func merge(api: GitHub, repo: String, branch: String, receipt proposed: Receipt) async {
-        guard !busy else { return }
+        guard !busy, !loading else { return }
         guard let target = try? UpstreamSyncRules.target(repository: proposed.upstream, branch: proposed.upstreamBranch) else {
             error = "上游仓库或分支无效，未执行任何写入。"; return
         }
@@ -294,7 +310,7 @@ enum UpstreamSyncRules {
     }
 
     func apply(api: GitHub, repo: String, branch: String) async {
-        guard !busy, stage == .merged, UpstreamSyncRules.validSHA(mergeSHA) else { return }
+        guard !busy, !loading, stage == .merged, UpstreamSyncRules.validSHA(mergeSHA) else { return }
         busy = true; error = ""
         defer { busy = false }
         do {
@@ -310,13 +326,13 @@ enum UpstreamSyncRules {
         }
     }
 
-    func restore(account: String, repo: String) {
+    func restore(account: String, repo: String, fork: Bool?, parent: UpstreamSyncRules.Target?, source: UpstreamSyncRules.Target?) {
         guard upstreamRepository.isEmpty, upstreamBranch.isEmpty else { return }
-        let saved = UpstreamSyncRules.decodeMemory(
-            UserDefaults.standard.string(forKey: UpstreamSyncRules.memoryKey(account: account, repository: repo)))
-        guard let saved else { return }
-        upstreamRepository = saved.repository
-        upstreamBranch = saved.branch
+        guard let selected = UpstreamSyncRules.initialSource(
+            saved: UserDefaults.standard.string(forKey: UpstreamSyncRules.memoryKey(account: account, repository: repo)),
+            fork: fork, parent: parent, source: source, current: repo) else { return }
+        upstreamRepository = selected.repository
+        upstreamBranch = selected.branch
     }
 
     static func failureText(_ error: Error) -> String {
@@ -335,9 +351,19 @@ struct UpstreamSyncView: View {
     let branch: String
     let canWrite: Bool
     let repository: Repository?
+    var initialUpstream: UpstreamSyncRules.Target? = nil
     @StateObject private var state = UpstreamSyncState()
     @State private var confirmingMerge = false
     @State private var confirmingApply = false
+    @State private var initialized = false
+    @State private var branchRepository: String?
+    @State private var loadedRepository: Repository?
+    @State private var sourceError = ""
+    @State private var commitsExpanded = false
+    @State private var filesExpanded = false
+    @State private var receiptExpanded = false
+    @FocusState private var editingRepository: Bool
+    private var metadata: Repository? { loadedRepository ?? repository }
 
     private var targetBranch: String { branch.isEmpty ? "默认分支" : branch }
     private var commits: [UpstreamCompare.Commit] {
@@ -347,16 +373,16 @@ struct UpstreamSyncView: View {
         Array((state.compare?.files ?? []).prefix(UpstreamSyncRules.fileLimit))
     }
     private var hints: [(repository: String, branch: String?, title: String)] {
-        UpstreamSyncRules.candidates(parent: repository?.parent?.full_name,
-                                     source: repository?.source?.full_name,
+        UpstreamSyncRules.candidates(parent: metadata?.parent?.full_name,
+                                     source: metadata?.source?.full_name,
                                      current: repo).map { name in
-            let isParent = repository?.parent?.full_name.lowercased() == name.lowercased()
-            let reference = isParent ? repository?.parent : repository?.source
+            let isParent = metadata?.parent?.full_name.lowercased() == name.lowercased()
+            let reference = isParent ? metadata?.parent : metadata?.source
             return (name, reference?.default_branch, isParent ? "父仓库" : "来源仓库")
         }
     }
     private var canMerge: Bool {
-        canWrite && !state.busy && state.stage == .preview && (state.compare?.ahead_by ?? 0) > 0
+        canWrite && !state.busy && !state.loading && state.stage == .preview && (state.compare?.ahead_by ?? 0) > 0
     }
     private var mergeTitle: String {
         guard let pending = state.pending else { return "在临时分支合并上游？" }
@@ -383,7 +409,36 @@ struct UpstreamSyncView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("上游同步")
         .adaptiveWorkspaceLayout()
-        .task { state.restore(account: api.accountID, repo: repo) }
+        .task {
+            guard !initialized else { return }
+            initialized = true
+            defer { if Task.isCancelled { initialized = false } }
+            if let initialUpstream, state.upstreamRepository.isEmpty, state.upstreamBranch.isEmpty {
+                state.upstreamRepository = initialUpstream.repository
+                state.upstreamBranch = initialUpstream.branch
+            } else {
+                restoreSource()
+                if state.upstreamRepository.isEmpty, repository == nil || (repository?.fork != false && repository?.parent == nil && repository?.source == nil) {
+                    do {
+                        let info = try await api.repository(repo)
+                        guard !Task.isCancelled, api.isCurrentSession else { return }
+                        loadedRepository = info; restoreSource()
+                    } catch {
+                        if !RefreshFailure.isCancellation(error), api.isCurrentSession { sourceError = "无法读取上游来源：" + error.localizedDescription }
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: Binding(get: { branchRepository != nil }, set: { if !$0 { branchRepository = nil } })) {
+            if let selectedRepository = branchRepository {
+                NavigationStack {
+                    LocalGitBranchPicker(api: api, repo: selectedRepository, current: state.upstreamBranch) {
+                        guard api.isCurrentSession, (try? RepositoryInput.parse(state.upstreamRepository)) == selectedRepository else { return }
+                        state.upstreamBranch = $0; state.compare = nil
+                    }.toolbar { Button("关闭") { branchRepository = nil } }
+                }.appSheetCornerRadius()
+            }
+        }
         .confirmationDialog(mergeTitle, isPresented: $confirmingMerge, titleVisibility: .visible) {
             Button("确认合并到临时分支") {
                 guard let pending = state.pending else { return }
@@ -399,24 +454,36 @@ struct UpstreamSyncView: View {
         }
     }
 
+    private func restoreSource() {
+        state.restore(account: api.accountID, repo: repo, fork: metadata?.fork,
+            parent: metadata?.parent.map { .init(repository: $0.full_name, branch: $0.default_branch ?? "") },
+            source: metadata?.source.map { .init(repository: $0.full_name, branch: $0.default_branch ?? "") })
+    }
+
     @ViewBuilder private var sourceSection: some View {
         Section {
             SoftGroupRows {
                 SoftGroupRow("upstream-repository") {
-                    TextField("上游仓库（owner/repo 或链接）", text: $state.upstreamRepository)
+                    TextField("上游仓库（owner/repo 或链接）", text: Binding(get: { state.upstreamRepository }, set: {
+                        state.upstreamRepository = $0; state.upstreamBranch = ""; state.compare = nil
+                    }))
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .onChange(of: state.upstreamRepository) { _ in state.compare = nil }
+                        .focused($editingRepository).accessibilityIdentifier("upstream-source-repository")
                 }
                 SoftGroupRow("upstream-branch") {
-                    TextField("上游分支", text: $state.upstreamBranch)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .onChange(of: state.upstreamBranch) { _ in state.compare = nil }
+                    Button {
+                        editingRepository = false
+                        branchRepository = try? RepositoryInput.parse(state.upstreamRepository)
+                    } label: { LabeledContent("上游分支", value: state.upstreamBranch.isEmpty ? "请选择" : state.upstreamBranch) }
+                        .disabled((try? RepositoryInput.parse(state.upstreamRepository)) == nil)
+                        .accessibilityIdentifier("upstream-source-branch")
                 }
                 for hint in hints {
                     SoftGroupRow("candidate-" + hint.repository) {
                         Button {
                             state.upstreamRepository = hint.repository
-                            if let branch = hint.branch, !branch.isEmpty { state.upstreamBranch = branch }
+                            state.upstreamBranch = hint.branch ?? ""
+                            state.compare = nil
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(hint.repository)
@@ -429,23 +496,34 @@ struct UpstreamSyncView: View {
                 }
                 if state.upstreamRepository.isEmpty && state.upstreamBranch.isEmpty {
                     SoftGroupRow("upstream-hint") {
-                        Text("填写要比较的上游仓库与分支；不会自动选择任何项目。")
+                        Text("未识别到已保存选择或明确的复刻来源，请填写上游仓库后点选已有分支。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 SoftGroupRow("preview") {
                     Button(state.loading ? "正在比较…" : "预览差异（只读）") {
+                        editingRepository = false
+                        UIRules.withoutAnimation { commitsExpanded = false; filesExpanded = false; receiptExpanded = false }
                         Task { await state.loadPreview(api: api, repo: repo, branch: branch) }
                     }
                     .disabled(state.loading || state.upstreamRepository.isEmpty || state.upstreamBranch.isEmpty)
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .accessibilityIdentifier("upstream-preview")
+                }
+                if state.loading {
+                    SoftGroupRow("preview-loading") { ProgressView("正在读取上游差异…").accessibilityIdentifier("upstream-preview-loading") }
+                }
+                if !sourceError.isEmpty {
+                    SoftGroupRow("source-error") { Text(sourceError).font(.caption).foregroundStyle(.secondary) }
                 }
                 if !state.error.isEmpty && state.stage == .preview {
                     SoftGroupRow("preview-error") {
                         Text(state.error).font(.caption).foregroundStyle(.red)
+                            .accessibilityIdentifier("upstream-preview-error")
                     }
                 }
             }
+            .disabled(state.busy || state.loading)
         } header: {
             Text("上游来源")
         } footer: {
@@ -456,12 +534,13 @@ struct UpstreamSyncView: View {
     @ViewBuilder private var previewSection: some View {
         if let compare = state.compare {
             Section("差异预览") {
-                SoftGroupRows {
+                SoftGroupRows(animateBackground: false) {
                     SoftGroupRow("summary") {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(compare.status ?? "")
                             Text("上游新增 \(compare.ahead_by ?? 0) 个提交 · 目标分支多出 \(compare.behind_by ?? 0) 个提交")
                                 .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                .accessibilityIdentifier("upstream-preview-summary")
                             if (compare.total_commits ?? 0) > commits.count {
                                 Text("比较结果共 \(compare.total_commits ?? 0) 个提交，仅列出最近 \(commits.count) 个。")
                                     .font(.caption).foregroundStyle(.secondary)
@@ -473,36 +552,65 @@ struct UpstreamSyncView: View {
                             Text("没有需要合并的上游提交。").foregroundStyle(.secondary)
                         }
                     }
-                }
-                ForEach(commits) { commit in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text(short(commit.sha)).font(.caption).monospacedDigit()
-                            .foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(title(commit.commit.message)).lineLimit(2)
-                            Text((commit.commit.author?.name ?? "未知作者") + " · "
-                                 + CommitDatePresentation.local(commit.commit.author?.date ?? ""))
+                    if !commits.isEmpty {
+                        SoftGroupRow("commits-disclosure") {
+                            Button { UIRules.withoutAnimation { commitsExpanded.toggle() } } label: {
+                                HStack {
+                                    Text("提交记录（\(commits.count)）"); Spacer()
+                                    Image(systemName: commitsExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityIdentifier("upstream-commits-disclosure")
+                                .accessibilityValue(commitsExpanded ? "已展开" : "已折叠")
+                        }
+                    }
+                    if commitsExpanded {
+                        for commit in commits {
+                            SoftGroupRow("commit-" + commit.id) {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Text(short(commit.sha)).font(.caption).monospacedDigit()
+                                        .foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(title(commit.commit.message)).lineLimit(2)
+                                        Text((commit.commit.author?.name ?? "未知作者") + " · "
+                                             + CommitDatePresentation.local(commit.commit.author?.date ?? ""))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !files.isEmpty {
+                        SoftGroupRow("files-disclosure") {
+                            Button { UIRules.withoutAnimation { filesExpanded.toggle() } } label: {
+                                HStack {
+                                    Text("变更文件（\(files.count)）"); Spacer()
+                                    Image(systemName: filesExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityIdentifier("upstream-files-disclosure")
+                                .accessibilityValue(filesExpanded ? "已展开" : "已折叠")
+                        }
+                    }
+                    if filesExpanded {
+                        for file in files {
+                            SoftGroupRow("file-" + file.id) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(file.filename).font(.callout)
+                                    Text("+\(file.additions ?? 0) / −\(file.deletions ?? 0)")
+                                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                }
+                            }
+                        }
+                    }
+                    if !files.isEmpty {
+                        SoftGroupRow("files-note") {
+                            Text((compare.files?.count ?? 0) > files.count
+                                 ? "变更文件超过 \(UpstreamSyncRules.fileLimit) 个，仅显示前 \(UpstreamSyncRules.fileLimit) 个；GitHub 最多返回 3,000 个文件。"
+                                 : "文件统计由 GitHub 比较接口返回；二进制文件不会给出文本差异。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                    }.softGroupedRow(top: commit.id == commits.first?.id,
-                                     bottom: files.isEmpty && commit.id == commits.last?.id)
-                }
-                if !files.isEmpty {
-                    ForEach(files) { file in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(file.filename).font(.callout)
-                            Text("+\(file.additions ?? 0) / −\(file.deletions ?? 0)")
-                                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                        }.softGroupedRow(top: commits.isEmpty && file.id == files.first?.id,
-                                         bottom: file.id == files.last?.id)
                     }
-                    Text((compare.files?.count ?? 0) > files.count
-                         ? "变更文件超过 \(UpstreamSyncRules.fileLimit) 个，仅显示前 \(UpstreamSyncRules.fileLimit) 个；GitHub 最多返回 3,000 个文件。"
-                         : "文件统计由 GitHub 比较接口返回；二进制文件不会给出文本差异。")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .softGroupedRow(top: false, bottom: true)
                 }
-            }
+            }.transaction { $0.animation = nil; $0.disablesAnimations = true }
         }
     }
 
@@ -511,7 +619,7 @@ struct UpstreamSyncView: View {
             SoftGroupRows {
                 SoftGroupRow("merge") {
                     Button("创建备份标签与临时分支并合并") {
-                        if state.propose(branch: branch) { confirmingMerge = true }
+                        if state.propose() { confirmingMerge = true }
                     }
                     .disabled(!canMerge)
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -541,20 +649,33 @@ struct UpstreamSyncView: View {
     @ViewBuilder private var resultSection: some View {
         if state.stage != .preview || state.receipt != nil {
             Section("同步结果") {
-                if state.busy { ProgressView("正在等待 GitHub…").softGroupedRow(top: true) }
-                SoftGroupRows {
+                SoftGroupRows(animateBackground: false) {
+                    if state.busy {
+                        SoftGroupRow("busy") { ProgressView("正在等待 GitHub…") }
+                    }
                     if let receipt = state.receipt {
-                        SoftGroupRow("backup-tag") { LabeledContent("备份标签", value: receipt.backupTag) }
-                        SoftGroupRow("temp-branch") { LabeledContent("临时分支", value: receipt.tempBranch) }
-                        if !receipt.head.isEmpty {
-                            SoftGroupRow("head") { LabeledContent("起点提交", value: short(receipt.head)) }
+                        SoftGroupRow("receipt-disclosure") {
+                            Button { UIRules.withoutAnimation { receiptExpanded.toggle() } } label: {
+                                HStack {
+                                    Text("同步技术详情"); Spacer()
+                                    Image(systemName: receiptExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityIdentifier("upstream-receipt-disclosure")
+                                .accessibilityValue(receiptExpanded ? "已展开" : "已折叠")
+                        }
+                        if receiptExpanded {
+                            SoftGroupRow("backup-tag") { LabeledContent("备份标签", value: receipt.backupTag) }
+                            SoftGroupRow("temp-branch") { LabeledContent("临时分支", value: receipt.tempBranch) }
+                            if !receipt.head.isEmpty {
+                                SoftGroupRow("head") { LabeledContent("起点提交", value: short(receipt.head)) }
+                            }
                         }
                     }
                     if state.stage == .merged {
                         SoftGroupRow("merge-done") { Text("合并成功，目标分支尚未改变。") }
                         SoftGroupRow("apply") {
                             Button("应用到目标分支") { confirmingApply = true }
-                                .disabled(state.busy || !canWrite)
+                                .disabled(state.busy || state.loading || !canWrite)
                                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         }
                     }
@@ -585,7 +706,7 @@ struct UpstreamSyncView: View {
                         }
                     }
                 }
-            }
+            }.transaction { $0.animation = nil; $0.disablesAnimations = true }
         }
     }
 }

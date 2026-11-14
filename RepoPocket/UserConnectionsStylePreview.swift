@@ -10,7 +10,11 @@ struct UserConnectionsStylePreview: View {
     var body: some View {
         Group {
             if let api {
-                if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
+                if ProcessInfo.processInfo.arguments.contains("-upstream-sync-style-preview") {
+                    NavigationStack { BrowserView(api: api, repo: "fixture-owner/sample", path: "", branch: "main") }
+                } else if ProcessInfo.processInfo.arguments.contains("-repository-file-search-preview") {
+                    NavigationStack { RepositoryCodeDestination(api: api, repo: "fixture-owner/sample", branch: "feature/search") }
+                } else if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
                     NavigationStack {
                         FileView(api: api, repo: "fixture-owner/sample", entry: ConnectionsPreviewProtocol.editorEntry, branch: "main", canWrite: true)
                     }
@@ -32,6 +36,12 @@ struct UserConnectionsStylePreview: View {
             guard api == nil, error.isEmpty else { return }
             do {
                 let id = "401"
+                if ProcessInfo.processInfo.arguments.contains("-upstream-watch-style-preview") || ProcessInfo.processInfo.arguments.contains("-upstream-sync-style-preview") {
+                    for key in UserDefaults.standard.dictionaryRepresentation().keys
+                        where key.hasPrefix("RepoPocket.upstream") && key.contains(id) {
+                        UserDefaults.standard.removeObject(forKey: key)
+                    }
+                }
                 try CredentialStore.save("fixture-connections", account: id)
                 try AccountStore.record(.init(id: id, login: "fixture-owner", avatarURL: nil))
                 AccountStore.activate(id)
@@ -59,6 +69,62 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if ProcessInfo.processInfo.arguments.contains("-upstream-watch-style-preview") || ProcessInfo.processInfo.arguments.contains("-upstream-sync-style-preview") {
+            let metadata = #"{"id":504,"name":"sample","full_name":"fixture-owner/sample","html_url":"https://github.com/fixture-owner/sample","default_branch":"main","fork":true,"parent":{"full_name":"fixture-upstream/origin","default_branch":"develop"},"source":{"full_name":"fixture-network/root","default_branch":"trunk"},"permissions":{"push":false}}"#
+            let arguments = ProcessInfo.processInfo.arguments
+            let empty = arguments.contains("-upstream-preview-empty")
+            let truncated = arguments.contains("-upstream-preview-truncated")
+            let count = empty ? 0 : (truncated ? 31 : (arguments.contains("-upstream-preview-many") ? 3 : 1))
+            let changes: [[String: Any]] = (0..<count).map { index in
+                ["sha": String(format: "%040x", index + 1), "commit": ["message": "Fixture upstream change \(index + 1)"]]
+            }
+            let files: [[String: Any]] = (0..<(truncated ? 101 : count)).map { ["filename": "fixture-\($0 + 1).txt", "additions": 1, "deletions": 0] }
+            let comparison: [String: Any] = ["status": empty ? "identical" : "ahead", "ahead_by": count, "behind_by": 0,
+                                            "total_commits": count, "commits": changes, "files": files]
+            let compareJSON = String(decoding: try! JSONSerialization.data(withJSONObject: comparison), as: UTF8.self)
+            let routes = [
+                "/repos/fixture-owner/sample": metadata,
+                "/repos/fixture-upstream/origin/branches": #"[{"name":"develop","commit":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},{"name":"z-last","commit":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}]"#,
+                "/repos/fixture-owner/sample/compare/main...fixture-upstream:develop": compareJSON
+            ]
+            if let payload = routes[path] {
+                let failure = path.contains("/compare/") && ProcessInfo.processInfo.arguments.contains("-upstream-preview-failure")
+                let accepted = request.url?.host == "api.github.com" && request.httpMethod == "GET"
+                    && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections" && !failure
+                client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: accepted ? 200 : 403,
+                    httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: Data((accepted ? payload : #"{"message":"Fixture preview denied"}"#).utf8))
+                client?.urlProtocolDidFinishLoading(self); return
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("-repository-file-search-preview") {
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let allowed = request.url?.host == "api.github.com" && request.httpMethod == "GET"
+                && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"
+            let head = String(repeating: "a", count: 40)
+            let file: [String: Any] = ["name": "editor.py", "path": "Sources/Feature/editor.py", "type": "file", "sha": "file-sha",
+                                      "size": Self.editorSource.utf8.count, "content": Data(Self.editorSource.utf8).base64EncodedString(), "encoding": "base64"]
+            var code = 403, payload: Any = ["message": "Unexpected branch search fixture request"]
+            if allowed {
+                if path == "/repos/fixture-owner/sample", query.isEmpty { code = 200; payload = try! JSONSerialization.jsonObject(with: Data(Self.repository.utf8)) }
+                else if path == "/repos/fixture-owner/sample/git/ref/heads/feature/search", query.isEmpty { code = 200; payload = ["object": ["sha": head]] }
+                else if path == "/repos/fixture-owner/sample/git/commits/" + head, query.isEmpty { code = 200; payload = ["sha": head, "tree": ["sha": "tree-sha"]] }
+                else if path == "/repos/fixture-owner/sample/git/trees/tree-sha", query.count == 1, query.first?.name == "recursive", query.first?.value == "1" {
+                    code = 200; payload = ["truncated": false, "tree": [
+                        ["path": "Sources", "mode": "040000", "type": "tree", "sha": "sources-sha"],
+                        ["path": "Sources/Feature", "mode": "040000", "type": "tree", "sha": "feature-sha"],
+                        ["path": "Sources/Feature/editor.py", "mode": "100644", "type": "blob", "sha": "file-sha", "size": Self.editorSource.utf8.count]
+                    ]]
+                } else if query.count == 1, query.first?.name == "ref", query.first?.value == "feature/search" {
+                    if path == "/repos/fixture-owner/sample/contents" { code = 200; payload = [["name": "Sources", "path": "Sources", "type": "dir", "sha": "sources-sha"]] }
+                    else if path == "/repos/fixture-owner/sample/contents/Sources/Feature" { code = 200; payload = [file] }
+                    else if path == "/repos/fixture-owner/sample/contents/Sources/Feature/editor.py" { code = 200; payload = file }
+                }
+            }
+            let bytes = try! JSONSerialization.data(withJSONObject: payload)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: bytes); client?.urlProtocolDidFinishLoading(self); return
+        }
         if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let allowed = request.url?.host == "api.github.com" && request.httpMethod == "GET"

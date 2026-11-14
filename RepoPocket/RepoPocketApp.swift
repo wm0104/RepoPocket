@@ -52,10 +52,8 @@ struct AccountRootView: View {
     @StateObject private var api = GitHub()
     @StateObject private var localGit = LocalGitRegistry()
     @StateObject private var updateChecker = UpdateChecker()
-    @EnvironmentObject private var accountPresentation: AccountPresentation
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab = 0
-    @State private var startupSheetVisible = false
-    @State private var startupSheetQueued = false
     var body: some View {
             TabView(selection: $selectedTab) {
                 RepositoriesView(api: api).tabItem { Label("主页", systemImage: "house") }.tag(0)
@@ -63,41 +61,21 @@ struct AccountRootView: View {
                 UploadView(api: api).tabItem { Label("提交 / 发布", systemImage: "arrow.up.doc") }.tag(3)
                 SettingsView(api: api, updateChecker: updateChecker).tabItem { Label("设置", systemImage: "gear") }.tag(4)
             }
-            .task { await updateChecker.automaticCheck(api: api) }
+            // `tabItem` keeps only the label's image and title, so the dot is drawn on the tab bar.
+            .background(UpdateTabBadge(tabIndex: 3, isVisible: updateChecker.hasUpdate).frame(width: 1, height: 1))
+            // Launch and every return to the foreground notify about updates; the per-account
+            // 15-minute window inside the checker bounds automatic network use.
+            .task { await updateChecker.appEntryCheck(api: api) }
+            .onChange(of: scenePhase) { phase in
+                guard phase == .active else { return }
+                NotificationCenter.default.post(name: Notification.Name("RepoPocket.upstreamForegroundCheck"), object: api.accountID)
+                Task { await updateChecker.appEntryCheck(api: api) }
+            }
             // Ask the system for network access during launch, not mid-Token or mid-check.
             .task { await NetworkWarmup.runOnceIfNeeded() }
-            .onReceive(updateChecker.$startupRelease) { release in
-                guard release != nil, !startupSheetQueued else { return }
-                startupSheetQueued = true
-            }
-            .task(id: startupSheetQueued) { await queueStartupSheet() }
-            .sheet(isPresented: $startupSheetVisible, onDismiss: {
-                // Swiping the sheet away counts as skipping this version, like 暂不更新.
-                updateChecker.skipAndDismissStartupRelease(accountID: api.accountID)
-                startupSheetQueued = false
-            }) {
-                if let release = updateChecker.startupRelease {
-                    StartupUpdateCard(api: api, checker: updateChecker, release: release) {
-                        updateChecker.dismissStartupUpdate()
-                        selectedTab = 4
-                    }.appSheetCornerRadius()
-                }
-            }
             .alert("提示", isPresented: Binding(get: { !api.message.isEmpty }, set: { if !$0 { api.message = "" } })) {
                 Button("好", role: .cancel) { api.message = "" }
             } message: { Text(api.message) }
-    }
-
-    // Reads of other observable objects stay out of body: during view evaluation a
-    // missing or mid-transition dependency would trap, and this path must never do that.
-    private func queueStartupSheet() async {
-        guard startupSheetQueued else { return }
-        // Let an existing system presentation finish its native dismissal first.
-        do { try await Task.sleep(nanoseconds: 500_000_000) } catch { return }
-        guard !Task.isCancelled, startupSheetQueued, updateChecker.startupRelease != nil,
-              api.isCurrentSession, api.message.isEmpty,
-              !accountPresentation.showing, DownloadStore.shared.picker == nil else { return }
-        startupSheetVisible = true
     }
 }
 
@@ -125,6 +103,7 @@ struct RepositoriesView: View {
     @EnvironmentObject private var accountPresentation: AccountPresentation
     @State private var attempted = false
     @StateObject private var personalIssues = CommunityPageStore<CollaborationItem>()
+    @StateObject private var upstreamUpdates = UpstreamUpdatesStore()
     @State private var repos: [Repository] = []
     @State private var starred: [Repository] = []
     @State private var showOpen = false
@@ -136,6 +115,7 @@ struct RepositoriesView: View {
     @State private var newName = ""
     @State private var isPrivate = true
     @State private var showCreate = false
+    @State private var showUpstreamWatch = false
     var body: some View {
         NavigationStack {
             List {
@@ -159,6 +139,8 @@ struct RepositoriesView: View {
                     }
                 } else {
                     RepositoryHomeLinksSection(api: api, owned: repos, starred: starred, loaded: loaded)
+                    UpstreamUpdatesSection(api: api, store: upstreamUpdates) { showUpstreamWatch = true }
+                        .id(api.accountID + ":" + AccountStore.generation.uuidString)
                     UserConnectionsSection(api: api)
                     PersonalIssuesSection(api: api, store: personalIssues)
                 }
@@ -217,6 +199,14 @@ struct RepositoriesView: View {
                 }.appSheetCornerRadius()
             }
         }
+        .sheet(isPresented: $showUpstreamWatch) {
+            NavigationStack {
+                UpstreamWatchAddView(api: api) { watch in
+                    upstreamUpdates.add(watch, api: api)
+                    Task { await upstreamUpdates.refresh(api: api, force: true) }
+                }
+            }.appSheetCornerRadius()
+        }
     }
     private func refreshStars() async {
         guard api.canCheckAppUpdate else { return }
@@ -249,6 +239,10 @@ struct RepositoriesView: View {
             guard generation == AccountStore.generation else { return }
             repos = result; starred = stars; loaded = true
             api.cacheCollection(result, section: .owned); api.cacheCollection(stars, section: .starred)
+            if refreshing, api.isCurrentSession {
+                NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())
+                NotificationCenter.default.post(name: Notification.Name("RepoPocket.upstreamRefreshRequested"), object: api.accountID)
+            }
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
     private func fork() async {
@@ -277,16 +271,12 @@ struct BrowserView: View {
     @State private var creatingRelease = false
     private var canWrite: Bool { RepositoryWriteRules.canWrite(push: repositoryInfo?.permissions?.push, sessionMatches: api.isCurrentSession) }
     @State private var showBranches = false
+    @State private var showingUpstreamSync = false
     @State private var showingRepositoryOwner = false
     @State private var repositoryDescriptionTarget: RepositoryDescriptionTarget?
     @State private var repositoryDeletionTarget: RepositoryDeletionTarget?
     @Environment(\.dismiss) private var dismiss
     private var activeBranch: String { selectedBranch.isEmpty ? branch : selectedBranch }
-    /// Root page or the current folder page; the long-press folder menu uses the same rules.
-    private var directoryLink: URL? {
-        path.isEmpty ? RepositoryLinkRules.canonicalURL(repo)
-            : RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: path, folder: true)
-    }
     @State private var entries: [Entry] = []
     @State private var loaded = false
     @State private var refreshing = false
@@ -350,7 +340,8 @@ struct BrowserView: View {
                             NavigationLink { HistoryView(api: api, repo: repo, branch: activeBranch) } label: { RepositoryFeatureLabel(title: "提交", symbol: "clock.arrow.circlepath", color: .gray) }
                         }
                         SoftGroupRow("upstream-sync") {
-                            NavigationLink { UpstreamSyncView(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, repository: repositoryInfo) } label: { Text("上游同步") }
+                            Button("上游同步") { showingUpstreamSync = true }
+                                .accessibilityIdentifier("repository-upstream-sync")
                         }
                     }
                 }
@@ -418,11 +409,16 @@ struct BrowserView: View {
 
         }
         .toolbar {
+            if showFiles || !path.isEmpty {
+                NavigationLink {
+                    RepositoryFileSearchView(api: api, repo: repo, branch: activeBranch, canWrite: canWrite)
+                        .id(api.accountID + ":" + activeBranch)
+                } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityLabel("搜索文件和文件夹").disabled(busy || activeBranch.isEmpty)
+            }
             if canWrite { Button("上传") { showUpload = true }.disabled(busy) }
             Menu {
                 CopyRepositoryLinkButton(repository: repo, feedback: copyFeedback)
-                Button { copyFeedback.copy(url: directoryLink) } label: { Label("复制当前目录链接", systemImage: "doc.on.doc") }
-                    .disabled(directoryLink == nil)
                 if !path.isEmpty || showFiles {
                     ForkRepositoryMenuButton(repository: repo, api: api, state: forkMenu)
                     RepositoryStarMenuButton(name: repo, repository: repositoryInfo, api: api)
@@ -431,7 +427,7 @@ struct BrowserView: View {
                 NavigationLink("提交历史") { HistoryView(api: api, repo: repo, branch: activeBranch) }
                 if path.isEmpty && canWrite { Button("新建发行版") { creatingRelease = true } }
                 Button("下载整个仓库 ZIP") { Task { await zip() } }
-                Button("刷新目录") { Task { await load() } }
+                Button("刷新目录") { Task { refreshing = true; defer { refreshing = false }; await load() } }
                 Button("删除远端仓库…", role: .destructive) {
                     if let repositoryInfo, repositoryInfo.permissions?.admin == true {
                         repositoryDeletionTarget = RepositoryDeletionTarget(repository: repositoryInfo, context: api.deletionContext(repositoryInfo))
@@ -442,6 +438,9 @@ struct BrowserView: View {
         .repositoryCopyNotice(copyFeedback)
         .downloadCompletionNotice($downloadedZIP)
         .repositoryForkConfirmation(forkMenu, api: api)
+        .navigationDestination(isPresented: $showingUpstreamSync) {
+            UpstreamSyncView(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, repository: repositoryInfo)
+        }
         .navigationDestination(isPresented: $showingRepositoryOwner) {
             if let repositoryInfo {
                 let owner = RepositoryPresentationRules.owner(login: repositoryInfo.owner?.login, fullName: repositoryInfo.full_name)
@@ -493,6 +492,9 @@ struct BrowserView: View {
             try Task.checkCancellation()
             guard generation == AccountStore.generation, activeBranch == requestedBranch else { return }
             selectedBranch = resolved; entries = result; loaded = true
+            if refreshing, api.isCurrentSession {
+                NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())
+            }
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
         // Statistics are optional metadata: their failure must not block file browsing.
         // Fetch once after contents; do not clear repositoryInfo again here — the
@@ -559,7 +561,6 @@ struct FileView: View {
     @State private var commitMessage = "Update file via RepoPocket"
     @State private var showMetadata = false
     @State private var showDeb = false
-    @StateObject private var copyFeedback = RepositoryCopyFeedback()
     @State private var confirmSave = false
     @State private var confirmDelete = false
     @State private var deleted = false
@@ -594,10 +595,6 @@ struct FileView: View {
                 if writable && editable && !deleted { Button("编辑") { text = originalText; editing = true }.disabled(busy || currentSHA.isEmpty) }
                 Menu {
                     Button("文件信息") { showFileInfo = true }
-                    Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: branch, path: entry.path)) } label: { Label("复制文件链接", systemImage: "doc.on.doc") }
-                        .disabled(RepositoryLinkRules.contentURL(repo, branch: branch, path: entry.path) == nil)
-                    Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: branch, path: entry.path, raw: true)) } label: { Label("复制 raw 链接", systemImage: "link") }
-                        .disabled(RepositoryLinkRules.contentURL(repo, branch: branch, path: entry.path, raw: true) == nil)
                     Button("下载 / 存到文件") { Task { await download() } }.disabled(busy || deleted)
                     NavigationLink("此文件的历史记录") { NativeFileHistoryView(api: api, repo: repo, path: entry.path, branch: branch) }
                     if editable { Button("重新加载") { Task { await read() } }.disabled(busy || deleted) }
@@ -611,7 +608,6 @@ struct FileView: View {
         .sheet(isPresented: $editing, onDismiss: { text = originalText }) { editor }
         .sheet(isPresented: $showDeb) { DebEditorView(api: api, remote: (repo, entry, branch), canWrite: writable) }
         .sheet(isPresented: $showMetadata) { TrollMetadataView(api: api, repo: repo, entry: entry, branch: branch, canWrite: writable) }
-        .repositoryCopyNotice(copyFeedback)
         .downloadCompletionNotice($downloadedFile)
         .confirmationDialog("永久删除仓库中的 \(entry.name)？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("确认删除", role: .destructive) { Task { await remove() } }
@@ -787,7 +783,11 @@ struct SettingsView: View {
     private func refreshProfile() async {
         guard !busy, !CredentialStore.read().isEmpty else { return }
         busy = true; defer { busy = false }
-        do { try await api.identify() }
+        do {
+            try await api.identify()
+            guard api.isCurrentSession else { return }
+            NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())
+        }
         catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
     private func verify() async {

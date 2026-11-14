@@ -280,6 +280,12 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
              'ReleasePublishPlan.swift', 'ReleaseTransfers.swift']:
     current = source(file)
     if file == 'GitHub.swift':
+        # Remote branch deletion has focused native safety/transport fixtures;
+        # exclude only that newly added method, never its historic neighbors.
+        deletion_start = current.index('    func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {')
+        deletion_end = current.index('    func fetchWorkspace(', deletion_start)
+        assert current[deletion_start:deletion_end].count('    func ') == 1
+        current = current[:deletion_start] + current[deletion_end:]
         # Current-account social writes are isolated and covered by native request/state fixtures.
         social_marker = '// Current-account profile writes have their own endpoint and acknowledgement checks.\n'
         assert current.count(social_marker) == 1
@@ -314,6 +320,11 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         start = current.index('    // Read-only gateway')
         end = current.index('    func searchUsers(', start)
         gateway = current[start:end]
+        # File-page GFM rendering is a read-only render call with its own fixtures.
+        render_start = gateway.index('    /// Server-side GFM rendering for file pages.')
+        render_end = gateway.index('    // Native collaboration transport:', render_start)
+        assert 'url("/markdown")' in gateway[render_start:render_end]
+        gateway = gateway[:render_start] + gateway[render_end:]
         read_gateway = gateway.split('    // Native collaboration transport:')[0]
         assert 'try await data(path, query: query)' in read_gateway and 'method:' not in read_gateway
         current = current[:start] + current[end:]
@@ -352,6 +363,13 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         helper_start = current.index('    private func uploadGitBlobFile(')
         helper_end = current.index('    func history(', helper_start)
         current = current[:helper_start] + current[helper_end:]
+        # Remote branch rename is create-then-delete over the same documented ref
+        # endpoints; its shapes are covered by test_remote_branch_rename.py.
+        rename_start = current.index('    /// Local-facing rename becomes create-then-delete on GitHub:')
+        rename_end = current.index('\n    }\n', rename_start) + len('\n    }\n')
+        if current[rename_end:rename_end + 1] == '\n': rename_end += 1
+        assert 'func renameBranch(' in current[rename_start:rename_end]
+        current = current[:rename_start] + current[rename_end:]
         old_github = baseline(file)
         # Only the obsolete manual cache-reset hook is removed; retain the
         # byte guard on cache fetching and every unrelated API operation.
@@ -429,7 +447,13 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         cache_end = old.index('    func image(for url:', cache_start)
         old = old[:cache_start] + old[cache_end:]
         begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
-        assert current.split(begin)[0] == old.split(begin)[0]
+        # Explicit user refresh now revalidates cached avatars. Its actor/loader
+        # behavior is covered by test_avatar_refresh's production harness; keep
+        # the redirect policy and all unrelated repository rendering frozen.
+        assert current.split('actor AvatarPipeline')[0] == old.split('actor AvatarPipeline')[0]
+        assert 'configuration.urlCredentialStorage = nil' in current
+        assert 'RepoPocket.avatarRefreshRequested' in current
+        assert '.reloadRevalidatingCacheData' in current
         assert current.split('struct LoadingRows:')[1] == old.split('struct LoadingRows:')[1]
         assert current.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0] == old.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0]
         assert 'openOwner: openOwner' in current
@@ -608,6 +632,15 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             changed = current.get(signature, '')
             expected = body.replace('guard file.startAccessingSecurityScopedResource() else { throw AppError(text: "文件未授权，请重选。") }\n            defer { file.stopAccessingSecurityScopedResource() }', 'let scoped = file.startAccessingSecurityScopedResource()\n            defer { if scoped { file.stopAccessingSecurityScopedResource() }; ShareSelectionCleanup.remove([file]) }\n            guard FileManager.default.isReadableFile(atPath: file.path) else { throw AppError(text: "文件未授权，请重选。") }')
             assert changed == expected, signature
+            continue
+        if file == 'RepoPocketApp.swift' and signature in ('private func refresh() async', 'private func load() async', 'private func refreshProfile() async'):
+            # Explicit successful refresh may now notify avatars/upstream readers;
+            # remove only these exact events before freezing the original API path.
+            changed = current.get(signature, '')
+            changed = changed.replace('            if refreshing, api.isCurrentSession {\n                NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())\n                NotificationCenter.default.post(name: Notification.Name("RepoPocket.upstreamRefreshRequested"), object: api.accountID)\n            }\n', '')
+            changed = changed.replace('            if refreshing, api.isCurrentSession {\n                NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())\n            }\n', '')
+            changed = changed.replace('        do {\n            try await api.identify()\n            guard api.isCurrentSession else { return }\n            NotificationCenter.default.post(name: Notification.Name("RepoPocket.avatarRefreshRequested"), object: UUID())\n        }', '        do { try await api.identify() }')
+            assert changed == body, (file, signature)
             continue
         if file == 'RepoPocketApp.swift' and signature in ('private func read() async', 'private func save() async'):
             # Approved file-reader redesign: automatic bounded reading and a
