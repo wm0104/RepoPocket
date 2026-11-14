@@ -79,7 +79,9 @@ struct CommitDetailView: View {
                 Section("变更文件") {
                     ForEach(files) { f in
                         NavigationLink {
-                            CommitPatchDestination(file: f)
+                            ScrollView([.horizontal, .vertical]) {
+                                Text(f.preview).font(.system(.caption, design: .monospaced)).textSelection(.enabled).padding()
+                            }.navigationTitle((f.filename as NSString).lastPathComponent)
                         } label: {
                             VStack(alignment: .leading) {
                                 Text(f.filename)

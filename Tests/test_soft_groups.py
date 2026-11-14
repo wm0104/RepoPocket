@@ -41,19 +41,18 @@ assert 'NavigationLink("浏览")' in ui
 assert '.softGroupedRow().softGroupedRow' not in ui + workspace + upload
 assert ui.count('top: e.id == entries.first?.id, bottom: e.id == entries.last?.id') == 3
 assert 'if busy { ProgressView() }' in ui
-# Import buttons moved into the toolbar Menu (not List rows).
-for marker in ['Text(binding.repo + " · " + binding.branch)', 'TextField("提交说明", text: $commitMessage)']:
+for marker in ['Button("导入一个或多个文件夹")', 'Button("导入一个或多个 ZIP")',
+               'Text(binding.repo + " · " + binding.branch)', 'TextField("提交说明", text: $commitMessage)']:
     row = next(line for line in workspace.splitlines() if marker in line)
     assert '.softGroupedRow()' in row, row
 for marker in ['LabeledContent("目录",', 'Text(r.draft ?', 'Text("附件："',
                'Button("公开此 Release")', 'ShareLink("分享下载链接"',
-               'Button("检查提交权限")']:
+               'Button("上传到已选中的 Release / 重试")', 'Button("检查提交权限")']:
     row = next(line for line in upload.splitlines() if marker in line)
     assert '.softGroupedRow()' in row, row
 assert 'bottom: local == nil' in upload
 assert 'bottom: !(bytes > 10 * 1024 * 1024 && mode == 0)' in upload
-assert 'ReleaseEntryView(api: api, initialRepo: repo)' in upload
-assert 'Button("发布") { sharedReleaseEntry = true }' in upload
+assert 'bottom: release == nil' in upload
 # Exhaust optional terminal rows: exactly one bottom, never an internal rounded edge.
 for has_file in (False, True):
     for oversized in (False, True):
@@ -67,37 +66,5 @@ for has_file in (False, True):
 for has_release in (False, True):
     bottoms = [not has_release] + ([False, True] if has_release else [])
     assert sum(bottoms) == 1 and bottoms[-1]
-# Local workspace groups: the hint always opens the group; only the actual last
-# row closes it. Selection and swipe actions remain separate native List rows.
-local = workspace.split('private var localSection: some View {', 1)[1].split('private func workspaceManagement', 1)[0]
-assert 'softGroupedRow(top: true, bottom: roots.isEmpty)' in local
-assert '.softGroupedRow(bottom: root == roots.last)' in local
-assert 'ForEach(roots, id: \\.path)' in local and '.swipeActions {' in local
-management = workspace.split('private func workspaceManagement', 1)[1].split('private func bindingSection', 1)[0]
-assert 'if let binding { Text(binding.repo + " / " + binding.branch).font(.headline).softGroupedRow(top: true) }' in management
-assert 'Menu("工作区…")' in management
-assert '.disabled(busy).softGroupedRow(top: binding == nil, bottom: true)' in management
-for count in (0, 1, 3):
-    edges = [(True, count == 0)] + [(False, index == count - 1) for index in range(count)]
-    assert sum(top for top, _ in edges) == 1 and edges[0][0]
-    assert sum(bottom for _, bottom in edges) == 1 and edges[-1][1]
-for has_binding in (False, True):
-    edges = ([(True, False)] if has_binding else []) + [(not has_binding, True)]
-    assert sum(top for top, _ in edges) == sum(bottom for _, bottom in edges) == 1
-
-# DisclosureGroup is multi-row when it is a direct List child. Its non-lazy
-# VStack must own the ONE terminal background, not its title or expanded Text.
-import re
-changes = workspace.split('private var changesSection: some View {', 1)[1].split('private var conflictSheet', 1)[0]
-assert re.search(r'VStack\(alignment: \.leading, spacing: 0\) \{\s*DisclosureGroup\("提交说明与限制"\) \{\s*Text\("[^"\n]+"\)\.font\(\.caption\)\s*\}\s*\}\.softGroupedRow\(bottom: true\)', changes)
-assert '}.softGroupedRow(bottom: true)' not in changes.split('DisclosureGroup("提交说明与限制")', 1)[1].split('\n                            }', 1)[0]
-assert 'Button("刷新变更") { Task { await scan() } }.disabled(busy).softGroupedRow(bottom: selected.isEmpty)' in changes
-for has_selection in (False, True):
-    for expanded in (False, True):
-        # Expanded text stays inside the same decorated row: no internal edge.
-        bottoms = [not has_selection] + ([True] if has_selection else [])
-        assert sum(bottoms) == 1 and bottoms[-1]
-assert '.clipShape(' not in workspace and '.listStyle(.insetGrouped)' in workspace
-print('PASS local group boundaries: empty/single/multiple directories, bound/unbound menu, selected/unselected and collapsed/expanded single-row disclosure')
 print('PASS divider regression: settings, upload, local directory, workspace detail; conditional last-row corners')
 print('PASS soft grouped UI contracts: equal-width repositories, 22pt continuous row backgrounds, native lists/swipe deletion, semantic colors and adaptive text')

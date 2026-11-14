@@ -26,16 +26,14 @@ struct RepoPocketApp: App {
 struct AccountRootView: View {
     @StateObject private var api = GitHub()
     @StateObject private var gitCore = GitCore()
-    @StateObject private var updateChecker = UpdateChecker()
     var body: some View {
             TabView {
                 RepositoriesView(api: api).tabItem { Label("仓库", systemImage: "shippingbox") }
                 GitWorkspaceView().environmentObject(gitCore).tabItem { Label("Git", systemImage: "arrow.triangle.branch") }
                 WorkspaceView(api: api).tabItem { Label("本地", systemImage: "folder.badge.gearshape") }
                 UploadView(api: api).tabItem { Label("提交 / 发布", systemImage: "arrow.up.doc") }
-                SettingsView(api: api, updateChecker: updateChecker).tabItem { Label("设置", systemImage: "gear") }.badge(updateChecker.hasUpdate ? "●" : nil)
+                SettingsView(api: api).tabItem { Label("设置", systemImage: "gear") }
             }
-            .task { await updateChecker.automaticCheck(api: api) }
             .alert("提示", isPresented: Binding(get: { !api.message.isEmpty }, set: { if !$0 { api.message = "" } })) {
                 Button("好", role: .cancel) { api.message = "" }
             } message: { Text(api.message) }
@@ -193,8 +191,6 @@ struct BrowserView: View {
     @State private var repositoryInfo: Repository?
     @StateObject private var copyFeedback = RepositoryCopyFeedback()
     @StateObject private var forkMenu = RepositoryForkMenuState()
-    @StateObject private var releasePresence = ReleasePresenceState()
-    @State private var creatingRelease = false
     private var canWrite: Bool { RepositoryWriteRules.canWrite(push: repositoryInfo?.permissions?.push, sessionMatches: api.isCurrentSession) }
     @State private var showBranches = false
     @State private var repositoryDeletionTarget: RepositoryDeletionTarget?
@@ -223,13 +219,6 @@ struct BrowserView: View {
                         CompactRepositorySummary(fullName: repo, name: "")
                     }
                 }.textSelection(.enabled).softGroupedRow(top: true, bottom: true)
-            }
-            if path.isEmpty && releasePresence.exists && api.isCurrentSession {
-                Section {
-                    NavigationLink { ReleaseManagementDestination(api: api, repo: repo) } label: {
-                        Label("发行版", systemImage: "shippingbox")
-                    }.softGroupedRow(top: true, bottom: true)
-                }
             }
             if busy && entries.isEmpty && !refreshing { LoadingRows() }
             if entries.isEmpty && !busy {
@@ -284,7 +273,6 @@ struct BrowserView: View {
                 RepositoryStarMenuButton(name: repo, repository: repositoryInfo, api: api)
                 Button("切换 / 创建分支") { showBranches = true }
                 NavigationLink("提交历史") { HistoryView(api: api, repo: repo, branch: activeBranch) }
-                if path.isEmpty && canWrite { Button("新建发行版") { creatingRelease = true } }
                 Button("下载整个仓库 ZIP") { Task { await zip() } }
                 Button("刷新目录") { Task { await load() } }
                 Button("删除远端仓库…", role: .destructive) {
@@ -297,18 +285,6 @@ struct BrowserView: View {
         .repositoryCopyNotice(copyFeedback)
         .repositoryForkConfirmation(forkMenu, api: api)
         .task { if !loaded { await load() } }
-        .task { if path.isEmpty { releasePresence.load(api: api, repo: repo) } }
-        .onDisappear { releasePresence.cancel() }
-        .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in releasePresence.reset() }
-        .onReceive(NotificationCenter.default.publisher(for: .releaseManagementChanged)) { notice in
-            if path.isEmpty, notice.userInfo?["repo"] as? String == repo,
-               notice.userInfo?["generation"] as? UUID == AccountStore.generation {
-                releasePresence.load(api: api, repo: repo, refresh: true)
-            }
-        }
-        .sheet(isPresented: $creatingRelease, onDismiss: {
-            if path.isEmpty { releasePresence.load(api: api, repo: repo, refresh: true) }
-        }) { if canWrite { ReleaseEditorView(api: api, repo: repo, original: nil) } }
         .sheet(item: $repositoryDeletionTarget) { target in
             RepositoryDeletionView(api: api, repository: target.repository, context: target.context) {
                 entries = []; repositoryInfo = nil; dismiss()
@@ -503,7 +479,7 @@ struct FileView: View {
 
 struct SettingsView: View {
     @ObservedObject var api: GitHub
-    @ObservedObject var updateChecker: UpdateChecker
+    @StateObject private var updateChecker = UpdateChecker()
     @State private var pendingRemoval: GitHubAccount?
     @EnvironmentObject private var accountPresentation: AccountPresentation
     @State private var token = ""
@@ -552,7 +528,7 @@ struct SettingsView: View {
                 Section {
                     AppUpdateSection(api: api, checker: updateChecker)
                     // The version is the stable final row of the update group in every state.
-                    Text("RepoPocket " + AppUpdateSessionRules.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—", build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—") + " · iOS 16+").foregroundColor(.secondary).softGroupedRow(bottom: true)
+                    Text("RepoPocket \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") · iOS 16+").foregroundColor(.secondary).softGroupedRow(bottom: true)
                 }
             }.formStyle(.grouped).navigationTitle("设置").adaptiveWorkspaceLayout()
             .task { if !CredentialStore.read().isEmpty { try? await api.identify() } }
