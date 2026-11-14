@@ -36,7 +36,7 @@ class WorkflowInputsTests(unittest.TestCase):
             self.assertIn(value, field)
         for value in ['NativeActionMenu.Coordinator', 'coordinator.installMenu(on: button)', 'value.selected = item.title == selectedTitle', 'showsMenuAsPrimaryAction = true', '@available(iOS 16.0, *)']:
             self.assertIn(value, bridge)
-        self.assertIn('state: item.selected ? .on : .off', (ROOT / 'RepoPocket/NativeActionMenu.swift').read_text(encoding='utf-8'))
+        self.assertIn('state: (item.selectedState?() ?? item.selected) ? .on : .off', (ROOT / 'RepoPocket/NativeActionMenu.swift').read_text(encoding='utf-8'))
         self.assertNotIn('WKWebView', field + bridge + view)
         self.assertIn('SoftGroupRows', view)
         self.assertIn('for input in definition.schema.inputs', view)

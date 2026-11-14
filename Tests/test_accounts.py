@@ -29,6 +29,10 @@ enum RepositoryFavorites {
     static var removed: [String] = []
     static func removeAccount(_ id: String) { removed.append(id) }
 }
+enum StarListLocalOrder {
+    static var removed: [String] = []
+    static func removeAccount(_ id: String) { removed.append(id) }
+}
 ''' + store + models + r'''
 UserDefaults.standard.removeObject(forKey: AccountStore.accountsKey)
 UserDefaults.standard.removeObject(forKey: AccountStore.activeKey)
@@ -51,6 +55,7 @@ AccountStore.remove(second.id)
 precondition(AccountStore.activeID == first.id && CredentialStore.tokens[second.id] == nil)
 precondition(ContentSnapshotCache.shared.removed == [second.id] && RemoteHistoryBackup.removed == [second.id])
 precondition(RepositoryFavorites.removed == [second.id])
+precondition(StarListLocalOrder.removed == [second.id])
 precondition(CredentialStore.tokens[first.id] == "fixture-alpha")
 let raw = #"{"id":7,"full_name":"organization/tool","name":"tool","description":null,"default_branch":"main","html_url":"https://github.com/organization/tool","private":true,"updated_at":"2026-10-10T00:00:00Z","owner":{"id":9,"login":"organization","avatar_url":"https://avatars.githubusercontent.com/u/9"}}"#
 let repo = try JSONDecoder().decode(Repository.self, from: Data(raw.utf8))

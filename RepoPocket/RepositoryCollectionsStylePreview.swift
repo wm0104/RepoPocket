@@ -26,6 +26,7 @@ struct RepositoryCollectionsStylePreview: View {
             guard api == nil else { return }
             if !ProcessInfo.processInfo.arguments.contains("-keep-collection-favorites") {
                 RepositoryFavorites.removeAccount("collections-style-preview"); RepositoryFavorites.removeAccount("collections-other-preview")
+                StarListLocalOrder.removeAccount("collections-style-preview"); StarListLocalOrder.removeAccount("collections-other-preview")
             }
             CollectionsPreviewProtocol.reset(); prepare("collections-style-preview")
         }
@@ -44,7 +45,14 @@ private final class CollectionsPreviewProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var lists = ["A": "工具", "B": "其他分类"]
     private static var members = ["A": Set<Int>(), "B": Set([1])]
-    static func reset() { lock.lock(); defer { lock.unlock() }; lists = ["A": "工具", "B": "其他分类"]; members = ["A": [], "B": [1]] }
+    private static var failureUsed = false
+    private static var membershipReadFailures = 0
+    static func reset() {
+        lock.lock(); defer { lock.unlock() }
+        lists = ["A": "工具", "B": "其他分类"]; members = ["A": [], "B": [1]]
+        failureUsed = false; membershipReadFailures = 0
+        if ProcessInfo.processInfo.arguments.contains("-star-list-seeded-preview") { members["A"] = [1, 2] }
+    }
     private static let owner: [String: Any] = ["id": "U_fixture", "login": "fixture-owner"]
     private static func repository(_ id: Int) -> [String: Any] {
         ["id": id, "name": id == 1 ? "collection-fixture" : "second", "full_name": "fixture-owner/" + (id == 1 ? "collection-fixture" : "second"),
@@ -96,6 +104,10 @@ private final class CollectionsPreviewProtocol: URLProtocol {
         if query.hasPrefix("query StarListIndex") {
             var viewer = Self.owner; viewer["lists"] = Self.connection(Self.lists.keys.sorted().map(Self.list)); payload = ["viewer": viewer]
         } else if query.hasPrefix("query StarListItems"), let id = vars["id"] as? String, Self.lists[id] != nil {
+            if Self.membershipReadFailures > 0 {
+                Self.membershipReadFailures -= 1
+                Self.lock.unlock(); reply(["errors": [["message": "Fixture membership read unavailable"]]]); return
+            }
             payload = ["viewer": Self.owner, "node": ["id": id, "user": Self.owner, "items": Self.connection((Self.members[id] ?? []).sorted().map(Self.graphRepository))]]
         } else if query.hasPrefix("query StarListTarget") {
             payload = ["viewer": Self.owner, "repository": Self.graphRepository(vars["name"] as? String == "second" ? 2 : 1)]
@@ -108,7 +120,16 @@ private final class CollectionsPreviewProtocol: URLProtocol {
                 Self.lists[id] = nil; Self.members[id] = nil; payload = ["deleteUserList": ["user": Self.owner]]
             } else if query.hasPrefix("mutation SetStarListMembership"), let item = input["itemId"] as? String,
                       let id = Int(item.dropFirst()), let ids = input["listIds"] as? [String], ids.allSatisfy({ Self.lists[$0] != nil }) {
+                if ProcessInfo.processInfo.arguments.contains("-star-list-partial-remove-preview"), item == "R2", !ids.contains("A"), !Self.failureUsed {
+                    Self.failureUsed = true
+                    Self.lock.unlock(); reply(["errors": [["message": "Fixture second removal rejected"]]]); return
+                }
                 for key in Self.lists.keys { if ids.contains(key) { Self.members[key, default: []].insert(id) } else { Self.members[key]?.remove(id) } }
+                if ProcessInfo.processInfo.arguments.contains("-star-list-unknown-add-preview"), ids.contains("A"), !Self.failureUsed {
+                    Self.failureUsed = true; Self.membershipReadFailures = 1
+                    NotificationCenter.default.post(name: .init("CollectionsPreview.write"), object: nil)
+                    Self.lock.unlock(); reply(["errors": [["message": "Fixture applied write but response was lost"]]]); return
+                }
                 payload = ["updateUserListsForItem": ["item": ["id": item], "user": Self.owner, "lists": ids.map(Self.list)]]
             } else { Self.lock.unlock(); reply(["errors": [["message": "Unexpected fixture mutation"]]]); return }
             NotificationCenter.default.post(name: .init("CollectionsPreview.write"), object: nil)

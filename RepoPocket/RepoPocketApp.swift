@@ -300,6 +300,7 @@ struct BrowserView: View {
     private var canWrite: Bool { metadataFresh && RepositoryWriteRules.canWrite(push: repositoryInfo?.permissions?.push, sessionMatches: api.isCurrentSession) }
     @State private var metadataFresh = false
     @StateObject private var metadata = PathCommitMetadataState()
+    @State private var openedPathCommit: PathCommitMetadata?
     @State private var loadID: UUID?
     @State private var contentBranch = ""
     @State private var updatedAt: Date?
@@ -389,43 +390,64 @@ struct BrowserView: View {
                     }
                 RepositoryReadmeSection(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, state: readmeState, connected: true, revalidationID: revalidationID)
     }
+    private static func directoryEntryPrecedes(_ lhs: Entry, _ rhs: Entry) -> Bool {
+        if (lhs.type == "dir") != (rhs.type == "dir") { return lhs.type == "dir" }
+        let order = lhs.name.localizedStandardCompare(rhs.name)
+        if order != .orderedSame { return order == .orderedAscending }
+        if lhs.name != rhs.name { return lhs.name < rhs.name }
+        return lhs.path < rhs.path
+    }
     @SoftGroupRowsBuilder private var directoryRows: [SoftGroupRow] {
             if busy && entries.isEmpty && !refreshing { SoftGroupRow("loading") { LoadingRows() } }
             if entries.isEmpty && !busy {
                 SoftGroupRow("empty") { Label("此目录没有文件", systemImage: "folder").foregroundColor(.secondary).padding(.vertical) }
             }
-            for e in entries {
+            for e in entries.sorted(by: Self.directoryEntryPrecedes) {
               SoftGroupRow("entry-" + e.id) {
                 if e.type == "dir" {
-                    HStack {
-                    NavigationLink { DirectoryBrowserDestination(api: api, repo: repo, path: e.path, branch: activeBranch) } label: { Label(e.name, systemImage: "folder") }
-                        .accessibilityIdentifier("repository-entry-" + e.path)
+                    HStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "folder").font(.body).frame(width: 20).foregroundStyle(Color.accentColor)
+                            Text(e.name).lineLimit(1).truncationMode(.tail)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(minHeight: 28)
+                        .accessibilityHidden(true)
+                        // Keep the link hit area on the name, without List disclosure indicators.
+                        .overlay {
+                            NavigationLink { DirectoryBrowserDestination(api: api, repo: repo, path: e.path, branch: activeBranch) } label: { Color.clear.contentShape(Rectangle()) }
+                                .buttonStyle(.plain).opacity(0)
+                                .accessibilityHidden(false)
+                                .accessibilityLabel(e.name)
+                                .accessibilityIdentifier("repository-entry-" + e.path)
+                        }
                         .contextMenu {
                             Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path, folder: true)) } label: { Label("复制文件夹链接", systemImage: "doc.on.doc") }
                         }
-                        PathCommitMetadataLink(api: api, repo: repo, path: e.path, commit: metadata.commits[e.path])
+                        PathCommitMetadataLink(path: e.path, commit: metadata.commits[e.path]) { openedPathCommit = $0 }
                     }
                 } else if e.type == "file" {
-                    HStack {
-                        NavigationLink { FileView(api: api, repo: repo, entry: e, branch: activeBranch, canWrite: canWrite) } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: e.name.lowercased().hasSuffix(".deb") ? "shippingbox.fill" : "doc.text.fill")
-                                    .font(.title3).foregroundColor(.accentColor)
-                                    .frame(width: 40, height: 44)
-                                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.045), lineWidth: 0.5)
-                    }
-                                VStack(alignment: .leading, spacing: 4) { Text(e.name); Text(ByteCountFormatter.string(fromByteCount: Int64(e.size ?? 0), countStyle: .file)).font(.caption).monospacedDigit().foregroundColor(.secondary) }
-                            }.padding(.vertical, 6)
+                    HStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: e.name.lowercased().hasSuffix(".deb") ? "shippingbox" : "doc.text")
+                                .font(.body).frame(width: 20).foregroundStyle(Color.accentColor)
+                            Text(e.name).lineLimit(1).truncationMode(.tail)
                         }
-                        PathCommitMetadataLink(api: api, repo: repo, path: e.path, commit: metadata.commits[e.path])
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(minHeight: 28)
+                        .accessibilityHidden(true)
+                        .overlay {
+                            NavigationLink { FileView(api: api, repo: repo, entry: e, branch: activeBranch, canWrite: canWrite) } label: { Color.clear.contentShape(Rectangle()) }
+                                .buttonStyle(.plain).opacity(0)
+                                .accessibilityHidden(false)
+                                .accessibilityLabel(e.name)
+                                .accessibilityIdentifier("repository-entry-" + e.path)
+                        }
+                        PathCommitMetadataLink(path: e.path, commit: metadata.commits[e.path]) { openedPathCommit = $0 }
                         if canWrite && e.name.lowercased().hasSuffix(".deb") {
                             Menu { Button("编辑包信息") { debEntry = e } } label: { Image(systemName: "ellipsis").padding(8) }.accessibilityLabel("更多操作：" + e.name)
                         }
                     }
-                    .accessibilityIdentifier("repository-entry-" + e.path)
                     .contextMenu {
                         Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path)) } label: { Label("复制文件链接", systemImage: "doc.on.doc") }
                         Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path, raw: true)) } label: { Label("复制 raw 链接", systemImage: "link") }
@@ -506,6 +528,11 @@ struct BrowserView: View {
         .repositoryCopyNotice(copyFeedback)
         .downloadCompletionNotice($downloadedZIP)
         .repositoryForkConfirmation(forkMenu, api: api)
+        .appNavigationDestination(isPresented: Binding(get: { openedPathCommit != nil }, set: { if !$0 { openedPathCommit = nil } })) {
+            if let commit = openedPathCommit {
+                CommitDetailView(api: api, repo: repo, sha: commit.oid)
+            }
+        }
         .appNavigationDestination(isPresented: $showingHistory) {
             HistoryView(api: api, repo: repo, branch: activeBranch)
         }
@@ -870,7 +897,7 @@ struct SettingsView: View {
                     NativeMenuItem.submenu("通用", symbol: "gearshape", children: [
                         NativeMenuItem.submenu("主题", symbol: "circle.lefthalf.filled", singleSelection: true, children:
                             [("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")].map { mode, title in
-                                NativeMenuItem(id: "theme-" + mode, title: title, selected: appearance == mode) { appearance = mode }
+                                NativeMenuItem(id: "theme-" + mode, title: title, selectedState: { appearance == mode }) { appearance = mode }
                             })
                     ]),
                     NativeMenuItem(id: "download-folder", title: "选择文件夹", symbol: "folder", enabled: downloads.operations == 0, hint: downloads.label) {

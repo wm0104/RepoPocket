@@ -202,68 +202,207 @@ private struct StarListNameView: View {
 struct StarListDetailView: View {
     @ObservedObject var api: GitHub
     let list: StarRepositoryList
+    private enum Mode { case normal, sorting, removing }
+    @State private var mode = Mode.normal
     @State private var repositories: [StarListRepository] = []
     @State private var busy = false
+    @State private var membershipKnown = false
+    @State private var orderReady = false
     @State private var error = ""
+    @State private var notice = ""
+    @State private var progress = ""
     @State private var adding = false
     @State private var removing: StarListRepository?
+    @State private var confirmingBatch = false
+    @State private var selected = Set<String>()
     @State private var query = ""
     @State private var searchVisible = false
     @State private var operation: Task<Void, Never>?
     @State private var updatedAt: Date?
+    private var values: [StarListRepository] {
+        repositories.filter { HomeListSearch.matches(query, fields: [$0.nameWithOwner, $0.description ?? ""]) }
+    }
+    private var storage: StarListLocalOrder { StarListLocalOrder(accountID: api.accountID) }
     var body: some View {
-        List {
-            Section {
-                SoftGroupRows {
-                    if searchVisible { SoftGroupRow("search") { ListSearchField(query: $query, title: list.name) } }
-                    for item in repositories.filter({ HomeListSearch.matches(query, fields: [$0.nameWithOwner, $0.description ?? ""]) }) {
-                        SoftGroupRow(item.id) {
-                            NavigationLink { BrowserView(api: api, repo: item.nameWithOwner, path: "", branch: "") }
-                                label: { RepositoryCard(repository: item.repository, account: api.login, api: api) }
-                                .accessibilityIdentifier("star-list-repository-" + item.id)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) { Button("移出分类", role: .destructive) { removing = item }.disabled(busy) }
+        Group {
+            if mode == .sorting {
+                VStack(spacing: 0) {
+                    Text("长按卡片拖动排序，每次放下即保存。仅保存在本机。")
+                        .font(.caption).foregroundStyle(.secondary).padding()
+                    if !error.isEmpty { Text(error).font(.caption).padding(.horizontal).accessibilityIdentifier("star-list-detail-error") }
+                    StarListReorderView(items: repositories, isCurrent: { api.isCurrentSession && mode == .sorting && query.isEmpty }, card: { item in
+                        AnyView(RepositoryCard(repository: item.repository, account: api.login, api: api, copyLinkContextMenu: false).allowsHitTesting(false))
+                    }, commit: saveOrder)
+                }
+            } else {
+                List {
+                    Section {
+                        SoftGroupRows {
+                            if searchVisible { SoftGroupRow("search") { ListSearchField(query: $query, title: list.name) } }
+                            for item in values {
+                                SoftGroupRow(item.id) {
+                                    if mode == .removing {
+                                        Button {
+                                            if !selected.insert(item.id).inserted { selected.remove(item.id) }
+                                        } label: {
+                                            HStack {
+                                                Image(systemName: selected.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                                                // Selection rows must not embed the normal card's owner/parent buttons.
+                                                CompactRepositorySummary(fullName: item.repository.full_name, name: item.repository.name,
+                                                    owner: item.repository.owner?.login, avatarURL: item.repository.owner?.avatar_url,
+                                                    description: item.repository.description, repository: item.repository, starStore: api.stars)
+                                                    .environment(\.repositorySocialAPI, nil)
+                                            }
+                                        }.buttonStyle(.plain).disabled(busy || !membershipKnown)
+                                            .accessibilityElement(children: .ignore).accessibilityLabel(item.nameWithOwner)
+                                            .accessibilityIdentifier("star-list-select-" + item.id)
+                                            .accessibilityValue(selected.contains(item.id) ? "已选择" : "未选择")
+                                    } else {
+                                        NavigationLink { BrowserView(api: api, repo: item.nameWithOwner, path: "", branch: "") }
+                                            label: { RepositoryCard(repository: item.repository, account: api.login, api: api) }
+                                            .accessibilityIdentifier("star-list-repository-" + item.id)
+                                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                                Button("移出分类", role: .destructive) { removing = item }.disabled(busy || !membershipKnown)
+                                            }
+                                    }
+                                }
+                            }
+                            if busy && repositories.isEmpty { SoftGroupRow("busy") { ProgressView("核对分类…") } }
+                            if busy && !progress.isEmpty { SoftGroupRow("progress") { ProgressView(progress).accessibilityIdentifier("star-list-remove-progress") } }
+                            if !busy && repositories.isEmpty && error.isEmpty { SoftGroupRow("empty") { Text("此分类暂无仓库。").foregroundStyle(.secondary) } }
+                            if !notice.isEmpty { SoftGroupRow("notice") { Text(notice).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("star-list-detail-notice") } }
+                            if !error.isEmpty { SoftGroupRow("error") { Text(error).font(.caption).accessibilityIdentifier("star-list-detail-error") } }
+                            if updatedAt != nil { SoftGroupRow("freshness") { ContentFreshnessText(updatedAt: updatedAt, updating: busy, error: error) } }
                         }
                     }
-                    if busy && repositories.isEmpty { SoftGroupRow("busy") { ProgressView("核对分类…") } }
-                    if !busy && repositories.isEmpty && error.isEmpty { SoftGroupRow("empty") { Text("此分类暂无仓库。").foregroundStyle(.secondary) } }
-                    if !error.isEmpty { SoftGroupRow("error") { Text(error).font(.caption) } }
-                    if updatedAt != nil { SoftGroupRow("freshness") { ContentFreshnessText(updatedAt: updatedAt, updating: busy, error: error) } }
-                }
+                }.listStyle(.insetGrouped).refreshable { if mode != .sorting { await load() } }
             }
-        }.listStyle(.insetGrouped).navigationTitle(list.name).adaptiveWorkspaceLayout().disabled(!api.isCurrentSession)
+        }.navigationTitle(list.name).adaptiveWorkspaceLayout().disabled(!api.isCurrentSession)
         .navigationBarBackButtonHidden(busy)
         .toolbar {
-            ListSearchButton(visible: $searchVisible, query: $query, title: list.name)
-            NativeActionMenu(title: "分类仓库操作", enabled: !busy, items: [
-                NativeMenuItem(id: "add", title: "添加已加星标的仓库", symbol: "plus", perform: { adding = true }),
-                NativeMenuItem(id: "refresh", title: "刷新分类", symbol: "arrow.clockwise", perform: { operation = Task { await load() } })
-            ])
-        }
-        .task {
-            if let cached = api.cachedContent([StarListRepository].self, key: "star-list:" + list.id) { repositories = cached.value; updatedAt = cached.savedAt }
-            await load()
-        }.refreshable { await load() }
-        .sheet(isPresented: $adding, onDismiss: { operation = Task { await load() } }) { AppNavigationStack { StarListRepositoryPicker(api: api, list: list) }.appSheetCornerRadius() }
-        .confirmationDialog("移出这个分类？", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible, presenting: removing) { item in
-            Button("移出分类", role: .destructive) {
-                operation = Task {
-                    guard !busy else { return }; busy = true; error = ""
-                    do { try await api.starLists.setMembership(item.repository, list: list, included: false) }
-                    catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { self.error = error.localizedDescription + " 请刷新核对结果。" } }
-                    busy = false; if error.isEmpty { await load() }
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if mode != .sorting { ListSearchButton(visible: $searchVisible, query: $query, title: list.name) }
+                if mode != .normal {
+                    Button("完成") { mode = .normal; selected.removeAll() }.disabled(busy)
+                        .accessibilityIdentifier("star-list-edit-done")
+                }
+                if mode == .normal {
+                    NativeActionMenu(title: "分类仓库操作", enabled: !busy, items: [
+                        NativeMenuItem(id: "add", title: "添加已加星标的仓库", symbol: "plus", perform: { adding = true }),
+                        NativeMenuItem(id: "sort", title: "编辑排序", symbol: "arrow.up.arrow.down", enabled: !repositories.isEmpty && membershipKnown && orderReady,
+                            perform: {
+                                guard query.isEmpty else { error = "请先清空搜索词，再编辑全部仓库的排序。"; return }
+                                error = ""; mode = .sorting
+                            }),
+                        NativeMenuItem(id: "refresh", title: "刷新分类", symbol: "arrow.clockwise", perform: { operation = Task { await load() } })
+                    ])
                 }
             }
+            ToolbarItemGroup(placement: .bottomBar) {
+                if mode == .removing {
+                    Button("从分类移除(\(selected.count))", role: .destructive) { confirmingBatch = true }
+                        .disabled(busy || selected.isEmpty || !membershipKnown).accessibilityIdentifier("star-list-remove-selected")
+                }
+            }
+        }
+        .task {
+            if repositories.isEmpty, let cached = api.cachedContent([StarListRepository].self, key: "star-list:" + list.id) {
+                apply(cached.value, authoritative: false); updatedAt = cached.savedAt
+            }
+            await load()
+        }
+        .sheet(isPresented: $adding, onDismiss: { operation = Task { await load() } }) {
+            AppNavigationStack { StarListRepositoryPicker(api: api, list: list) }.appSheetCornerRadius()
+        }
+        .confirmationDialog("移出这个分类？", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible, presenting: removing) { item in
+            Button("移出分类", role: .destructive) { removing = nil; operation = Task { await remove([item]) } }
+            Button("取消", role: .cancel) { removing = nil }
         } message: { item in Text(item.nameWithOwner + "。仓库仍然保持Star，并保留其他分类归属。") }
-        .onDisappear { operation?.cancel() }
+        .confirmationDialog("从分类移除\(selected.count)个仓库？", isPresented: $confirmingBatch, titleVisibility: .visible) {
+            Button("确认从分类移除", role: .destructive) {
+                let pending = repositories.filter { selected.contains($0.id) }
+                operation = Task { await remove(pending) }
+            }
+            Button("取消", role: .cancel) {}
+        } message: { Text("只移出当前分类，保留Star、其他分类和仓库本身；不会删除分类。") }
+        .onChange(of: query) { _ in if mode == .sorting { mode = .normal } }
+        .onChange(of: api.isCurrentSession) { current in
+            if !current { operation?.cancel(); mode = .normal; membershipKnown = false; selected.removeAll(); removing = nil; confirmingBatch = false }
+        }
+        .onDisappear { operation?.cancel(); mode = .normal; membershipKnown = false; selected.removeAll(); removing = nil; confirmingBatch = false }
     }
-    private func load() async {
-        guard !busy, api.isCurrentSession else { return }; busy = true; error = ""; defer { busy = false }
+    private func saveOrder(_ ids: [String]) -> Bool {
+        guard api.isCurrentSession, mode == .sorting, query.isEmpty,
+              ids.count == repositories.count, Set(ids) == Set(repositories.map(\.id)) else { return false }
         do {
-            let values = try await api.starLists.repositories(in: list)
-            try Task.checkCancellation(); guard api.isCurrentSession else { return }; repositories = values; updatedAt = Date()
+            try storage.save(ids, listID: list.id, isCurrent: { api.isCurrentSession })
+            let byID = Dictionary(uniqueKeysWithValues: repositories.map { ($0.id, $0) })
+            repositories = ids.compactMap { byID[$0] }; error = ""
+            return true
+        } catch { self.error = "排序未保存，已恢复原顺序：" + error.localizedDescription; return false }
+    }
+    private func apply(_ values: [StarListRepository], authoritative: Bool) {
+        repositories = values; orderReady = false
+        do {
+            let ids = try storage.orderedIDs(listID: list.id, members: values.map(\.id))
+            let byID = Dictionary(uniqueKeysWithValues: values.map { ($0.id, $0) })
+            repositories = ids.compactMap { byID[$0] }
+            // A failed prune/save must not discard an order that was read successfully.
+            if authoritative { try storage.save(ids, listID: list.id, isCurrent: { api.isCurrentSession }) }
+            orderReady = true
+        } catch { self.error = "本机排序读取或保存失败：" + error.localizedDescription }
+        if authoritative {
+            membershipKnown = true; selected.formIntersection(Set(values.map(\.id))); updatedAt = Date()
             if let data = try? JSONEncoder().encode(values) { ContentSnapshotCache.shared.save(data, accountID: api.accountID, key: "star-list:" + list.id) }
         }
-        catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { self.error = error.localizedDescription } }
+    }
+    @discardableResult private func reconcile() async -> Bool {
+        membershipKnown = false
+        do {
+            let values = try await api.starLists.repositories(in: list)
+            try Task.checkCancellation(); guard api.isCurrentSession else { return false }
+            apply(values, authoritative: true)
+            return true
+        } catch {
+            if api.isCurrentSession, !RefreshFailure.isCancellation(error) {
+                membershipKnown = false
+                self.error += (self.error.isEmpty ? "" : "\n") + "成员核对失败：" + error.localizedDescription + " 请刷新；不会自动重发。"
+            }
+            return false
+        }
+    }
+    private func load() async {
+        guard !busy, api.isCurrentSession, mode != .sorting else { return }
+        busy = true; error = ""; defer { busy = false }
+        await reconcile()
+    }
+    private func remove(_ pending: [StarListRepository]) async {
+        guard !busy, membershipKnown, !pending.isEmpty, api.isCurrentSession else { return }
+        busy = true; error = ""; notice = ""; progress = "准备移出 0/\(pending.count)"
+        defer { busy = false; progress = "" }
+        var succeeded = 0
+        for (offset, item) in pending.enumerated() {
+            guard !Task.isCancelled, api.isCurrentSession else { return }
+            progress = "正在移出 \(offset + 1)/\(pending.count)"
+            do {
+                try await api.starLists.setMembership(item.repository, list: list, included: false)
+                try Task.checkCancellation(); guard api.isCurrentSession else { return }
+                succeeded += 1; selected.remove(item.id)
+                apply(repositories.filter { $0.id != item.id }, authoritative: true)
+            } catch {
+                guard api.isCurrentSession, !RefreshFailure.isCancellation(error) else { return }
+                self.error = error.localizedDescription + " 已暂停，请核对未完成项；不会自动重发。"
+                break
+            }
+        }
+        progress = "只读核对分类成员…"
+        let verified = await reconcile()
+        guard api.isCurrentSession, !Task.isCancelled else { return }
+        if verified {
+            let remaining = Set(repositories.map(\.id))
+            succeeded = pending.filter { !remaining.contains($0.id) }.count
+        }
+        notice = "已从分类移出\(succeeded)/\(pending.count)个仓库" + (verified ? "" : "；部分结果待核对")
     }
 }
 
@@ -272,10 +411,16 @@ private struct StarListRepositoryPicker: View {
     let list: StarRepositoryList
     @Environment(\.dismiss) private var dismiss
     @State private var repositories: [Repository] = []
+    @State private var memberIDs = Set<Int>()
+    @State private var membershipKnown = false
+    @State private var selected = Set<Int>()
+    @State private var multiple = false
     @State private var query = ""
     @State private var busy = false
     @State private var error = ""
-    @State private var attempted = false
+    @State private var notice = ""
+    @State private var progress = ""
+    @State private var operation: Task<Void, Never>?
     var body: some View {
         List {
             Section {
@@ -283,32 +428,122 @@ private struct StarListRepositoryPicker: View {
                     for repository in repositories.filter({ HomeListSearch.matches(query, fields: [$0.full_name, $0.description ?? ""]) }) {
                         SoftGroupRow(String(repository.id)) {
                             Button {
-                                busy = true; attempted = true; error = ""
-                                Task {
-                                    defer { busy = false }
-                                    do { try await api.starLists.setMembership(repository, list: list, included: true); guard api.isCurrentSession else { return }; dismiss() }
-                                    catch { if api.isCurrentSession { self.error = error.localizedDescription + " 请核对分类后再操作。" } }
-                                }
+                                if multiple {
+                                    if !selected.insert(repository.id).inserted { selected.remove(repository.id) }
+                                } else { operation = Task { await add([repository]) } }
                             } label: {
-                                CompactRepositorySummary(fullName: repository.full_name, name: repository.name,
-                                    owner: repository.owner?.login, avatarURL: repository.owner?.avatar_url, description: repository.description)
-                            }.buttonStyle(.plain).disabled(attempted)
+                                HStack {
+                                    if multiple { Image(systemName: selected.contains(repository.id) ? "checkmark.circle.fill" : "circle") }
+                                    CompactRepositorySummary(fullName: repository.full_name, name: repository.name,
+                                        owner: repository.owner?.login, avatarURL: repository.owner?.avatar_url, description: repository.description)
+                                    if memberIDs.contains(repository.id) { Text("已添加").font(.caption).foregroundStyle(.secondary) }
+                                    else if !membershipKnown { Text("待核对").font(.caption).foregroundStyle(.secondary) }
+                                }
+                            }.buttonStyle(.plain).disabled(busy || !membershipKnown || memberIDs.contains(repository.id))
                                 .accessibilityIdentifier("star-list-add-\(repository.id)")
+                                .accessibilityValue(memberIDs.contains(repository.id) ? "已添加" : !membershipKnown ? "待核对" : selected.contains(repository.id) ? "已选择" : "未选择")
                         }
                     }
-                    if busy { SoftGroupRow("busy") { ProgressView("读取并核对仓库…") } }
+                    if busy { SoftGroupRow("busy") { ProgressView(progress.isEmpty ? "读取并核对仓库…" : progress).accessibilityIdentifier("star-list-add-progress") } }
                     if !busy && repositories.isEmpty { SoftGroupRow("empty") { Text("暂无已加星标的仓库。") } }
-                    if !error.isEmpty { SoftGroupRow("error") { Text(error).font(.caption) } }
+                    if !error.isEmpty { SoftGroupRow("error") { Text(error).font(.caption).accessibilityIdentifier("star-list-add-error") } }
+                    if !membershipKnown && !busy {
+                        SoftGroupRow("verify") { Button("重新读取并核对") { operation = Task { await load() } } }
+                    }
                 }
             }
         }.listStyle(.insetGrouped).navigationTitle("添加到分类").navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: "搜索已加星标的仓库").disabled(busy || !api.isCurrentSession)
+        .searchable(text: $query, prompt: "搜索已加星标的仓库").disabled(!api.isCurrentSession)
         .interactiveDismissDisabled(busy)
-        .toolbar { Button("取消") { dismiss() }.disabled(busy) }
-        .task {
-            busy = true; defer { busy = false }
-            do { let values = try await api.starredRepositories(); try Task.checkCancellation(); guard api.isCurrentSession else { return }; repositories = values }
-            catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { self.error = error.localizedDescription } }
+        .overlay(alignment: .topTrailing) {
+            if !notice.isEmpty {
+                Text(notice).font(.caption)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(8).allowsHitTesting(false)
+                    .accessibilityIdentifier("star-list-add-notice")
+            }
         }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("关闭") { selected.removeAll(); dismiss() }.disabled(busy) }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(multiple ? "取消多选" : "多选") { selected.removeAll(); multiple.toggle() }
+                    .disabled(busy || !membershipKnown).accessibilityIdentifier("star-list-add-multiple")
+            }
+            ToolbarItemGroup(placement: .bottomBar) {
+                if multiple {
+                    Button("添加(\(selected.count))") {
+                        let pending = repositories.filter { selected.contains($0.id) && !memberIDs.contains($0.id) }
+                        operation = Task { await add(pending) }
+                    }.disabled(busy || !membershipKnown || selected.isEmpty).accessibilityIdentifier("star-list-add-selected")
+                }
+            }
+        }
+        .task { await load() }
+        .onChange(of: api.isCurrentSession) { current in
+            if !current { operation?.cancel(); membershipKnown = false; selected.removeAll(); multiple = false }
+        }
+        .onDisappear { operation?.cancel(); membershipKnown = false; selected.removeAll() }
+    }
+    @discardableResult private func reconcile() async -> Bool {
+        membershipKnown = false
+        do {
+            let members = try await api.starLists.repositories(in: list)
+            try Task.checkCancellation(); guard api.isCurrentSession else { return false }
+            memberIDs = Set(members.map(\.databaseId)); membershipKnown = true
+            selected.formIntersection(Set(repositories.map(\.id)).subtracting(memberIDs))
+            do {
+                let storage = StarListLocalOrder(accountID: api.accountID)
+                let ids = try storage.orderedIDs(listID: list.id, members: members.map(\.id))
+                try storage.save(ids, listID: list.id, isCurrent: { api.isCurrentSession })
+            } catch { self.error += "\n本机排序更新失败：" + error.localizedDescription }
+            return true
+        } catch {
+            guard api.isCurrentSession, !RefreshFailure.isCancellation(error) else { return false }
+            membershipKnown = false
+            self.error += (self.error.isEmpty ? "" : "\n") + "成员核对失败：" + error.localizedDescription + " 请重新核对；不会自动重发。"
+            return false
+        }
+    }
+    private func load() async {
+        guard !busy, api.isCurrentSession else { return }
+        busy = true; membershipKnown = false; error = ""; notice = ""; defer { busy = false }
+        do {
+            let values = try await api.starredRepositories()
+            try Task.checkCancellation(); guard api.isCurrentSession else { return }
+            repositories = values
+            selected.formIntersection(Set(values.map(\.id)).subtracting(memberIDs))
+            await reconcile()
+        } catch {
+            if api.isCurrentSession, !RefreshFailure.isCancellation(error) { self.error = error.localizedDescription }
+        }
+    }
+    private func add(_ pending: [Repository]) async {
+        guard !busy, membershipKnown, !pending.isEmpty, api.isCurrentSession else { return }
+        busy = true; error = ""; notice = ""; defer { busy = false; progress = "" }
+        var succeeded = 0
+        for (offset, repository) in pending.enumerated() {
+            guard !Task.isCancelled, api.isCurrentSession else { return }
+            guard !memberIDs.contains(repository.id) else { selected.remove(repository.id); continue }
+            progress = "正在添加 \(offset + 1)/\(pending.count)"
+            do {
+                try await api.starLists.setMembership(repository, list: list, included: true)
+                try Task.checkCancellation(); guard api.isCurrentSession else { return }
+                memberIDs.insert(repository.id); selected.remove(repository.id); succeeded += 1
+                notice = pending.count == 1 ? "添加成功" : "已添加\(succeeded)/\(pending.count)个仓库"
+            } catch {
+                guard api.isCurrentSession, !RefreshFailure.isCancellation(error) else { return }
+                self.error = error.localizedDescription + " 已暂停，请核对未完成项；不会自动重发。"
+                break
+            }
+        }
+        progress = "只读核对分类成员…"
+        let verified = await reconcile()
+        guard api.isCurrentSession, !Task.isCancelled else { return }
+        if verified { succeeded = pending.filter { memberIDs.contains($0.id) }.count }
+        if pending.count == 1 && succeeded == 1 { notice = "添加成功" }
+        else { notice = "已添加\(succeeded)/\(pending.count)个仓库" }
+        if !verified { notice += "；部分结果待核对" }
+        // Remain on this page in both single and multiple selection modes.
     }
 }

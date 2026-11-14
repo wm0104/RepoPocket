@@ -122,9 +122,9 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         baseline = {case for case in cases if '/RepositoryOperationsTests/' not in case and '/RepositoryCollectionsTests/' not in case}
         self.assertEqual(len(baseline), 73, 'Keep every original UI case when adding new repository coverage')
         self.assertEqual(len({case for case in cases if '/RepositoryOperationsTests/' in case}), 4)
-        self.assertEqual(len({case for case in cases if '/RepositoryCollectionsTests/' in case}), 2)
+        self.assertEqual(len({case for case in cases if '/RepositoryCollectionsTests/' in case}), 6)
         groups = {}
-        for group, count in [('boundaries-a', 25), ('boundaries-b', 24), ('editors', 30)]:
+        for group, count in [('boundaries-a', 25), ('boundaries-b', 24), ('editors', 34)]:
             arguments = self.selection('all', group)
             self.assertEqual(len(arguments), len(set(arguments)), group)
             only = [item.split(':', 1)[1] for item in arguments if item.startswith('-only-testing:')]
@@ -145,7 +145,20 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         import re
         script = (Path(__file__).resolve().parents[1] / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8')
         focused = re.findall(r'(?m)^  ([a-z-]+)\)', script)
-        self.assertEqual(len(focused), 15)
+        self.assertEqual(len(focused), 18)
+        self.assertEqual(self.selection('path-time', 'selected'), [
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch',
+        ])
+        self.assertEqual(self.selection('ui-fixes-failed', 'selected'), [
+            '-only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests/testPartialBatchRemovalKeepsSuccessAndOffersOnlyRemainingItems',
+            '-only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWhileThemeAndFolderUseNativeMenu',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch',
+        ])
+        self.assertEqual(self.selection('ui-fixes', 'selected'), [
+            '-only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests',
+            '-only-testing:RepoPocketStyleUITests/SettingsTests',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch',
+        ])
         recheck = self.selection('regression-recheck', 'selected')
         self.assertEqual(len(recheck), 13)
         for method in ['testWorkflowFiltersAndSelectionKeepGroupedRows',
@@ -187,11 +200,14 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
             self.assertEqual(first | second | editors, all_names)
             self.assertEqual(len(first) + len(second) + len(editors), len(all_names))
             tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
-                    for name in all_names | config['regression_recheck']]
+                    for name in all_names | config['regression_recheck'] | config['ui_fixes'] | config['path_time']]
             for scope, group, expected in [('all', 'boundaries-a', first), ('all', 'boundaries-b', second),
                                            ('all', 'editors', editors),
                                            ('all', 'selected', all_names),
                                            ('regression-recheck', 'selected', config['regression_recheck']),
+                                           ('ui-fixes', 'selected', config['ui_fixes']),
+                                           ('ui-fixes-failed', 'selected', config['ui_fixes_failed']),
+                                           ('path-time', 'selected', config['path_time']),
                                            ('upload-viewer', 'editors', config['upload_viewer']),
                                            ('release-editor', 'boundaries', config['release_editor'])]:
                 with self.subTest(scope=scope, group=group), \

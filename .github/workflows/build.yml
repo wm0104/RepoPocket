@@ -56,12 +56,18 @@ jobs:
         run: python3 Tests/test_workflow_refresh_lifecycle.py
       - name: Test path-specific commit metadata and starred update time
         run: python3 Tests/test_path_commit_metadata.py
+      - name: Test compact directory rows, ordering and separate navigation
+        run: python3 Tests/test_compact_directory_rows.py
       - name: Test remote history plans and expected-head publication
         run: python3 Tests/test_remote_history_cleanup.py
       - name: Test PR merge, squash and rebase selection
         run: python3 Tests/test_pr_merge_methods.py
       - name: Test durable repository favorites and official Star lists
         run: python3 Tests/test_repository_collections.py
+      - name: Test star list reorder and multi-selection contracts
+        run: python3 Tests/test_star_list_interactions.py
+      - name: Test account-scoped star-list order reconciliation
+        run: python3 Tests/test_star_list_local_order.py
       - name: Test pinned native Git parser patch
         run: python3 Tests/test_native_git_patch.py
       - name: Test native local Git backend
@@ -102,6 +108,8 @@ jobs:
         run: python3 Tests/test_workflow_log_presentation.py
       - name: Test compact settings and native menu actions
         run: python3 Tests/test_settings_layout.py
+      - name: Test live theme selection and official releases in-app routing
+        run: python3 Tests/test_settings_menu_state.py
       - name: Test continuous page groups and pagination
         run: python3 Tests/test_compact_page_groups.py
       - name: Test continuous search and inbox groups
@@ -136,6 +144,8 @@ jobs:
         run: python3 Tests/test_mobile_editor.py
       - name: Test four-package workflow and deployment consistency
         run: python3 Tests/test_four_packages_workflow.py
+      - name: Test current app, share extension and Debian release version
+        run: python3 Tests/test_current_release_version.py
       - name: Test integrated upload release and external file routes
         run: python3 Tests/test_flow_integration.py
       - name: Test iOS 15 compatibility and context-specific menu routes
@@ -319,16 +329,16 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.2.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.2.1"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "15.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.2.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.2.1"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.2.0"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.2.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.2.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.2.1"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$EXT/Info.plist")" = "15.0"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
@@ -352,9 +362,9 @@ jobs:
           bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor roothide --sign-mode preserve
           bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor rootless --sign-mode preserve
           cd dist
-          test -s RepoPocket_1.2.0_iphoneos-arm64e.deb
-          test -s RepoPocket_1.2.0_iphoneos-arm64.deb
-          shasum -a 256 RepoPocket.ipa RepoPocket.tipa RepoPocket_1.2.0_iphoneos-arm64e.deb RepoPocket_1.2.0_iphoneos-arm64.deb > SHA256SUMS
+          test -s RepoPocket_1.2.1_iphoneos-arm64e.deb
+          test -s RepoPocket_1.2.1_iphoneos-arm64.deb
+          shasum -a 256 RepoPocket.ipa RepoPocket.tipa RepoPocket_1.2.1_iphoneos-arm64e.deb RepoPocket_1.2.1_iphoneos-arm64.deb > SHA256SUMS
           shasum -a 256 -c SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.validate_only }}
@@ -364,8 +374,8 @@ jobs:
             dist/RepoPocket.ipa
             dist/RepoPocket.ipa.sha256
             dist/RepoPocket.tipa
-            dist/RepoPocket_1.2.0_iphoneos-arm64e.deb
-            dist/RepoPocket_1.2.0_iphoneos-arm64.deb
+            dist/RepoPocket_1.2.1_iphoneos-arm64e.deb
+            dist/RepoPocket_1.2.1_iphoneos-arm64.deb
             dist/*.deb.sha256
             dist/*.deb.verification.json
             dist/SHA256SUMS

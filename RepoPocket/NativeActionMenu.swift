@@ -8,6 +8,8 @@ struct NativeMenuItem {
     var symbol: String? = nil
     var enabled = true
     var selected = false
+    // Stateful menu choices can read their binding when UIKit resolves the menu.
+    var selectedState: (() -> Bool)? = nil
     var destructive = false
     var hint: String? = nil
     var children: [NativeMenuItem]? = nil
@@ -81,7 +83,7 @@ struct NativeActionMenu: UIViewRepresentable {
                 var attributes: UIMenuElement.Attributes = []
                 if !item.enabled { attributes.insert(.disabled) }
                 if item.destructive { attributes.insert(.destructive) }
-                return UIAction(title: item.title, image: item.symbol.flatMap { UIImage(systemName: $0) }, discoverabilityTitle: item.hint, attributes: attributes, state: item.selected ? .on : .off) { [weak self] _ in
+                return UIAction(title: item.title, image: item.symbol.flatMap { UIImage(systemName: $0) }, discoverabilityTitle: item.hint, attributes: attributes, state: (item.selectedState?() ?? item.selected) ? .on : .off) { [weak self] _ in
                     // Let UIKit dismiss its menu before changing the existing SwiftUI presentation state.
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.enabled, let current = self.action(item.id, in: self.items), current.enabled else { return }

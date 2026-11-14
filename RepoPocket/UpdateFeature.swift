@@ -173,6 +173,7 @@ struct AppUpdateSection: View {
     @ObservedObject var checker: UpdateChecker
     var connected = false
     @State private var share: SharedFile?
+    @State private var showingOfficialReleases = false
     @State private var authorizing = false
     @State private var expanded = false
     @State private var openingTrollStore = false
@@ -189,12 +190,15 @@ struct AppUpdateSection: View {
                     Text(release.availableVersionText).font(.subheadline).foregroundColor(.secondary)
                 }
                 Menu {
-                    InAppLinkButton(url: URL(string: "https://github.com/wm0104/RepoPocket/releases")!, api: nil) { Text("官方发行版页") }
+                    Button("官方发行版页") {
+                        DispatchQueue.main.async { showingOfficialReleases = true }
+                    }
                     if let release = checker.release, let ipa = release.ipaURL {
                         Button("复制可信下载链接") { UIPasteboard.general.url = ipa }
                     }
                     if checker.downloaded != nil { Button("重新下载") { authorizeDownload() }.disabled(authorizing || checker.checking || checker.downloading || openingTrollStore) }
-                } label: { Image(systemName: "ellipsis") }
+                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle()) }
+                    .accessibilityLabel("应用更新选项").accessibilityIdentifier("settings-update-options")
             }.softGroupedRow(top: !connected)
             if !checker.message.isEmpty { Text(checker.message).font(.caption).textSelection(.enabled).softGroupedRow() }
             if checker.downloading {
@@ -221,6 +225,9 @@ struct AppUpdateSection: View {
                 Button(checker.checking ? "检查中…" : "检查更新") { Task { await checker.check(api: api) } }.disabled(checker.checking || checker.downloading).softGroupedRow()
             }
         }.downloadCompletionNotice($checker.downloadCompletion)
+        .sheet(isPresented: $showingOfficialReleases) {
+            ContainedWebPage(url: URL(string: "https://github.com/wm0104/RepoPocket/releases")!, onClose: { showingOfficialReleases = false }).ignoresSafeArea()
+        }
         .sheet(item: $share, onDismiss: { checker.sharing = false }) { ShareSheet(url: $0.url) }
         .alert("使用 TrollStore 更新", isPresented: $confirmTrollStore) {
             Button("取消", role: .cancel) {}

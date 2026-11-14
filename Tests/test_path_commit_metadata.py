@@ -21,6 +21,32 @@ class PathCommitMetadataTests(unittest.TestCase):
             swift.write_text(core + (ROOT / 'RepoPocket/RepositoryInput.swift').read_text(encoding='utf-8') + fixture, encoding='utf-8')
             subprocess.run(['swiftc', '-parse-as-library', str(swift), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=30)
+    def test_time_label_uses_web_gray_and_minute_updates_without_layout_changes(self):
+        text = (ROOT / 'RepoPocket/PathCommitMetadata.swift').read_text()
+        link = text.split('struct PathCommitMetadataLink:', 1)[1]
+        self.assertIn('TimelineView(.periodic(from: .now, by: 60))', link)
+        self.assertIn('Text(PathCommitRelativeTime.text(for: date, now: context.date))', link)
+        self.assertIn('.foregroundColor(colorScheme == .dark', link)
+        self.assertIn('Color(red: 89 / 255, green: 99 / 255, blue: 110 / 255)', link)
+        self.assertIn('Color(red: 145 / 255, green: 152 / 255, blue: 161 / 255)', link)
+        self.assertNotIn('foregroundStyle(.secondary)', link)
+        self.assertNotIn('style: .relative', link)
+        self.assertIn('.buttonStyle(.borderless)', link)
+        self.assertIn('.frame(maxWidth: 96, alignment: .trailing)', link)
+        self.assertIn('.frame(minHeight: 28)', link)
+
+    @unittest.skipUnless(shutil.which('swiftc'), 'Real relative-time boundaries require native Swift')
+    def test_real_relative_time_boundaries(self):
+        text = (ROOT / 'RepoPocket/PathCommitMetadata.swift').read_text()
+        core = 'enum PathCommitRelativeTime {' + text.split('enum PathCommitRelativeTime {', 1)[1].split('enum PathCommitQuery', 1)[0]
+        fixture = (ROOT / 'Tests/Fixtures/PathCommitRelativeTimeHarness.swift').read_text()
+        with tempfile.TemporaryDirectory(prefix='repopocket-time-format-') as directory:
+            folder = Path(directory); swift = folder / 'Fixture.swift'; binary = folder / 'fixture'
+            swift.write_text('import Foundation\n' + core + fixture)
+            subprocess.run(['swiftc', '-parse-as-library', str(swift), '-o', str(binary)], check=True, timeout=120)
+            result = subprocess.run([str(binary)], check=True, capture_output=True, text=True, timeout=30)
+            self.assertIn('PASS 22 relative-time boundaries', result.stdout)
+
     def test_queries_are_batched_and_bound_to_a_commit_not_a_moving_branch(self):
         path = ROOT / 'RepoPocket/PathCommitMetadata.swift'
         text = path.read_text(encoding='utf-8') if path.exists() else ''

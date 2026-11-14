@@ -7,6 +7,7 @@ final class ContentSnapshotCache {
 }
 enum RemoteHistoryBackup { static func removeAccount(_ id: String) {} }
 enum RepositoryFavorites { static func removeAccount(_ id: String) {} }
+enum StarListLocalOrder { static func removeAccount(_ id: String) {} }
 
 // PRODUCTION_ERRORS
 // PRODUCTION_ACCOUNTS

@@ -20,7 +20,6 @@ struct SettingsStylePreview: View {
             CredentialStore.clear(account: account)
             try? AccountStore.record(.init(id: account, login: "fixture-settings", avatarURL: nil))
             AccountStore.activate(account)
-            if !ProcessInfo.processInfo.arguments.contains("-preserve-settings-theme-preview") { appearance = "system" }
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [SettingsPreviewProtocol.self]
             let client = GitHub(configuration: configuration)

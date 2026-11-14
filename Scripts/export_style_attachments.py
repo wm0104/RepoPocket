@@ -73,7 +73,25 @@ upload_viewer = {'deb-first-open-common-fields', 'upload-inherited-preview', 'de
                  'source-zoom-200', 'editor-zoom-keyboard', 'commit-highlight-zoom-200', 'commit-raw-zoom-200',
                  'local-diff-zoom-200', 'local-original-zoom-200', 'local-budget-original',
                  'readme-zoom-200', 'markdown-reader-zoom-200', 'local-project-compact', 'local-project-information'}
-if scope == 'repository-collections':
+ui_fixes = repository_collections | {'settings-compact-native-menu', 'repository-file-folder-search', 'repository-search-opened-code',
+    'settings-theme-dark-checked', 'settings-theme-light-checked', 'settings-theme-system-checked',
+    'settings-official-releases-1', 'settings-official-releases-2',
+    'repository-code-compact-root', 'repository-code-compact-nested', 'repository-search-navigation-restored'}
+ui_fixes.update(prefix + path for prefix in ('repository-time-', 'repository-path-commit-', 'repository-path-commit-return-')
+                for path in ('Sources', 'Sources-Feature', 'Sources-Feature-editor.py'))
+ui_fixes.update({'star-list-multiple-added-stays-open', 'star-list-partial-removal-remaining'})
+ui_fixes_failed = ui_fixes - repository_collections - {'star-list-multiple-added-stays-open'}
+path_time = {name for name in ui_fixes if name.startswith(('repository-time-', 'repository-path-commit-'))}
+path_time.update({'repository-code-compact-root', 'repository-code-compact-nested',
+                  'repository-file-folder-search', 'repository-search-opened-code',
+                  'repository-search-navigation-restored', 'repository-time-dark'})
+if scope == 'path-time':
+    expected = path_time
+elif scope == 'ui-fixes-failed':
+    expected = ui_fixes_failed
+elif scope == 'ui-fixes':
+    expected = ui_fixes
+elif scope == 'repository-collections':
     expected = repository_collections
 elif scope == 'repository-operations':
     expected = repository_operations

@@ -42,6 +42,7 @@ enum AccountStore {
         CredentialStore.clear(account: id)
         ContentSnapshotCache.shared.removeAccount(id)
         RepositoryFavorites.removeAccount(id)
+        StarListLocalOrder.removeAccount(id)
         RemoteHistoryBackup.removeAccount(id)
         let list = accounts.filter { $0.id != id }
         if let data = try? JSONEncoder().encode(list) { UserDefaults.standard.set(data, forKey: accountsKey) }

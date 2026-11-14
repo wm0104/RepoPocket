@@ -6,6 +6,20 @@ struct PathCommitMetadata: Codable {
     let committedDate: String?
 }
 
+enum PathCommitRelativeTime {
+    static func text(for date: Date, now: Date = Date()) -> String {
+        let elapsed = max(0, now.timeIntervalSince(date))
+        if elapsed < 60 { return "刚刚" }
+        if elapsed < 3600 { return "\(Int(elapsed / 60))分钟前" }
+        if elapsed < 86400 { return "\(Int(elapsed / 3600))小时前" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "zh_Hans_CN")
+        formatter.dateTimeStyle = .named
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
+}
+
 enum PathCommitQuery {
     static let batchSize = 20
     @MainActor static func request(repo: String, head: String, paths: [String]) throws -> (String, [String: Any]) {
@@ -97,22 +111,36 @@ enum PathCommitQuery {
 }
 
 struct PathCommitMetadataLink: View {
-    @ObservedObject var api: GitHub
-    let repo: String
     let path: String
     let commit: PathCommitMetadata?
+    let openCommit: (PathCommitMetadata) -> Void
+    @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         if let commit {
-            NavigationLink { CommitDetailView(api: api, repo: repo, sha: commit.oid) } label: {
-                HStack(spacing: 5) {
-                    Text(commit.messageHeadline).lineLimit(1)
+            Button { openCommit(commit) } label: {
+                Group {
                     if let date = ChinaDate.parse(commit.committedDate) {
-                        Text(date, style: .relative).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                        TimelineView(.periodic(from: .now, by: 60)) { context in
+                            Text(PathCommitRelativeTime.text(for: date, now: context.date))
+                        }
+                    } else {
+                        Text("查看提交")
                     }
-                }.font(.caption).foregroundStyle(.secondary).frame(maxWidth: 150, alignment: .trailing)
-            }.buttonStyle(.borderless)
-                .accessibilityLabel(path + " 最近提交：" + commit.messageHeadline)
-                .accessibilityIdentifier("path-commit-" + path)
+                }
+                .font(.caption)
+                .foregroundColor(colorScheme == .dark
+                    ? Color(red: 145 / 255, green: 152 / 255, blue: 161 / 255)
+                    : Color(red: 89 / 255, green: 99 / 255, blue: 110 / 255))
+                .lineLimit(1)
+                .frame(maxWidth: 96, alignment: .trailing)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minHeight: 28)
+                .contentShape(Rectangle())
+            }
+            // Keep time activation independent of the directory's row-wide link.
+            .buttonStyle(.borderless)
+            .accessibilityLabel(path + " 最近提交：" + commit.messageHeadline)
+            .accessibilityIdentifier("path-commit-" + path)
         }
     }
 }

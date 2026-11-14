@@ -77,7 +77,7 @@ class RepositoryCollectionsTests(unittest.TestCase):
             subprocess.run(['swiftc', '-parse-as-library', str(ROOT/'RepoPocket/RepositoryInput.swift'),
                             str(ROOT/'RepoPocket/RepositoryFavorites.swift'), str(ROOT/'RepoPocket/GitHubStarLists.swift'),
                             str(ROOT/'RepoPocket/OfficialUpdateRedirectPolicy.swift'),
-                            str(main), '-o', binary], check=True)
+                            str(main), '-module-cache-path', str(Path(folder)/'ModuleCache'), '-o', binary], check=True, timeout=120)
             subprocess.run([binary], check=True, timeout=30)
 
 

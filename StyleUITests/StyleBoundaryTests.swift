@@ -1522,13 +1522,36 @@ final class StyleBoundaryTests: XCTestCase {
     func testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch() {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-repository-file-search-preview"]; app.launch()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-repository-file-search-preview", "-appearance.mode", "light"]; app.launch()
         let summary = app.cells.containing(.any, identifier: "repository-code-summary").firstMatch
         let firstFile = app.cells.containing(.any, identifier: "repository-entry-Sources").firstMatch
         XCTAssertTrue(summary.waitForExistence(timeout: 15))
         XCTAssertTrue(firstFile.waitForExistence(timeout: 15))
         XCTAssertLessThanOrEqual(abs(firstFile.frame.minY - summary.frame.maxY), 1,
                                  "Repository summary and code rows must form one continuous group")
+        keepScreenshot(app, name: "repository-code-compact-root")
+        assertPathCommit(app, path: "Sources", oid: String(repeating: "b", count: 40))
+        let sources = app.buttons["repository-entry-Sources"]
+        XCTAssertTrue(sources.isHittable); sources.tap()
+        XCTAssertTrue(app.navigationBars["Sources"].waitForExistence(timeout: 10))
+        let nestedFolder = app.buttons["repository-entry-Sources/Feature"]
+        XCTAssertTrue(nestedFolder.waitForExistence(timeout: 10))
+        assertPathCommit(app, path: "Sources/Feature", oid: String(repeating: "c", count: 40))
+        XCTAssertTrue(nestedFolder.isHittable); nestedFolder.tap()
+        XCTAssertTrue(app.navigationBars["Feature"].waitForExistence(timeout: 10))
+        assertPathCommit(app, path: "Sources/Feature/editor.py", oid: String(repeating: "d", count: 40))
+        keepScreenshot(app, name: "repository-code-compact-nested")
+        let directoryFile = app.buttons["editor.py"]
+        XCTAssertTrue(directoryFile.waitForExistence(timeout: 10))
+        XCTAssertTrue(directoryFile.isHittable); directoryFile.tap()
+        XCTAssertTrue(app.textViews["代码正文"].waitForExistence(timeout: 15))
+        XCTAssertTrue((app.textViews["代码正文"].value as? String)?.contains("END_MARKER") == true)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["Feature"].waitForExistence(timeout: 10))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["Sources"].waitForExistence(timeout: 10))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["代码"].waitForExistence(timeout: 10))
         let searchButton = app.buttons["搜索文件和文件夹"]
         XCTAssertTrue(searchButton.waitForExistence(timeout: 15)); searchButton.tap()
         let search = app.searchFields.firstMatch
@@ -1536,15 +1559,52 @@ final class StyleBoundaryTests: XCTestCase {
         let folder = app.buttons["repository-search-entry-Sources/Feature"]
         let file = app.buttons["repository-search-entry-Sources/Feature/editor.py"]
         XCTAssertTrue(folder.waitForExistence(timeout: 15)); XCTAssertTrue(file.exists)
+        XCTAssertTrue(app.staticTexts["当前分支：feature/search"].exists)
         keepScreenshot(app, name: "repository-file-folder-search")
         folder.tap()
         XCTAssertTrue(app.navigationBars["Feature"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["editor.py"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["editor.py"].waitForExistence(timeout: 10))
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(file.waitForExistence(timeout: 10)); file.tap()
+        XCTAssertTrue(file.waitForExistence(timeout: 10)); XCTAssertTrue(file.isHittable); file.tap()
         XCTAssertTrue(app.textViews["代码正文"].waitForExistence(timeout: 15))
+        XCTAssertTrue((app.textViews["代码正文"].value as? String)?.contains("END_MARKER") == true)
         XCTAssertTrue(app.buttons["搜索当前文件"].exists)
         keepScreenshot(app, name: "repository-search-opened-code")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["搜索代码"].waitForExistence(timeout: 10))
+        XCTAssertEqual(search.value as? String, "Feature", "Returning from a file must preserve the branch search")
+        XCTAssertTrue(folder.isHittable); folder.tap()
+        XCTAssertTrue(app.navigationBars["Feature"].waitForExistence(timeout: 10))
+        keepScreenshot(app, name: "repository-search-navigation-restored")
+        app.terminate()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-repository-file-search-preview", "-appearance.mode", "dark"]
+        app.launch()
+        let darkTime = app.buttons["path-commit-Sources"]
+        XCTAssertTrue(darkTime.waitForExistence(timeout: 15))
+        XCTAssertTrue(darkTime.isHittable)
+        keepScreenshot(app, name: "repository-time-dark")
+    }
+
+    private func assertPathCommit(_ app: XCUIApplication, path: String, oid: String) {
+        let parent = (path as NSString).deletingLastPathComponent
+        let parentTitle = parent.isEmpty ? "代码" : (parent as NSString).lastPathComponent
+        XCTAssertTrue(app.navigationBars[parentTitle].waitForExistence(timeout: 10))
+        let time = app.buttons["path-commit-" + path]
+        XCTAssertTrue(time.waitForExistence(timeout: 15), "Missing actual path metadata for \(path)")
+        keepScreenshot(app, name: "repository-time-" + path.replacingOccurrences(of: "/", with: "-"))
+        XCTAssertTrue(time.isHittable, "The compact time link must remain independently tappable")
+        time.tap()
+        XCTAssertTrue(app.navigationBars["提交详情"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Fixture latest " + path].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts[oid].exists, "Must open this path's latest commit, not the branch HEAD")
+        keepScreenshot(app, name: "repository-path-commit-" + path.replacingOccurrences(of: "/", with: "-"))
+        let back = app.navigationBars["提交详情"].buttons[parentTitle]
+        XCTAssertTrue(back.exists, "Tapping time must push only the commit, not first open \(path)")
+        back.tap()
+        XCTAssertTrue(app.navigationBars[parentTitle].waitForExistence(timeout: 10), "Return to the original directory")
+        XCTAssertTrue(time.waitForExistence(timeout: 10))
+        XCTAssertTrue(time.isHittable)
+        keepScreenshot(app, name: "repository-path-commit-return-" + path.replacingOccurrences(of: "/", with: "-"))
     }
 
     func testReadOnlySourceOffersNativeCurrentFileSearch() {

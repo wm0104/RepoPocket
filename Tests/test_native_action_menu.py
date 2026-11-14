@@ -31,7 +31,7 @@ class NativeMenuTests(unittest.TestCase):
                       'UIDeferredMenuElement.uncached', 'return UIAction(', 'return UIMenu(',
                       'button.accessibilityLabel = title', 'button.accessibilityIdentifier = accessibilityIdentifier',
                       'max(44, size.width)', 'max(44, size.height)', '.disabled', '.destructive',
-                      'state: item.selected ? .on : .off']:
+                      'state: (item.selectedState?() ?? item.selected) ? .on : .off']:
             self.assertIn(token, bridge)
         for forbidden in ['displayInline', 'UIHostingController', 'present(', 'withAnimation']:
             self.assertNotIn(forbidden, bridge)

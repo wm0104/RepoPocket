@@ -99,13 +99,32 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
         }
         if ProcessInfo.processInfo.arguments.contains("-repository-file-search-preview") {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
-            let allowed = request.url?.host == "api.github.com" && request.httpMethod == "GET"
+            let authenticated = request.url?.host == "api.github.com"
                 && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"
+            let allowed = authenticated && request.httpMethod == "GET"
             let head = String(repeating: "a", count: 40)
+            let pathCommits = ["Sources": String(repeating: "b", count: 40),
+                               "Sources/Feature": String(repeating: "c", count: 40),
+                               "Sources/Feature/editor.py": String(repeating: "d", count: 40)]
             let file: [String: Any] = ["name": "editor.py", "path": "Sources/Feature/editor.py", "type": "file", "sha": "file-sha",
                                       "size": Self.editorSource.utf8.count, "content": Data(Self.editorSource.utf8).base64EncodedString(), "encoding": "base64"]
             var code = 403, payload: Any = ["message": "Unexpected branch search fixture request"]
-            if allowed {
+            if authenticated, request.httpMethod == "POST", path == "/graphql", query.isEmpty,
+               let bytes = Self.body(request), let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+               let graphQuery = object["query"] as? String, graphQuery.contains("history(first: 1, path:"),
+               let variables = object["variables"] as? [String: String],
+               variables["owner"] == "fixture-owner", variables["name"] == "sample", variables["head"] == head {
+                var histories: [String: Any] = [:]
+                let aliases = variables.keys.filter { $0.hasPrefix("p") }.sorted()
+                if !aliases.isEmpty, aliases.allSatisfy({ pathCommits[variables[$0] ?? ""] != nil }) {
+                    for alias in aliases {
+                        let entryPath = variables[alias]!
+                        histories[alias] = ["nodes": [["oid": pathCommits[entryPath]!, "messageHeadline": "Fixture latest " + entryPath,
+                                                      "committedDate": "2026-11-13T08:00:00Z"]]]
+                    }
+                    code = 200; payload = ["data": ["repository": ["object": histories]]]
+                }
+            } else if allowed {
                 if path == "/repos/fixture-owner/sample", query.isEmpty { code = 200; payload = try! JSONSerialization.jsonObject(with: Data(Self.repository.utf8)) }
                 else if path == "/repos/fixture-owner/sample/git/ref/heads/feature/search", query.isEmpty { code = 200; payload = ["object": ["sha": head]] }
                 else if path == "/repos/fixture-owner/sample/git/commits/" + head, query.isEmpty { code = 200; payload = ["sha": head, "tree": ["sha": "tree-sha"]] }
@@ -115,8 +134,14 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
                         ["path": "Sources/Feature", "mode": "040000", "type": "tree", "sha": "feature-sha"],
                         ["path": "Sources/Feature/editor.py", "mode": "100644", "type": "blob", "sha": "file-sha", "size": Self.editorSource.utf8.count]
                     ]]
+                } else if path.hasPrefix("/repos/fixture-owner/sample/commits/"),
+                        query.count == 2, query.contains(URLQueryItem(name: "per_page", value: "100")), query.contains(URLQueryItem(name: "page", value: "1")),
+                        let entryPath = pathCommits.first(where: { path == "/repos/fixture-owner/sample/commits/" + $0.value })?.key {
+                    code = 200; payload = ["sha": pathCommits[entryPath]!, "commit": ["message": "Fixture latest " + entryPath,
+                        "author": ["name": "Fixture path author", "date": "2026-11-13T08:00:00Z"]], "files": []]
                 } else if query.count == 1, query.first?.name == "ref", query.first?.value == "feature/search" {
                     if path == "/repos/fixture-owner/sample/contents" { code = 200; payload = [["name": "Sources", "path": "Sources", "type": "dir", "sha": "sources-sha"]] }
+                    else if path == "/repos/fixture-owner/sample/contents/Sources" { code = 200; payload = [["name": "Feature", "path": "Sources/Feature", "type": "dir", "sha": "feature-sha"]] }
                     else if path == "/repos/fixture-owner/sample/contents/Sources/Feature" { code = 200; payload = [file] }
                     else if path == "/repos/fixture-owner/sample/contents/Sources/Feature/editor.py" { code = 200; payload = file }
                 }

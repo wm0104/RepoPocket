@@ -23,10 +23,10 @@ class SettingsLayoutTests(unittest.TestCase):
         page = self.source('RepoPocketApp.swift').split('struct SettingsView:', 1)[1].split('\nstruct ', 1)[0]
         for value in ['NativeActionMenu(title: "设置选项"', 'accessibilityIdentifier: "settings-options"',
                       'NativeMenuItem.submenu("通用"', 'NativeMenuItem.submenu("主题"',
-                      'selected: appearance == mode', 'appearance = mode', 'downloads.operations == 0', 'downloads.choose()']:
+                      'selectedState: { appearance == mode }', 'appearance = mode', 'downloads.operations == 0', 'downloads.choose()']:
             self.assertIn(value, page)
         menu = self.source('NativeActionMenu.swift')
-        self.assertIn('state: item.selected ? .on : .off', menu)
+        self.assertIn('state: (item.selectedState?() ?? item.selected) ? .on : .off', menu)
         self.assertIn('DispatchQueue.main.async', menu)
         self.assertIn('current.enabled', menu)
 

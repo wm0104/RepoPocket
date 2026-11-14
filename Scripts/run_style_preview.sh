@@ -154,6 +154,17 @@ case "${RP_STYLE_TEST_SCOPE:-all}" in
   ) ;;
   release-editor) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/ReleaseEditorTests) ;;
   repository-operations) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/RepositoryOperationsTests) ;;
+  path-time) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch) ;;
+  ui-fixes-failed) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests/testPartialBatchRemovalKeepsSuccessAndOffersOnlyRemainingItems
+    -only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWhileThemeAndFolderUseNativeMenu
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch
+  ) ;;
+  ui-fixes) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests
+    -only-testing:RepoPocketStyleUITests/SettingsTests
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch
+  ) ;;
   repository-collections) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests) ;;
   regression-recheck) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowFiltersAndSelectionKeepGroupedRows

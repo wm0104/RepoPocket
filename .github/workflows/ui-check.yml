@@ -5,7 +5,7 @@ on:
       test_scope:
         description: Run all UI checks, profile navigation, or attachment/follow actions
         type: choice
-        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck]
+        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck, ui-fixes, ui-fixes-failed, path-time]
         default: all
   pull_request:
     branches: [main]
@@ -45,6 +45,11 @@ jobs:
           python3 Tests/test_community.py
           python3 Tests/test_social_platforms.py
           python3 Tests/test_style_failure_diagnostics.py
+      - name: Test path-time formatter and compact navigation
+        if: inputs.test_scope == 'path-time'
+        run: |
+          python3 Tests/test_path_commit_metadata.py
+          python3 Tests/test_compact_directory_rows.py
       - uses: actions/cache@v4
         with:
           path: NativeBuild

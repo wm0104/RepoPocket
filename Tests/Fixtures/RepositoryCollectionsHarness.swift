@@ -46,6 +46,7 @@ final class CollectionsScenario: @unchecked Sendable {
     let owner: [String: Any] = ["id": "U_fixture", "login": "fixture"]
     var listIDs = ["A", "B"], members = ["A": Set<String>(), "B": Set(["R1"])], names = ["A": "Tools", "B": "Other"]
     var starred = true, brokenIndex = false, brokenItems = false, repeatedCursor = false, unknownWrite = false
+    var unknownMembershipAfterApply = false
     var wrongOwner = false, wrongRepository = false, switchAccount = false, paginated = false, itemPages = false
     var writes: [[String: Any]] = []
     func list(_ id: String) -> [String: Any] {
@@ -102,6 +103,7 @@ final class CollectionsScenario: @unchecked Sendable {
         precondition(query.hasPrefix("mutation SetStarListMembership") && input["itemId"] as? String == "R1")
         let ids = Set(input["listIds"] as! [String])
         for id in listIDs { if ids.contains(id) { members[id, default: []].insert("R1") } else { members[id]?.remove("R1") } }
+        if unknownMembershipAfterApply { throw URLError(.timedOut) }
         return ["data": ["updateUserListsForItem": ["user": owner, "item": ["id": "R1"], "lists": ids.sorted().map(list)]]]
     }
 }
@@ -180,6 +182,20 @@ final class CollectionsScenario: @unchecked Sendable {
         let unknown = CollectionsScenario(), unknownAPI = install(unknown); unknown.unknownWrite = true
         await reject { _ = try await unknownAPI.lists.create(name: "Timeout") }; precondition(unknown.writes.count == 1)
         pass("unknown mutation result is never automatically resent")
+        let applied = CollectionsScenario(), appliedAPI = install(applied)
+        applied.unknownMembershipAfterApply = true
+        await reject { try await appliedAPI.lists.setMembership(repo, list: index.lists[0], included: true) }
+        precondition(applied.writes.count == 1)
+        expect(try await appliedAPI.lists.repositories(in: index.lists[0]).map(\.id) == ["R1"])
+        precondition(applied.writes.count == 1 && applied.members["B"] == ["R1"] && applied.starred)
+        applied.unknownMembershipAfterApply = false
+        try await appliedAPI.lists.setMembership(repo, list: index.lists[0], included: true)
+        precondition(applied.writes.count == 1)
+        applied.unknownMembershipAfterApply = true
+        await reject { try await appliedAPI.lists.setMembership(repo, list: index.lists[0], included: false) }
+        expect(try await appliedAPI.lists.repositories(in: index.lists[0]).isEmpty)
+        precondition(applied.writes.count == 2 && applied.members["B"] == ["R1"] && applied.starred)
+        pass("applied-but-unknown add/remove reconciles read-only, without resend or other-list rollback")
         let noToken = CollectionsScenario(), noTokenAPI = install(noToken); CredentialStore.token = ""
         await reject { _ = try await noTokenAPI.lists.index() }; precondition(CollectionsProtocol.requests == 0)
         CredentialStore.token = "fixture-not-a-secret"

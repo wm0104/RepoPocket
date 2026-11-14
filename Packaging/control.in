@@ -8,4 +8,4 @@ Priority: optional
 Depends: firmware (>= 15.0), uikittools
 Installed-Size: {installed_size}
 Description: 测试
-X-RepoPocket-Changelog: 1.2.0 | 2026-11-11 | 测试
+X-RepoPocket-Changelog: 1.2.1 | 2026-11-14 | 精简文件列表并完善分类管理。

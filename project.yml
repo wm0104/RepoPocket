@@ -13,8 +13,8 @@ settings:
     HEADER_SEARCH_PATHS: "$(SRCROOT)/Vendor/DebCodecs/xz"
     GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) XZ_USE_CRC64 XZ_USE_SHA256"
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "1.2.0"
-    CURRENT_PROJECT_VERSION: "1.2.0"
+    MARKETING_VERSION: "1.2.1"
+    CURRENT_PROJECT_VERSION: "1.2.1"
 packages:
   Yams:
     url: https://github.com/jpsim/Yams.git
