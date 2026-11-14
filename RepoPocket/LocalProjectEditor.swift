@@ -1,6 +1,5 @@
 import SwiftUI
 
-struct LocalProjectFile: Identifiable { let path: String; var deleting = false; var id: String { path } }
 struct LocalProjectEditor: View {
     let project: LocalGitProject
     let internalRoot: URL
@@ -51,6 +50,7 @@ struct LocalProjectEditor: View {
     }
     private func open() async {
         busy = true; error = ""; deletion = nil; defer { busy = false }
+        text = ""; originalText = ""; fingerprint = ""
         do {
             if deleting {
                 deletion = try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
@@ -62,6 +62,8 @@ struct LocalProjectEditor: View {
                 let document = try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
                     try LocalGitFileAccess.read(root: root, path: path)
                 }
+                try Task.checkCancellation()
+                guard generation == AccountStore.generation else { throw CancellationError() }
                 text = document.text; originalText = document.text; fingerprint = document.fingerprint
             }
         } catch { self.error = error.localizedDescription }
@@ -99,7 +101,7 @@ struct LocalProjectFilesView: View {
     @StateObject private var importer = LocalGitImportState()
     @State private var generation = AccountStore.generation
     @State private var entries: [LocalFileEntry] = []
-    @State private var opened: LocalProjectFile?
+    @State private var filePresentation = LocalFilePresentation()
     @State private var loaded = false
     @State private var error = ""
     @State private var openDirectory: String?
@@ -107,15 +109,15 @@ struct LocalProjectFilesView: View {
         List {
           SoftGroupRows {
             if !directory.isEmpty {
-                SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(importer.busy) }
-                SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(importer.busy) }
+                SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(importer.busy || filePresentation.locked) }
+                SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(importer.busy || filePresentation.locked) }
             }
             if importer.busy { SoftGroupRow("import-busy") { ProgressView("导入中…") } }
             if !importer.message.isEmpty { SoftGroupRow("import-message") { Text(importer.message).font(.caption).foregroundStyle(.secondary) } }
             for entry in entries {
               SoftGroupRow("entry:" + entry.id) {
                 if entry.directory {
-                    Button { openDirectory = entry.path } label: {
+                    Button { guard !filePresentation.locked else { return }; openDirectory = entry.path } label: {
                         HStack {
                             Label(entry.name, systemImage: "folder")
                             Spacer(minLength: 0)
@@ -123,20 +125,16 @@ struct LocalProjectFilesView: View {
                         }.contentShape(Rectangle())
                     }
                     .buttonStyle(.plain).disabled(importer.busy)
-                    .contextMenu { Button("删除此文件夹", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) }.disabled(importer.busy) }
+                    .contextMenu { Button("删除此文件夹", role: .destructive) { openFile(entry.path, deleting: true) }.disabled(importer.busy) }
                 } else {
-                    HStack {
-                        Button { opened = LocalProjectFile(path: entry.path) } label: { LocalGitFileLabel(name: entry.name, size: entry.size) }
-                            .buttonStyle(.borderless).disabled(importer.busy)
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-                        Menu {
-                            if entry.name.lowercased().hasSuffix(".deb") {
-                                Button("编辑包信息") { opened = LocalProjectFile(path: entry.path) }
-                            }
-                            Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) }
-                        } label: { Image(systemName: "ellipsis").padding(8) }.disabled(importer.busy).accessibilityLabel("更多操作：" + entry.name)
-                    }
-                        .contextMenu { Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) }.disabled(importer.busy) }
+                    Button { openFile(entry.path) } label: {
+                        HStack {
+                            LocalGitFileLabel(name: entry.name, size: entry.size)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.borderless).disabled(importer.busy)
+                        .accessibilityIdentifier("local-project-file-" + entry.path)
+                        .contextMenu { Button("删除此文件", role: .destructive) { openFile(entry.path, deleting: true) }.disabled(importer.busy) }
                 }
               }
             }
@@ -145,8 +143,8 @@ struct LocalProjectFilesView: View {
           }
         }.listStyle(.insetGrouped).navigationTitle(directory.isEmpty ? "项目文件" : (directory as NSString).lastPathComponent).adaptiveWorkspaceLayout()
         .task { guard !loaded else { return }; await load() }
-        .toolbar { Button("刷新列表") { Task { await load() } }.disabled(importer.busy) }
-        .refreshable { guard !importer.busy else { return }; await load() }
+        .toolbar { Button("刷新列表") { Task { await load() } }.disabled(importer.busy || filePresentation.locked) }
+        .refreshable { guard !importer.busy, !filePresentation.locked else { return }; await load() }
         .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: internalRoot,
                                               directory: directory, generation: generation) { paths in
             if let imported { imported(paths) } else { changed() }
@@ -158,13 +156,22 @@ struct LocalProjectFilesView: View {
             }
         }
         .onDisappear { importer.cancel() }
-        .sheet(item: $opened, onDismiss: { Task { await load() } }) { file in
-            if !file.deleting && file.path.lowercased().hasSuffix(".deb") {
-                LocalProjectDebEditor(api: api, project: project, internalRoot: internalRoot, path: file.path, changed: changed)
-            } else {
-                LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
-            }
+        .sheet(item: Binding(get: { filePresentation.selected }, set: { if $0 == nil { filePresentation.dismissing() } }), onDismiss: {
+            filePresentation.didDismiss(); Task { await load() }
+        }) { file in
+            Group {
+                if !file.deleting && file.path.lowercased().hasSuffix(".deb") {
+                    LocalProjectDebEditor(api: api, project: project, internalRoot: internalRoot, path: file.path, changed: changed)
+                } else {
+                    LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
+                }
+            }.id(file.id)
         }
+    }
+    private func openFile(_ path: String, deleting: Bool = false) {
+        guard !importer.busy, importer.picker == nil, !importer.confirmFolder, openDirectory == nil,
+              api.isCurrentSession, generation == AccountStore.generation else { return }
+        filePresentation.open(path: path, deleting: deleting)
     }
     private func load() async {
         loaded = true; error = ""

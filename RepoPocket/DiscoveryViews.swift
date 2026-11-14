@@ -22,6 +22,9 @@ struct CommunityProfileSection: View {
                     }
                 }
                 if let profile {
+                    if profile.type == "User", let viewer = try? api.followIdentity(), viewer != login.lowercased() {
+                        SoftGroupRow("follow") { UserFollowRow(api: api, login: login) }
+                    }
                     if let count = profile.public_repos { SoftGroupRow("repos") { Text("\(count) 个公开仓库").font(.caption) } }
                     if let count = profile.followers { SoftGroupRow("followers") { Text("\(count) 位关注者 · 正在关注 \(profile.following ?? 0) 人").font(.caption) } }
                     if let company = profile.company, !company.isEmpty { SoftGroupRow("company") { Label(company, systemImage: "building.2") } }

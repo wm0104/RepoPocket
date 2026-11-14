@@ -16,7 +16,7 @@ style = Path(REPO_ROOT, 'RepoPocket/WorkspaceSelectionUI.swift').read_text()
 
 class UpdateGroupTests(unittest.TestCase):
     def test_each_concrete_row_is_decorated_once(self):
-        group = body.split('        Group {',1)[1].split('        }.sheet',1)[0]
+        group = body.split('        Group {',1)[1].split('        }.downloadCompletionNotice',1)[0]
         rows = [line.strip() for line in group.splitlines()
                 if '.softGroupedRow(' in line]
         # The expanded release notes are a concrete child row too.
@@ -26,7 +26,8 @@ class UpdateGroupTests(unittest.TestCase):
         self.assertNotIn('bottom:', group)
         self.assertNotIn('.listRowBackground', body)
         self.assertNotIn('.background(', body)
-        self.assertIn('}.sheet(item: $share, onDismiss:', body)
+        self.assertIn('.downloadCompletionNotice($checker.downloadCompletion)', body)
+        self.assertIn('.sheet(item: $share, onDismiss: { checker.sharing = false })', body)
         block = settings.split('AppUpdateSection(api: api, checker: updateChecker)', 1)[1].split('}.formStyle', 1)[0]
         self.assertIn('.softGroupedRow(bottom: true)', block)
         self.assertNotIn('top: true', block)

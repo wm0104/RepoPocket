@@ -65,6 +65,7 @@ struct CollaborationComment: Decodable, Identifiable {
 
 struct CommunityProfile: Decodable {
     let login: String
+    let type: String?
     let name: String?
     let avatar_url: String?
     let bio: String?

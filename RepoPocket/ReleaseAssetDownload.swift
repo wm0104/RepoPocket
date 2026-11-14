@@ -6,7 +6,7 @@ import Foundation
     func begin()
     func end()
     func download(api: GitHub, repo: String, asset: Asset, update: @escaping (ReleaseDownloadProgress) -> Void) async throws -> URL
-    func persist(_ file: URL, generation: UUID) async throws
+    func persist(_ file: URL, generation: UUID) async throws -> URL
 }
 
 /// Uses the existing authorization, authenticated streaming and scoped save path.
@@ -18,7 +18,7 @@ import Foundation
     func download(api: GitHub, repo: String, asset: Asset, update: @escaping (ReleaseDownloadProgress) -> Void) async throws -> URL {
         try await api.downloadManagedAssetWithProgress(repo, asset: asset, transfer: update)
     }
-    func persist(_ file: URL, generation: UUID) async throws { _ = try await DownloadStore.shared.persist(file, session: generation) }
+    func persist(_ file: URL, generation: UUID) async throws -> URL { try await DownloadStore.shared.persist(file, session: generation) }
 }
 
 struct ReleaseDownloadProgress: Equatable {
@@ -51,7 +51,7 @@ struct ReleaseAssetDownload: Equatable {
         case .connecting: return "正在连接…"
         case .downloading: return progress?.label ?? "正在下载…"
         case .saving: return "正在保存…"
-        case .completed: return message
+        case .completed: return "下载完成"
         case .failed: return "下载失败：" + message
         case .cancelled: return "下载已取消"
         }

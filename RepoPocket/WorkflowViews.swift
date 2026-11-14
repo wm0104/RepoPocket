@@ -161,6 +161,7 @@ struct WorkflowArtifactsView: View {
     @StateObject private var store = CommunityPageStore<WorkflowArtifact>()
     @State private var downloading = false
     @State private var result = ""
+    @State private var downloadedArtifact: URL?
     var body: some View {
         List {
             Section {
@@ -181,7 +182,8 @@ struct WorkflowArtifactsView: View {
                 }
             }
             CommunityPageFooter(store: store, next: { load() })
-        }.navigationTitle("构建产物").task { if !store.loaded { load() } }.onDisappear { store.cancel() }
+        }.navigationTitle("构建产物").downloadCompletionNotice($downloadedArtifact)
+            .task { if !store.loaded { load() } }.onDisappear { store.cancel() }
     }
     private func load() {
         store.load(api: api) { page in
@@ -190,7 +192,7 @@ struct WorkflowArtifactsView: View {
         }
     }
     private func download(_ artifact: WorkflowArtifact) async {
-        guard !downloading, !artifact.expired else { return }; downloading = true; result = ""; defer { downloading = false }
+        guard !downloading, !artifact.expired else { return }; downloading = true; result = ""; downloadedArtifact = nil; defer { downloading = false }
         do {
             let generation = AccountStore.generation
             try await DownloadStore.shared.requireAuthorization()
@@ -198,8 +200,8 @@ struct WorkflowArtifactsView: View {
             DownloadStore.shared.begin(); defer { DownloadStore.shared.end() }
             let file = try await api.communityArtifact(repo, id: artifact.id, name: artifact.name)
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            _ = try await DownloadStore.shared.persist(file, session: generation)
-            guard api.isCurrentSession else { throw CancellationError() }; result = "已保存 ZIP 到 " + DownloadStore.shared.label
+            let saved = try await DownloadStore.shared.persist(file, session: generation)
+            guard api.isCurrentSession else { throw CancellationError() }; downloadedArtifact = saved
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { result = error.localizedDescription } }
     }
 }

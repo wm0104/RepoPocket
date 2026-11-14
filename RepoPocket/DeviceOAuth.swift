@@ -15,6 +15,9 @@ struct DeviceTokenResponse: Decodable {
     let interval: Int?
 }
 enum DeviceOAuthRules {
+    static func scope(privateRepositories: Bool, followUsers: Bool) -> String {
+        (privateRepositories ? "read:user repo" : "read:user public_repo") + (followUsers ? " user:follow" : "")
+    }
     static func clientID(_ source: String) throws -> String {
         let value = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.utf8.count <= 100,
@@ -84,14 +87,14 @@ final class DeviceOAuthRedirectPolicy: NSObject, URLSessionTaskDelegate {
         operation = UUID(); task?.cancel(); task = nil; busy = false
         userCode = ""; verificationURL = nil
     }
-    func start(clientID: String, privateRepositories: Bool, api: GitHub, completed: @escaping () -> Void) {
+    func start(clientID: String, privateRepositories: Bool, followUsers: Bool = false, api: GitHub, completed: @escaping () -> Void) {
         cancel(); message = ""; busy = true
         let identifier = operation
         task = Task { @MainActor in
             defer { if operation == identifier { busy = false; task = nil; userCode = ""; verificationURL = nil } }
             do {
                 let client = try DeviceOAuthRules.clientID(clientID)
-                let scope = privateRepositories ? "read:user repo" : "read:user public_repo"
+                let scope = DeviceOAuthRules.scope(privateRepositories: privateRepositories, followUsers: followUsers)
                 let code: DeviceAuthorization = try await post("/login/device/code", fields: ["client_id": client, "scope": scope])
                 let url = try DeviceOAuthRules.validate(code)
                 try Task.checkCancellation(); guard operation == identifier, api.isCurrentSession else { return }

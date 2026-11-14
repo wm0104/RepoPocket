@@ -53,6 +53,9 @@ class BrowserRollbackTests(unittest.TestCase):
         # account/host/error guards. Normalize only those exact additions before
         # comparing the complete historic write/download implementation.
         normalized = api_new[:added_start].replace(approved, historic)
+        # Account-scoped follow storage is independently exercised by test_user_follow.py.
+        normalized = normalized.replace('    lazy var follows = UserFollowStore(api: self)\n', '')
+        normalized = normalized.replace('                self?.follows.invalidate()\n', '')
         # Approved issue deletion has dedicated native permission and mutation
         # tests; preserve the exact guard on all unrelated API implementation.
         deletion_start = normalized.index('    lazy var issueDeletions = IssueDeletionState()')

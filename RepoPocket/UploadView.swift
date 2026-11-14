@@ -61,7 +61,7 @@ struct UploadView: View {
     @State private var trollAuthor = ""
     @State private var trollPreview = false
     @State private var releases: [Release] = []
-    @State private var downloadNotice = ""
+    @State private var downloadedAsset: URL?
     var body: some View {
         NavigationStack {
             Form {
@@ -86,7 +86,6 @@ struct UploadView: View {
                         if let a = asset {
                             Text("附件：" + a.name).softGroupedRow()
                             Button("保存附件") { Task { await saveAsset(a, repo: releaseRepo) } }.disabled(busy).softGroupedRow()
-                            if !downloadNotice.isEmpty { Text(downloadNotice).font(.caption).foregroundStyle(.secondary).softGroupedRow() }
                             if r.draft {
                                 Button("公开此 Release") { Task { await publish() } }.disabled(busy).softGroupedRow()
                             } else if let url = URL(string: a.browser_download_url) {
@@ -116,6 +115,7 @@ struct UploadView: View {
             }
             .sheet(isPresented: $sharedReleaseEntry) { ReleaseEntryView(api: api, initialRepo: repo, initialBranch: branch) }
             .interactiveDismissDisabled(busy)
+            .downloadCompletionNotice($downloadedAsset)
             .alert("提示", isPresented: Binding(get: { !alertText.isEmpty }, set: { if !$0 { alertText = "" } })) {
                 Button("好", role: .cancel) { alertText = "" }
             } message: { Text(alertText) }
@@ -491,7 +491,7 @@ struct UploadView: View {
     }
     private func saveAsset(_ asset: Asset, repo: String) async {
         guard !busy, api.isCurrentSession else { return }
-        downloadNotice = ""
+        downloadedAsset = nil
         let generation = AccountStore.generation
         busy = true; defer { busy = false }
         do {
@@ -501,9 +501,9 @@ struct UploadView: View {
             let temporary = try await api.downloadAsset(repo, asset: asset)
             defer { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) }
             guard (try FileManager.default.attributesOfItem(atPath: temporary.path)[.size] as? NSNumber)?.intValue == asset.size else { throw AppError(text: "附件大小不符，请重试。") }
-            _ = try await DownloadStore.shared.persist(temporary, session: generation)
+            let saved = try await DownloadStore.shared.persist(temporary, session: generation)
             guard api.isCurrentSession else { throw CancellationError() }
-            downloadNotice = "已下载并保存到 " + DownloadStore.shared.label
+            downloadedAsset = saved
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { alertText = error.localizedDescription } }
     }
     private func publish() async {

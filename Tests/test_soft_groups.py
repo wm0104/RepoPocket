@@ -173,7 +173,7 @@ detail_ui = release.split('struct ReleaseDetailView: View', 1)[1].split('private
 asset_ui = detail_ui.split('ForEach(state.assets) { asset in', 1)[1].split('if state.assets.isEmpty', 1)[0]
 assert 'let isLastAsset = asset.id == state.assets.last?.id && !state.assetMore' in asset_ui
 assert asset_ui.count('.softGroupedRow(') == 1  # approved compact attachment row with native actions
-assert '}.softGroupedRow(top: asset.id == state.assets.first?.id, bottom: isLastAsset)' in asset_ui
+assert '.softGroupedRow(top: asset.id == state.assets.first?.id, bottom: isLastAsset)' in asset_ui
 assert 'LocalGitFileLabel(' in asset_ui and 'Menu {' in asset_ui
 assert 'ReleaseAssetDownloadStatusView(' in asset_ui
 assert 'Divider()' not in asset_ui and 'Rectangle().fill' not in asset_ui
@@ -280,6 +280,12 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
              'ReleasePublishPlan.swift', 'ReleaseTransfers.swift']:
     current = source(file)
     if file == 'GitHub.swift':
+        # Exact additions for the account-scoped follow capability have their own native request/race fixtures.
+        current = current.replace('    lazy var follows = UserFollowStore(api: self)\n', '')
+        current = current.replace('                self?.follows.invalidate()\n', '')
+        follow_start = current.index('    func followIdentity()')
+        follow_end = current.index('    private func managedJSON', follow_start)
+        current = current[:follow_start] + current[follow_end:]
         # The explicitly approved issue deletion transport has separate native
         # permission, account-generation, and mutation acknowledgement fixtures.
         deletion_start = current.index('    lazy var issueDeletions = IssueDeletionState()')
@@ -479,10 +485,14 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             continue
         if file == 'RepoPocketApp.swift' and signature in ('private func zip() async', 'private func download() async'):
             # Downloads now save directly to the chosen folder and report the
-            # result inline; focused download tests protect this changed path.
+            # result with the approved native ZIP completion alert; focused
+            # download tests protect this changed path and the file fallback.
             body = current.get(signature, '')
             assert 'try await DownloadStore.shared.persist(' in body, signature
-            assert 'downloadNotice = "已下载并保存到 "' in body, signature
+            if signature == 'private func zip() async':
+                assert 'downloadedZIP = saved' in body, signature
+            else:
+                assert 'downloadedFile = saved' in body, signature
             assert 'ShareSheet' not in body and 'share = ' not in body, signature
             continue
         if file == 'ReleaseManagementUI.swift' and signature == 'func run(_ work: @escaping () async throws -> Void)':
@@ -500,7 +510,7 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             body = current.get(signature, '')
             assert 'self.downloader.download(' in body
             assert 'try await self.downloader.persist(' in body
-            assert 'self.notice =' in body
+            assert 'self.completedDownload = saved' in body
             assert 'SharedFile' not in body and 'self.saved' not in body
             continue
         if file == 'ReleaseManagementUI.swift' and signature == 'private func performDelete()':
@@ -525,7 +535,7 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             body = current.get(signature, '')
             assert 'api.downloadAsset' in body
             assert 'try await DownloadStore.shared.persist(' in body
-            assert 'downloadNotice =' in body
+            assert 'downloadedAsset = saved' in body
             assert 'api.isCurrentSession' in body
             assert 'SharedFile' not in body
             continue

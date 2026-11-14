@@ -21,6 +21,7 @@ import ZIPFoundation
         set { AppUpdateSessionRules.startupPromptOffered = newValue }
     }
     @Published var downloaded: URL?
+    @Published var downloadCompletion: URL?
     @Published var downloading = false
     @Published var progress: Double = 0
     var sharing = false
@@ -79,13 +80,13 @@ import ZIPFoundation
         downloadTask = nil; downloadSession = nil; delegate = nil
         downloading = false; progress = 0
         // Persisted user downloads survive leaving settings.
-        downloaded = nil
+        downloaded = nil; downloadCompletion = nil
     }
     func check(api: GitHub, automatic: Bool = false) async {
         guard !checking, !downloading else { return }
         guard api.canCheckOfficialUpdate else { showTransient("请重新打开 App", duration: UpdateNoticeRules.latestNanoseconds); return }
         generation = UUID(); let token = generation
-        clearNotice(); checking = true; downloaded = nil
+        clearNotice(); checking = true; downloaded = nil; downloadCompletion = nil
         defer { if generation == token { checking = false } }
         do {
             let data = try await api.officialAppUpdateData()
@@ -111,6 +112,7 @@ import ZIPFoundation
     }
     func ignore() { generation = UUID(); release = nil; startupRelease = nil; showTransient("本次不更新。") }
     func cancelDownload() {
+        downloadCompletion = nil
         generation = UUID(); clearNotice()
         downloadTask?.cancel(); downloadSession?.invalidateAndCancel()
         downloadTask = nil; downloadSession = nil; delegate = nil
@@ -120,7 +122,7 @@ import ZIPFoundation
         guard !downloading, let release, let source = release.ipaURL else { showTransient("未找到唯一可信的 RepoPocket IPA 附件，请查看发布页。"); return }
         generation = UUID(); let token = generation; let accountSession = AccountStore.generation; clearNotice()
         DownloadStore.shared.begin()
-        downloading = true; progress = 0; downloaded = nil; message = "正在下载到本机，完成后校验 IPA。"
+        downloading = true; progress = 0; downloaded = nil; downloadCompletion = nil; message = "正在下载到本机，完成后校验 IPA。"
         let handler = UpdateDownloadDelegate(progress: { [weak self] value in Task { @MainActor in guard let self, self.generation == token, self.downloading else { return }; self.progress = value } }, completion: { [weak self] result in
             Task { @MainActor in
                 defer { DownloadStore.shared.end() }
@@ -150,8 +152,10 @@ import ZIPFoundation
                         guard self.generation == token, accountSession == AccountStore.generation else { throw CancellationError() }
                         let saved = try await DownloadStore.shared.persist(file, session: accountSession)
                         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
-                        self.message = "已保存到 " + DownloadStore.shared.label + "，请选择应用安装"
+                        guard self.generation == token, accountSession == AccountStore.generation else { throw CancellationError() }
+                        self.message = ""
                         self.downloaded = saved
+                        self.downloadCompletion = saved
                     } catch { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()); throw error }
                 } catch { if self.generation == token { self.message = (error as? URLError)?.code == .cancelled ? "已取消下载。" : "下载/校验失败：\(error.localizedDescription)" } }
             }
@@ -227,7 +231,8 @@ struct AppUpdateSection: View {
             } else {
                 Button(checker.checking ? "检查中…" : "检查更新") { Task { await checker.check(api: api) } }.disabled(checker.checking || checker.downloading).softGroupedRow()
             }
-        }.sheet(item: $share, onDismiss: { checker.sharing = false }) { ShareSheet(url: $0.url) }
+        }.downloadCompletionNotice($checker.downloadCompletion)
+        .sheet(item: $share, onDismiss: { checker.sharing = false }) { ShareSheet(url: $0.url) }
         .alert("使用 TrollStore 更新", isPresented: $confirmTrollStore) {
             Button("取消", role: .cancel) {}
             Button("继续") { trollStoreLinkAcknowledged = true; openTrollStoreInstall() }

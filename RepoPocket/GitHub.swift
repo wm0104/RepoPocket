@@ -163,6 +163,7 @@ final class GitHub: ObservableObject {
     private var forkCheckIDs: [String: UUID] = [:]
     private var forkCheckedAt: [String: Date] = [:]
     lazy var stars = RepositoryStarStore(api: self)
+    lazy var follows = UserFollowStore(api: self)
     lazy var issueDeletions = IssueDeletionState()
     var issueDeletionSession: IssueDeletionSession { .init(accountID: accountID, generation: accountGeneration) }
     func issueDeletionGraphQL(_ query: String, variables: [String: Any]) async throws -> Data {
@@ -268,6 +269,7 @@ final class GitHub: ObservableObject {
             .sink { [weak self] _ in
                 self?.session.invalidateAndCancel()
                 self?.stars.invalidate()
+                self?.follows.invalidate()
             }
     }
     static func component(_ text: String) -> String {
@@ -1221,6 +1223,25 @@ final class GitHub: ObservableObject {
         return target
     }
     // These bounded endpoints do not use decoded(): large JSON is parsed off MainActor.
+    func followIdentity() throws -> String {
+        try ensureActiveAccount()
+        guard !CredentialStore.read(account: accountID).isEmpty else { throw AppError(text: "请先登录账号。") }
+        return try UserFollowRules.login(login.isEmpty ? (AccountStore.accounts.first { $0.id == accountID }?.login ?? "") : login)
+    }
+    func followRequest(_ input: String, method: String) async throws -> Bool {
+        let viewer = try followIdentity(), target = try UserFollowRules.login(input)
+        guard viewer != target, ["GET", "PUT", "DELETE"].contains(method) else { throw AppError(text: "无效关注操作。") }
+        // Public relationship reads need no additional OAuth scope. Writes affect only the signed-in user.
+        let path = method == "GET" ? "/users/\(Self.component(viewer))/following/\(Self.component(target))" : "/user/following/\(Self.component(target))"
+        var r = try request(url(path), method: method)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        r.timeoutInterval = 30
+        if method != "GET" { r.setValue("0", forHTTPHeaderField: "Content-Length") }
+        let (_, response) = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        try Task.checkCancellation(); _ = try followIdentity()
+        guard let http = response as? HTTPURLResponse else { throw AppError(text: "关注接口未返回有效响应。") }
+        return try UserFollowRules.status(http.statusCode, checking: method == "GET")
+    }
     private func managedJSON<T: Decodable>(_ type: T.Type, repo: String, suffix: String,
         method: String = "GET", object: [String: Any]? = nil, page: Int? = nil, perPage: Int = 20) async throws -> T {
         let canonical = try RepositoryInput.parse(repo)

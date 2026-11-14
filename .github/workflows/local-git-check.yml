@@ -50,6 +50,9 @@ jobs:
           python3 Tests/test_issue_deletion.py
           python3 Tests/test_repository_search_routing.py
           python3 Tests/test_release_asset_download.py
+          python3 Tests/test_user_follow.py
+          python3 Tests/test_file_feedback.py
+          python3 Tests/test_local_file_presentation.py
           python3 Tests/test_community.py
       - name: Generate application project
         run: |

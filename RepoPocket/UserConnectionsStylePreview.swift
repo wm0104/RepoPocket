@@ -39,10 +39,29 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var posted = ""
     private static var deleted = false
+    private static var followed: Set<String> = ["fixture-following", "fixture-second"]
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if path.hasPrefix("/users/fixture-owner/following/") || path.hasPrefix("/user/following/") {
+            let target = path.components(separatedBy: "/").last ?? ""
+            let method = request.httpMethod ?? ""
+            var code = 403
+            if request.url?.host == "api.github.com", request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections",
+               ["fixture-follower", "fixture-second", "fixture-following"].contains(target) {
+                Self.lock.lock()
+                if method == "GET", !ProcessInfo.processInfo.arguments.contains("-follow-status-error") {
+                    code = Self.followed.contains(target) ? 204 : 404
+                } else if ["PUT", "DELETE"].contains(method), request.value(forHTTPHeaderField: "Content-Length") == "0",
+                          !ProcessInfo.processInfo.arguments.contains("-follow-write-denied") {
+                    if method == "PUT" { Self.followed.insert(target) } else { Self.followed.remove(target) }; code = 204
+                }
+                Self.lock.unlock()
+            }
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self); return
+        }
         let post = request.httpMethod == "POST" && path == "/repos/fixture-owner/sample/issues/4/comments"
         var acceptedPost = false
         if post, request.url?.host == "api.github.com", request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections",
@@ -81,7 +100,7 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
             payload = #"[{"id":404,"login":"fixture-following"}]"#
         } else if ["/users/fixture-follower", "/users/fixture-following", "/users/fixture-owner", "/users/fixture-second"].contains(path) {
             let login = path.components(separatedBy: "/").last!
-            payload = "{\"login\":\"" + login + "\",\"bio\":\"关注列表测试用户\",\"public_repos\":0,\"followers\":0,\"following\":0}"
+            payload = "{\"login\":\"" + login + "\",\"type\":\"User\",\"bio\":\"关注列表测试用户\",\"public_repos\":0,\"followers\":0,\"following\":0}"
         } else if path == "/user/repos" {
             payload = #"[{"id":501,"name":"alpha","full_name":"fixture-owner/alpha","html_url":"https://github.com/fixture-owner/alpha"},{"id":502,"name":"beta","full_name":"fixture-owner/beta","html_url":"https://github.com/fixture-owner/beta"}]"#
         } else if path == "/user/starred" {

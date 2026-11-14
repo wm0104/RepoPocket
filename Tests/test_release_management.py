@@ -17,8 +17,9 @@ class ReleaseManagementTests(unittest.TestCase):
         upload = (ROOT/'RepoPocket/UploadView.swift').read_text()
         for screen in [app, fileView, ui, upload]:
             self.assertNotIn('ShareSheet(url:', screen)
-        self.assertIn('downloadNotice = "已下载并保存到 " + DownloadStore.shared.label', app)
-        self.assertIn('downloadNotice = "已下载并保存到 " + DownloadStore.shared.label', upload)
+        self.assertIn('.downloadCompletionNotice($downloadedZIP)', app)
+        self.assertIn('downloadedZIP = saved', app)
+        self.assertIn('downloadedAsset = saved', upload)
         update = (ROOT/'RepoPocket/UpdateFeature.swift').read_text()
         self.assertIn('Button("分享 IPA 安装")', update)
         highlights = (ROOT/'RepoPocket/RepositoryHomeHighlights.swift').read_text()
@@ -80,7 +81,9 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertIn('state.download(asset)',actions)
         self.assertIn('UIPasteboard.general.url = link',actions)
         self.assertIn('asset.browser_download_url, repo: state.repo',actions)
-        self.assertIn('presenting: assetAction',ui)
+        self.assertNotIn('presenting: assetAction',ui)
+        self.assertNotIn('ellipsis',row)
+        self.assertIn('.contentShape(Rectangle())',row)
         self.assertIn('target.generation == AccountStore.generation',ui)
 
     def test_concise_copy_keeps_safety_and_budget_guards(self):
