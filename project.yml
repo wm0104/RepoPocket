@@ -12,7 +12,7 @@ settings:
     HEADER_SEARCH_PATHS: "$(SRCROOT)/Vendor/DebCodecs/xz"
     GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) XZ_USE_CRC64 XZ_USE_SHA256"
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "1.0.0"
+    MARKETING_VERSION: "1.0.3"
     CURRENT_PROJECT_VERSION: "2"
 packages:
   ZIPFoundation:
@@ -36,6 +36,8 @@ targets:
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        LSApplicationQueriesSchemes:
+          - apple-magnifier
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.wm0104.RepoPocket

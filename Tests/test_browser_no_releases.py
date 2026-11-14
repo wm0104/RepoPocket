@@ -1,4 +1,4 @@
-"""Restore Browser source exactly, execute its production load against request spies."""
+"""Preserve original load/navigation; allow a separate root-only single-row presence probe."""
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -13,7 +13,7 @@ class BrowserRollbackTests(unittest.TestCase):
     def test_exact_stable_navigation_and_api(self):
         if subprocess.run(['git', 'cat-file', '-e', BASE+'^{commit}'], cwd=ROOT, capture_output=True).returncode:
             subprocess.run(['git', 'fetch', '--depth=1', 'origin', BASE], cwd=ROOT, check=True)
-        for file in ('RepoPocket/GitHub.swift','RepoPocket/ReleaseAssetRedirectPolicy.swift','RepoPocket/RepositoryStar.swift','RepoPocket/RepositoryStarUI.swift','RepoPocket/RepositoryUI.swift'):
+        for file in ('RepoPocket/ReleaseAssetRedirectPolicy.swift','RepoPocket/RepositoryStar.swift','RepoPocket/RepositoryStarUI.swift','RepoPocket/RepositoryUI.swift'):
             self.assertEqual((ROOT/file).read_text(), subprocess.check_output(['git','show',f'{BASE}:{file}'],cwd=ROOT,text=True))
         # RepoPocketApp.swift is not compared byte-for-byte: the directory-nav
         # freeze fix intentionally changes BrowserView's destination form. Its
@@ -25,6 +25,19 @@ class BrowserRollbackTests(unittest.TestCase):
         for file in ('RepositoryReleaseUI.swift','RepositoryReleases.swift'):
             self.assertFalse((ROOT/'RepoPocket'/file).exists())
         self.assertNotIn('/releases',BROWSER)
+        self.assertIn('if path.isEmpty {', BROWSER)
+        self.assertEqual(BROWSER.count('ReleaseManagementDestination(api: api, repo: repo)'), 1)
+        self.assertNotIn('managedReleases', LOAD)
+        api_original = subprocess.check_output(['git','show',f'{BASE}:RepoPocket/GitHub.swift'],cwd=ROOT,text=True)
+        api_new = (ROOT/'RepoPocket/GitHub.swift').read_text()
+        added_start = api_new.index('    // These bounded endpoints')
+        # Only the explicitly approved default workspace naming expression differs
+        # outside the bounded Release endpoints. Normalize that single expression;
+        # the complete historic API baseline remains byte-for-byte protected.
+        approved = 'name: binding.repo.replacingOccurrences(of: "/", with: "-") + "-" + binding.branch + "-" + (binding.remoteCommitterDate.map { ISO8601DateFormatter().string(from: $0) } ?? String(binding.head.prefix(8)))'
+        historic = 'name: binding.repo.replacingOccurrences(of: "/", with: "-") + (binding.branch == "main" || binding.branch == "master" ? "" : "-" + binding.branch)'
+        self.assertEqual(api_new.count(approved), 1)
+        self.assertEqual(api_new[:added_start].replace(approved, historic).rstrip() + '\n}\n', api_original)
         self.assertEqual(BROWSER.count('.task { if !loaded { await load() } }'),1)
         for menu in ('CopyRepositoryLinkButton','ForkRepositoryMenuButton','RepositoryStarMenuButton'):
             self.assertIn(menu,BROWSER)

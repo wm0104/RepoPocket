@@ -53,8 +53,24 @@ import Foundation
  for a in ["", "x", "x\n", "\n", "x\ny\n", " y\t\r\n", "中文🙂"] {
   for b in ["", "y", "y\n", "\n", "y\nx\n", "中文🙂"] { _ = try check(a,b) }
  }
- let worker = Task.detached { try Task.checkCancellation(); return try LocalDiffModel.compute(before: context, after: "x") }
+ actor Gate {
+  var opened = false
+  var continuation: CheckedContinuation<Void, Never>?
+  func wait() async {
+   if opened { return }
+   await withCheckedContinuation { continuation = $0 }
+  }
+  func release() { opened = true; continuation?.resume(); continuation = nil }
+ }
+ let gate = Gate()
+ let worker = Task.detached {
+  await gate.wait()
+  // Cancellation is established before entering production compute, not raced
+  // against completion of a small input on a fast runner.
+  return try LocalDiffModel.compute(before: context, after: "x")
+ }
  worker.cancel()
+ await gate.release()
  do { _ = try await worker.value; fatalError("Cancellation not honored") } catch is CancellationError { }
  print("PASS production diff reconstruction, insertion/deletion, inline, whitespace, newline, Unicode, context, budget and cancellation")
  }

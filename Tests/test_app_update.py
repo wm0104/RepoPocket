@@ -14,8 +14,12 @@ class UpdateTests(unittest.TestCase):
         self.assertNotIn('officialAppUpdateData', entry)
         self.assertEqual(feature.count('await checker.check(api: api)'), 1)
         self.assertNotIn('forHTTPHeaderField: "Authorization"', feature)
-        for forbidden in ['TrollStore', 'apple-magnifier', 'openTrollStore', 'URLQueryItem(name: "url"']:
+        # The authorized TrollStore handoff is isolated from the normal verified download path.
+        for forbidden in ['apple-magnifier://', 'URLQueryItem(name: "url"']:
             self.assertNotIn(forbidden, feature)
+        self.assertIn('TrollStoreInstallRules.installURL(for: ipa)', feature)
+        self.assertIn('Button("下载更新")', feature)
+        self.assertIn('不经过 RepoPocket 的本地 SHA256 校验', feature)
         for value in ['downloadTask?.cancel()', 'snapshotFileSHA256', 'archive.extract', 'HTTPURLResponse', 'https://github.com/wm0104/RepoPocket/releases']:
             self.assertIn(value, feature)
         self.assertIn('AppUpdateSection(api: api, checker: updateChecker)', Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text())
@@ -36,7 +40,7 @@ class UpdateTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift compiler is available in macOS Actions')
     def test_production_version_and_asset_rules(self):
         api = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
-        source = 'import Foundation\n' + api[api.index('struct AppError:'):api.index('struct GitHubAPIError:')] + rules.replace('import Foundation', '') + r'''
+        source = 'import Foundation\n' + api[api.index('struct AppError:'):api.index('struct GitHubAPIError:')] + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules.replace('import Foundation', '') + r'''
 precondition(AppVersion("1.0.9")! < AppVersion("1.0.10")!)
 precondition(AppVersion("1.0.1-rc.9")! < AppVersion("1.0.1-rc.10")!)
 precondition(AppVersion("1.0.1-rc.10")! < AppVersion("1.0.1")!)
@@ -49,6 +53,15 @@ func release(_ tag: String, _ draft: Bool = false, _ pre: Bool = false, _ assets
 precondition(try AppUpdateRules.isNewer(release("v1.1.0"), local: "1.0.1", localBuild: "7"))
 precondition(try AppUpdateRules.isNewer(release("v1.0.1+8"), local: "1.0.1", localBuild: "7"))
 precondition(try !AppUpdateRules.isNewer(release("v1.0.1"), local: "1.0.1", localBuild: "7"))
+// Legacy installs still interpret +1 as build1: document rather than conceal it.
+precondition(try !AppUpdateRules.isNewer(release("v1.0.1+1"), local: "1.0.1", localBuild: "6"))
+precondition(try !AppUpdateRules.isNewer(release("v1.0.1+1"), local: "1.0.1+1", localBuild: "7"))
+precondition(try AppUpdateRules.isNewer(release("v1.0.1+2"), local: "1.0.1+1", localBuild: "7"))
+precondition(try !AppUpdateRules.isNewer(release("v1.0.1"), local: "1.0.1+1", localBuild: "7"))
+precondition(try AppUpdateRules.isNewer(release("v1.0.0+4"), local: "1.0.0", localBuild: "3"))
+precondition(try !AppUpdateRules.isNewer(release("v1.0.0+4"), local: "1.0.0", localBuild: "4"))
+precondition(try !AppUpdateRules.isNewer(release("v1.0.1+other"), local: "1.0.1+1", localBuild: "7"))
+precondition(try AppUpdateRules.isNewer(release("v1.0.2"), local: "1.0.1+1", localBuild: "7"))
 for bad in [try release("v1.1.0", true), try release("v1.1.0", false, true), try release("v1.1.0-rc.1")] {
     do { _ = try AppUpdateRules.isNewer(bad, local: "1.0.1", localBuild: "7"); fatalError("invalid release accepted") } catch {}
 }

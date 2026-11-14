@@ -42,7 +42,8 @@ struct UploadView: View {
     @State private var busy = false
     @State private var confirmCommit = false
     @State private var confirmRelease = false
-    @State private var makeNewRepo = true
+    @State private var makeNewRepo = false
+    @State private var sharedReleaseEntry = false
     @State private var newName = ""
     @State private var isPrivate = false
     @State private var tag = "v1.0"
@@ -63,13 +64,13 @@ struct UploadView: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("上传方式", selection: $mode) {
-                        Text("提交仓库").tag(0)
-                        Text("Release 发布").tag(1)
-                        Text("TrollFools 插件 / 更新索引").tag(2)
+                    Picker("提交 / 发布方式", selection: $mode) {
+                        Text("仓库提交").tag(0)
+                        Text("发行版").tag(1)
+                        Text("TrollFools").tag(2)
                     }.pickerStyle(.segmented).disabled(busy).softGroupedRow(top: true, bottom: true)
                 }
-                fileSection
+                if mode != 1 { fileSection }
                 if mode == 0 { commitSection } else if mode == 1 { releaseSection } else { trollSection }
                 if busy { Section {
                     if progress > 0 { ProgressView(value: progress).tint(.accentColor).softGroupedRow(top: true) }
@@ -96,13 +97,14 @@ struct UploadView: View {
             }
             .formStyle(.grouped)
             .adaptiveWorkspaceLayout()
-            .navigationTitle("上传")
+            .navigationTitle("提交 / 发布")
             .scrollDismissesKeyboard(.never)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if openedFromFolder { Button("关闭") { dismiss() }.disabled(busy) }
 
             }
+            .sheet(isPresented: $sharedReleaseEntry) { ReleaseEntryView(api: api, initialRepo: repo, initialBranch: branch) }
             .sheet(item: $savedAsset) { ShareSheet(url: $0.url) }
             .interactiveDismissDisabled(busy)
             .alert("提示", isPresented: Binding(get: { !alertText.isEmpty }, set: { if !$0 { alertText = "" } })) {
@@ -115,20 +117,20 @@ struct UploadView: View {
                 NavigationStack {
                     List {
                         Section("最终提交预览") {
-                            LabeledContent("仓库", value: repo)
-                            LabeledContent("分支", value: branch.isEmpty ? "默认分支（以已选目标 HEAD 校验）" : branch)
-                            Text(note)
+                            LabeledContent("仓库", value: repo).softGroupedRow(top: true)
+                            LabeledContent("分支", value: branch.isEmpty ? "默认分支（以已选目标 HEAD 校验）" : branch).softGroupedRow()
+                            Text(note).softGroupedRow(bottom: queue.isEmpty)
                             ForEach(queue) { item in
                                 VStack(alignment: .leading) {
                                     Text((item.local == nil ? "删除：" : item.sha == nil ? "新增：" : "替换：") + (item.path ?? "未选择"))
                                     if let sha = item.sha { Text("原 SHA：" + sha).font(.caption) }
-                                }
+                                }.softGroupedRow(bottom: item.id == queue.last?.id)
                             }
                         }
                         Button("确认提交以上全部项目") {
                             busy = true; progress = 0
                             submitAfterDismiss = true; confirmCommit = false
-                        }
+                        }.softGroupedRow(top: true, bottom: true)
                     }
                     .navigationTitle("确认原子提交")
                     .toolbar { Button("取消") { confirmCommit = false } }
@@ -140,15 +142,15 @@ struct UploadView: View {
             .sheet(isPresented: $trollPreview) {
                 NavigationStack {
                     Form {
-                        LabeledContent("仓库", value: repo)
-                        LabeledContent("分支", value: branch.isEmpty ? "默认分支" : branch)
-                        LabeledContent("插件文件", value: "downloads/" + (local?.lastPathComponent ?? ""))
-                        LabeledContent("名称", value: trollName)
-                        LabeledContent("版本", value: trollVersion)
-                        LabeledContent("描述", value: trollDescription.isEmpty ? trollName : trollDescription)
-                        LabeledContent("Bundle ID", value: trollBundleID.isEmpty ? "未填写" : trollBundleID)
-                        LabeledContent("作者", value: trollAuthor.isEmpty ? "未填写" : trollAuthor)
-                        Text("一次 Git 提交同步插件与索引；保留其他条目和外链。")
+                        LabeledContent("仓库", value: repo).softGroupedRow(top: true)
+                        LabeledContent("分支", value: branch.isEmpty ? "默认分支" : branch).softGroupedRow()
+                        LabeledContent("插件文件", value: "downloads/" + (local?.lastPathComponent ?? "")).softGroupedRow()
+                        LabeledContent("名称", value: trollName).softGroupedRow()
+                        LabeledContent("版本", value: trollVersion).softGroupedRow()
+                        LabeledContent("描述", value: trollDescription.isEmpty ? trollName : trollDescription).softGroupedRow()
+                        LabeledContent("Bundle ID", value: trollBundleID.isEmpty ? "未填写" : trollBundleID).softGroupedRow()
+                        LabeledContent("作者", value: trollAuthor.isEmpty ? "未填写" : trollAuthor).softGroupedRow()
+                        Text("一次 Git 提交同步插件与索引；保留其他条目和外链。").softGroupedRow(bottom: true)
                     }
                     .navigationTitle("TrollFools 发布预览")
                     .toolbar {
@@ -211,7 +213,7 @@ struct UploadView: View {
     }
     private var fileSection: some View {
         Section("本地文件") {
-            Button { picking = true } label: { Label("从“文件”App 选择", systemImage: "folder.badge.plus").padding(.vertical, 4) }.disabled(busy).softGroupedRow(top: true, bottom: local == nil)
+            Button { picking = true } label: { Label("选择文件", systemImage: "folder.badge.plus").padding(.vertical, 4) }.disabled(busy).softGroupedRow(top: true, bottom: local == nil)
             if let file = local {
                 Label(file.lastPathComponent, systemImage: file.pathExtension.lowercased() == "deb" ? "shippingbox.fill" : "doc.fill").font(.headline).softGroupedRow()
                 Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .binary)).font(.caption).monospacedDigit().foregroundColor(.secondary).softGroupedRow()
@@ -232,7 +234,7 @@ struct UploadView: View {
             } else {
                 TextField("仓库链接", text: $repo).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
             }
-            Text("普通提交可多选、继续追加。每项单独选择目标；删除仅在最后确认后提交。Release / TrollFools 仍为单文件。") .font(.caption).softGroupedRow()
+            Text("普通提交可多选、继续追加；每项选择目标，删除仅在最后确认后提交。发行版支持多附件；TrollFools 为单插件。") .font(.caption).softGroupedRow()
             ForEach(queue) { item in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(item.local?.lastPathComponent ?? "远端删除").font(.headline)
@@ -253,7 +255,7 @@ struct UploadView: View {
                 TextField("留空使用默认分支", text: $branch).textInputAutocapitalization(.never).autocorrectionDisabled()
             }.softGroupedRow()
             Button("检查提交权限") { Task { await checkAccess() } }.disabled(repo.isEmpty).softGroupedRow()
-            Button("确认提交") {
+            Button("预览提交") {
                 if let reason = RepoQueue.readiness(queue, repo: repo, message: note) { alertText = reason }
                 else { confirmCommit = true }
             }.disabled(busy || !canWrite).softGroupedRow(bottom: true)
@@ -268,35 +270,20 @@ struct UploadView: View {
             TextField("Bundle ID（选填）", text: $trollBundleID).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
             TextField("作者（选填）", text: $trollAuthor).softGroupedRow()
             DisclosureGroup("分支") { TextField("留空使用默认分支", text: $branch).textInputAutocapitalization(.never).autocorrectionDisabled() }.softGroupedRow()
-            Text("单次 Git 提交更新 downloads/ 与 trollpackages.json；保留既有条目及外链。section：插件（已有值保留）。") .font(.caption).softGroupedRow()
+            Text("上传插件并更新索引").font(.caption).softGroupedRow()
+            DisclosureGroup("索引说明") { Text("单次 Git 提交更新 downloads/ 与 trollpackages.json；保留既有条目及外链。section：插件（已有值保留）。").font(.caption) }.softGroupedRow()
             Button("预览并发布插件") { trollPreview = true }.disabled(busy || !canWrite || local == nil || repo.isEmpty || trollName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || trollVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).softGroupedRow(bottom: true)
         }.disabled(busy)
     }
 
     private var releaseSection: some View {
-        Section("大文件：新建仓库并发布") {
-            Toggle("先新建一个仓库", isOn: $makeNewRepo).softGroupedRow(top: true)
-            if makeNewRepo {
-                TextField("新仓库名，例如 my-ipa-files", text: $newName).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
-                Toggle("私有仓库", isOn: $isPrivate).softGroupedRow()
-            } else {
-                TextField("仓库链接", text: $repo).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
-                Button("加载已有 Releases") { Task { await loadReleases() } }.disabled(busy).softGroupedRow()
-                ForEach(releases) { r in
-                    Button("选中 \(r.tag_name)\(r.draft ? "（草稿）" : "（已公开）")") {
-                        release = r; releaseRepo = repo; asset = nil; alertText = "已选中，可上传附件。"
-                    }.softGroupedRow()
-                }
-            }
-            TextField("版本标签，例如 v1.0", text: $tag).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
-            TextField("发布标题（可留空）", text: $title).softGroupedRow()
-            Text("附件 <2 GiB；上传成功后确认发布。").font(.caption).softGroupedRow()
-            Button("创建仓库 / 草稿并上传") { confirmRelease = true }.disabled(busy || local == nil || (!makeNewRepo && !canWrite) || (makeNewRepo && newName.isEmpty)).softGroupedRow(bottom: release == nil)
-            if release != nil {
-                Button("上传到已选中的 Release / 重试") { Task { await uploadSelected() } }.disabled(busy || !canWrite || local == nil).softGroupedRow()
-                Text("同名附件不会自动覆盖。").font(.caption).softGroupedRow(bottom: true)
-            }
-        }.disabled(busy)
+        Section("发行版") {
+            TextField("仓库链接（可留空后选择）", text: $repo).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
+            Button("发布") { sharedReleaseEntry = true }.disabled(busy).softGroupedRow()
+            NavigationLink { ReleaseManagementDestination(api: api, repo: repo) } label: { Text("发行版管理") }
+                .disabled(busy || repo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .softGroupedRow(bottom: true)
+        }
     }
     static func inferredTrollVersion(from filename: String) -> String {
         let stem = (filename as NSString).deletingPathExtension

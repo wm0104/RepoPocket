@@ -68,44 +68,45 @@ struct DebEditorView: View {
 
     private var sourceSection: some View {
         Section("源文件") {
-            if remote == nil && initialFile == nil { Button("从“文件”选择 .deb") { showPicker = true }.disabled(busy) }
-            if let source { Text(source.lastPathComponent); Text("只修改副本；原文件不会覆盖").font(.caption).foregroundColor(.secondary) }
-            if busy { ProgressView("读取 / 生成中，请保持前台") }
-            Text("支持 control.tar、gz、xz、zst；xz/zst 编辑后输出 gzip。bz2/lzma 暂不支持编辑，但仍可原样上传。").font(.caption).foregroundColor(.secondary)
+            if remote == nil && initialFile == nil { Button("从“文件”选择 .deb") { showPicker = true }.disabled(busy).softGroupedRow(top: true) }
+            if let source { Text(source.lastPathComponent).softGroupedRow(top: remote != nil || initialFile != nil); Text("只修改副本；原文件不会覆盖").font(.caption).foregroundColor(.secondary).softGroupedRow() }
+            if busy { ProgressView("读取 / 生成中，请保持前台").softGroupedRow(top: source == nil && (remote != nil || initialFile != nil)) }
+            Text("支持 control.tar、gz、xz、zst；xz/zst 编辑后输出 gzip。bz2/lzma 暂不支持编辑，但仍可原样上传。").font(.caption).foregroundColor(.secondary).softGroupedRow(top: source == nil && !busy && (remote != nil || initialFile != nil), bottom: true)
         }
     }
 
+    private var originalKeys: [String] { ["Name", "Package", "Version", "Description", "Maintainer", "Author", "Section", "Priority", "Homepage"].filter { original[$0] != nil } }
     private var originalSection: some View {
         Section("原始包信息") {
-            ForEach(["Name", "Package", "Version", "Description", "Maintainer", "Author", "Section", "Priority", "Homepage"], id: \.self) { key in
-                if let value = original[key] { LabeledContent(key, value: value).textSelection(.enabled) }
+            ForEach(originalKeys, id: \.self) { key in
+                if let value = original[key] { LabeledContent(key, value: value).textSelection(.enabled).softGroupedRow(top: key == originalKeys.first, bottom: key == originalKeys.last) }
             }
         }
     }
 
     private var editSection: some View {
         Section("编辑") {
-            if original["Name"] != nil { TextField("Name（显示名称）", text: $name) }
-            if original["Author"] != nil { TextField("Author", text: $author) }
-            TextField("Package（包标识）", text: $package).textInputAutocapitalization(.never).autocorrectionDisabled()
-            TextField("Version", text: $version).textInputAutocapitalization(.never).autocorrectionDisabled()
-            TextField("Maintainer", text: $maintainer)
-            Text("Description（多行可编辑）").font(.caption)
-            TextEditor(text: $description).frame(minHeight: 85)
-            if original["Section"] != nil { TextField("Section", text: $section) }
-            if original["Priority"] != nil { TextField("Priority", text: $priority) }
-            if original["Homepage"] != nil { TextField("Homepage", text: $homepage).textInputAutocapitalization(.never) }
-            Text("其他 control 字段原样保留；仅已存在的可选字段允许修改。空值或不合法格式将被拒绝。").font(.caption).foregroundColor(.secondary)
+            if original["Name"] != nil { TextField("Name（显示名称）", text: $name).softGroupedRow(top: true) }
+            if original["Author"] != nil { TextField("Author", text: $author).softGroupedRow(top: original["Name"] == nil) }
+            TextField("Package（包标识）", text: $package).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: original["Name"] == nil && original["Author"] == nil)
+            TextField("Version", text: $version).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
+            TextField("Maintainer", text: $maintainer).softGroupedRow()
+            Text("Description（多行可编辑）").font(.caption).softGroupedRow()
+            TextEditor(text: $description).frame(minHeight: 85).softGroupedRow()
+            if original["Section"] != nil { TextField("Section", text: $section).softGroupedRow() }
+            if original["Priority"] != nil { TextField("Priority", text: $priority).softGroupedRow() }
+            if original["Homepage"] != nil { TextField("Homepage", text: $homepage).textInputAutocapitalization(.never).softGroupedRow() }
+            Text("其他 control 字段原样保留；仅已存在的可选字段允许修改。空值或不合法格式将被拒绝。").font(.caption).foregroundColor(.secondary).softGroupedRow(bottom: true)
         }
     }
 
     private var differencesSection: some View {
         Section("变更对照") {
-            if differences.isEmpty { Text("尚无修改").foregroundColor(.secondary) }
+            if differences.isEmpty { Text("尚无修改").foregroundColor(.secondary).softGroupedRow(top: true) }
             ForEach(differences.indices, id: \.self) { index in
-                differenceRow(differences[index])
+                differenceRow(differences[index]).softGroupedRow(top: index == differences.startIndex)
             }
-            Button("生成新的 deb（验证后保存）") { Task { await generate() } }.disabled(busy || differences.isEmpty)
+            Button("生成新的 deb（验证后保存）") { Task { await generate() } }.disabled(busy || differences.isEmpty).softGroupedRow(bottom: true)
         }
     }
 
@@ -119,26 +120,26 @@ struct DebEditorView: View {
 
     private func outputSection(_ output: URL) -> some View {
         Section("已生成 · 未替换原文件") {
-            Text(output.lastPathComponent)
-            ShareLink(item: output, preview: SharePreview(output.lastPathComponent)) { Label("分享 / 存储到“文件”", systemImage: "square.and.arrow.up") }
+            Text(output.lastPathComponent).softGroupedRow(top: true)
+            ShareLink(item: output, preview: SharePreview(output.lastPathComponent)) { Label("分享 / 存储到“文件”", systemImage: "square.and.arrow.up") }.softGroupedRow()
             if remote != nil && canWrite && api.isCurrentSession {
-                TextField("提交说明（可选）", text: $commitNote)
+                TextField("提交说明（可选）", text: $commitNote).softGroupedRow()
                 if confirmRemote {
-                    Text("确认只更新原仓库文件：" + (remoteEntry?.path ?? ""))
-                    Button("确认提交回原文件") { Task { await submitRemote(output) } }.disabled(busy || submitted)
-                    Button("取消确认") { confirmRemote = false }
+                    Text("确认只更新原仓库文件：" + (remoteEntry?.path ?? "")).softGroupedRow()
+                    Button("确认提交回原文件") { Task { await submitRemote(output) } }.disabled(busy || submitted).softGroupedRow()
+                    Button("取消确认") { confirmRemote = false }.softGroupedRow()
                 } else {
-                    Button("提交回原文件") { confirmRemote = true }.disabled(busy || submitted)
+                    Button("提交回原文件") { confirmRemote = true }.disabled(busy || submitted).softGroupedRow()
                 }
-                if !resultMessage.isEmpty { Text(resultMessage) }
+                if !resultMessage.isEmpty { Text(resultMessage).softGroupedRow() }
             } else if remote != nil {
-                Text("此仓库为只读，生成文件仅可保存到本地。")
+                Text("此仓库为只读，生成文件仅可保存到本地。").softGroupedRow()
             } else if let onUseForUpload {
-                Button("使用新 deb 提交 / 发布") { onUseForUpload(output) }.disabled(busy)
+                Button("使用新 deb 提交 / 发布") { onUseForUpload(output) }.disabled(busy).softGroupedRow()
             } else {
-                Button("使用新 deb 提交 / 发布") { showUpload = true }.disabled(busy)
+                Button("使用新 deb 提交 / 发布") { showUpload = true }.disabled(busy).softGroupedRow()
             }
-            Text("提交仓库须明确选择目录及目标；Release 只上传附件，不会自动公开发布。").font(.caption)
+            Text("提交仓库须明确选择目录及目标；Release 只上传附件，不会自动公开发布。").font(.caption).softGroupedRow(bottom: true)
         }
     }
 

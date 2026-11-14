@@ -56,10 +56,10 @@ struct RepositoryDeletionView: View {
             Form {
                 Section("危险操作：永久删除 GitHub 远端仓库") {
                     Text("将删除整个远端仓库，包括代码、Issues、Release 及其附件。这不是删除单个文件，也不是删除本地工作区。此操作不可撤销。")
-                        .foregroundColor(.red)
-                    Text(repository.full_name).font(.headline).textSelection(.enabled)
-                    Text("访问账号：" + (api.login.isEmpty ? context.accountID : api.login))
-                    Text(RepositoryDeletion.permissionHelp).font(.caption)
+                        .foregroundColor(.red).softGroupedRow(top: true)
+                    Text(repository.full_name).font(.headline).textSelection(.enabled).softGroupedRow()
+                    Text("访问账号：" + (api.login.isEmpty ? context.accountID : api.login)).softGroupedRow()
+                    Text(RepositoryDeletion.permissionHelp).font(.caption).softGroupedRow(bottom: true)
                 }
                 Section("已预填所选仓库，无需输入") {
                     HStack {
@@ -74,17 +74,17 @@ struct RepositoryDeletionView: View {
                         .buttonStyle(.borderless)
                         .accessibilityLabel("清空仓库删除确认")
                         .disabled(busy || confirmation.isEmpty)
-                    }
+                    }.softGroupedRow(top: true)
                     Text("已自动填好所选仓库 owner/repo。不删除可清空或取消；清空后无法删除。修改内容不会更改删除目标。点击永久删除后仍需最后确认。")
-                        .font(.caption)
-                    if !accountIsCurrent { Text("账号已变化，请关闭并重新打开。").foregroundColor(.red) }
-                    if !errorMessage.isEmpty { Text(errorMessage).foregroundColor(.red).textSelection(.enabled) }
-                    if busy { ProgressView("正在核验权限并删除…") }
+                        .font(.caption).softGroupedRow()
+                    if !accountIsCurrent { Text("账号已变化，请关闭并重新打开。").foregroundColor(.red).softGroupedRow() }
+                    if !errorMessage.isEmpty { Text(errorMessage).foregroundColor(.red).textSelection(.enabled).softGroupedRow() }
+                    if busy { ProgressView("正在核验权限并删除…").softGroupedRow() }
                     Button("永久删除远端仓库", role: .destructive) {
                         guard !busy else { return }
                         guard canDelete else { return }
                         showFinalConfirmation = true
-                    }.disabled(!canDelete)
+                    }.disabled(!canDelete).softGroupedRow(bottom: true)
                 }
             }
             .navigationTitle("删除远端仓库")

@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import CryptoKit
+import UIKit
 
 struct LocalSnapshot: Codable {
     var hashes: [String: String] = [:]
@@ -213,15 +214,18 @@ struct WorkspaceView: View {
     @State private var confirmPull = false
     @State private var renameName = ""
     @State private var confirmingRename = false
+    @State private var showRemoteImport = false
+    @State private var showAssociation = false
+    @State private var showDetails = false
+    @State private var publishing = false
     private enum Field: Hashable { case remoteRepo, remoteBranch, associationRepo, associationBranch, baselineRevision, commitMessage }
     @FocusState private var focusedField: Field?
     var body: some View {
         NavigationStack {
             List {
-                remoteSection
                 localSection
                 if let folder = folder {
-                    bindingSection(folder)
+                    workspaceManagement(folder)
                     changesSection
                 }
             }
@@ -234,7 +238,25 @@ struct WorkspaceView: View {
             .onChange(of: importRequest?.id) { _ in focusedField = nil }
             .onChange(of: folder) { _ in focusedField = nil }
             .onDisappear { focusedField = nil }
-            .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("完成") { focusedField = nil } } }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button("下载远端建立可靠基线") { showRemoteImport = true }
+                        Button("导入一个或多个文件夹") { importRequest = WorkspaceImportRequest(kind: .folder) }
+                        Button("导入一个或多个 ZIP") { importRequest = WorkspaceImportRequest(kind: .zip) }
+                    } label: { Image(systemName: "plus") }.disabled(busy)
+                }
+                ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("完成") { focusedField = nil } } }
+            .sheet(isPresented: $showRemoteImport) {
+                NavigationStack { List { remoteSection }.navigationTitle("导入远端").toolbar { Button("关闭") { showRemoteImport = false }.disabled(busy) } }
+            }
+            .sheet(isPresented: $showAssociation) {
+                NavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("关联仓库 / 分支").toolbar { Button("关闭") { showAssociation = false }.disabled(busy) } }
+            }
+            .sheet(isPresented: $showDetails) {
+                NavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("工作区详情").toolbar { Button("关闭") { showDetails = false } } }
+            }
+            .sheet(isPresented: $publishing) { ReleaseEntryView(api: api, initialRepo: binding?.repo ?? "", initialBranch: binding?.branch ?? "") }
             .confirmationDialog("检查远端更新？此操作不会修改本地文件；检查完成后仍需确认才会拉取。", isPresented: $confirmPull, titleVisibility: .visible) {
                 Button("检查更新") { Task { await checkRemote() } }
                 Button("取消", role: .cancel) {}
@@ -272,13 +294,13 @@ struct WorkspaceView: View {
             .sheet(item: $checkPending, onDismiss: { discardCheck() }) { pending in
                 NavigationStack {
                     List {
-                        if pending.binding.head == binding?.head { Text("远端无新提交，本地更改保持不变。") }
+                        if pending.binding.head == binding?.head { Text("远端无新提交，本地更改保持不变。").softGroupedRow(top: true, bottom: true) }
                         else {
-                            Text("下列路径是远端相对当前基线的实际变更；拉取会按三方合并，冲突另行逐项确认。")
+                            Text("下列路径是远端相对当前基线的实际变更；拉取会按三方合并，冲突另行逐项确认。").softGroupedRow(top: true)
                             ForEach(WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot), id: \.path) { change in
-                                LabeledContent(change.path, value: change.kind)
+                                LabeledContent(change.path, value: change.kind).softGroupedRow(bottom: change.path == WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).last?.path)
                             }
-                            if WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).isEmpty { Text("提交改变，但文件内容未变。") }
+                            if WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).isEmpty { Text("提交改变，但文件内容未变。").softGroupedRow(bottom: true) }
                         }
                     }
                     .navigationTitle("远端更新检查")
@@ -302,9 +324,7 @@ Section("从远端建立工作区") {
 
     private var localSection: some View {
 Section("本地工作目录") {
-                    Text("导入会复制文件，不会跟踪原目录。请在“文件”App → 我的 iPhone → RepoPocket → Repositories 中编辑或删除导入后的副本；不要修改原下载目录。不会在返回前台时自动扫描；编辑后请点“刷新变更”或下拉手动刷新。") .font(.caption).softGroupedRow(top: true)
-                    Button("导入一个或多个文件夹") { importRequest = WorkspaceImportRequest(kind: .folder) }.disabled(busy).softGroupedRow()
-                    Button("导入一个或多个 ZIP") { importRequest = WorkspaceImportRequest(kind: .zip) }.disabled(busy).softGroupedRow()
+                    Text("修改导入后的副本，再刷新变更。") .font(.caption).softGroupedRow(top: true, bottom: roots.isEmpty)
                     ForEach(roots, id: \.path) { root in
                         Button { folder = root; Task { await scan() } } label: {
                             VStack(alignment: .leading) {
@@ -314,7 +334,7 @@ Section("本地工作目录") {
                                 }
                             }
                         }.disabled(busy)
-                        .softGroupedRow()
+                        .softGroupedRow(bottom: root == roots.last)
                         .swipeActions {
                             Button("删除", role: .destructive) { pendingDelete = root; confirmDelete = true }.disabled(busy)
                         }
@@ -322,14 +342,29 @@ Section("本地工作目录") {
                             Button("删除本地工作区", role: .destructive) { pendingDelete = root; confirmDelete = true }
                         }
                     }
-                    Text("包含隐藏文件，仅扫描时忽略 .git；拒绝符号链接。ZIP：最多 20,000 项、单文件 512 MiB、总计 1 GiB。") .font(.caption2).softGroupedRow(bottom: true)
                 }
+    }
+
+    private func workspaceManagement(_ folder: URL) -> some View {
+        Section {
+            if let binding { Text(binding.repo + " / " + binding.branch).font(.headline).softGroupedRow(top: true) }
+            Menu("工作区…") {
+                Button("检查远端更新") { focusedField = nil; confirmPull = true }.disabled(busy || binding == nil)
+                Button("关联仓库 / 分支") { showAssociation = true }
+                Button("重命名实际目录") { renameName = folder.lastPathComponent; confirmingRename = true }
+                Button("工作区详情") { showDetails = true }
+                Button("发布为发行版") { publishing = true }
+                Button("删除本地工作区", role: .destructive) { pendingDelete = folder; confirmDelete = true }
+            }.disabled(busy).softGroupedRow(top: binding == nil, bottom: true)
+        }
     }
 
     private func bindingSection(_ folder: URL) -> some View {
 Section("关联仓库 / 分支") {
                         Text("实际副本：我的 iPhone / RepoPocket / Repositories / " + folder.lastPathComponent)
                             .font(.caption).textSelection(.enabled).softGroupedRow(top: true)
+                        Button("复制实际副本路径") { UIPasteboard.general.string = folder.path }.softGroupedRow()
+                        Text("包含隐藏文件，仅扫描时忽略 .git；拒绝符号链接。ZIP：最多 20,000 项、单文件 512 MiB、总计 1 GiB。").font(.caption2).softGroupedRow()
                         Text("绝对路径：" + folder.path).font(.caption2).textSelection(.enabled).softGroupedRow()
                         Button("重命名实际目录") {
                             renameName = binding?.repo.replacingOccurrences(of: "/", with: "-") ?? folder.lastPathComponent
@@ -362,7 +397,7 @@ Section("关联仓库 / 分支") {
 Section("本地变更预览 / 勾选提交") {
                         if changes.isEmpty {
                             // One stable text row: busy does not replace/fade its font or identity.
-                            Text("没有变更；请修改上方实际副本，而不是原下载目录，然后手动刷新。")
+                            Text("暂无变更")
                                 .softGroupedRow(top: true)
                         }
                         if busy {
@@ -387,12 +422,14 @@ Section("本地变更预览 / 勾选提交") {
                                 NavigationLink { LocalDiffView(change: change) } label: { VStack(alignment: .leading) { Text(change.relativePath); Text(change.kind).font(.caption) } }
                             }.softGroupedRow(top: change.id == changes.first?.id && binding != nil && !busy)
                         }
-                        Button("刷新变更") { Task { await scan() } }.disabled(busy).softGroupedRow()
-                        Button("拉取更新") { focusedField = nil; confirmPull = true }.disabled(busy || binding == nil).softGroupedRow()
+                        Button("刷新变更") { Task { await scan() } }.disabled(busy).softGroupedRow(bottom: selected.isEmpty)
+                        if !selected.isEmpty {
                         TextField("提交说明", text: $commitMessage).focused($focusedField, equals: .commitMessage).submitLabel(.done).softGroupedRow()
-                        Button("提交勾选的 \(selected.count) 项变更") { confirming = true }.disabled(busy || commitBlockReason != nil).softGroupedRow()
+                        Button("提交选中的 \(selected.count) 项") { confirming = true }.disabled(busy || commitBlockReason != nil).softGroupedRow()
                         if let commitBlockReason { Text(commitBlockReason).font(.caption).foregroundStyle(.secondary).softGroupedRow() }
-                        Text("新增、修改、删除一次原子更新分支。单文件 ≤10 MiB；大文件使用 Release。远端变化拒绝提交，不强推；未勾选项保持本地修改。") .font(.caption).softGroupedRow(bottom: true)
+                        Text("修改导入副本后，刷新变更。")
+                            .font(.caption).foregroundStyle(.secondary).softGroupedRow(bottom: true)
+                        }
                     }
     }
 
@@ -400,17 +437,17 @@ Section("本地变更预览 / 勾选提交") {
                 NavigationStack {
                     List {
                         if let pending = pull, let binding = binding {
-                            Text("同文件双改或删除/修改冲突不会自动覆盖。请逐项选择；取消不会改变工作区。二进制或大文本仅显示哈希。")
+                            Text("同文件双改或删除/修改冲突不会自动覆盖。请逐项选择；取消不会改变工作区。二进制或大文本仅显示哈希。").softGroupedRow(top: true, bottom: true)
                             ForEach(pending.conflicts, id: \.self) { path in
                                 Section(path) {
-                                    Text("基线：" + (binding.snapshot.texts[path] ?? binding.snapshot.hashes[path] ?? "已删除"))
-                                    Text("本地：" + (pending.local.texts[path] ?? pending.local.hashes[path] ?? "已删除"))
-                                    Text("远端：" + (pending.binding.snapshot.texts[path] ?? pending.binding.snapshot.hashes[path] ?? "已删除"))
-                                    Button { pullChoices[path] = false } label: { Label("保留本地", systemImage: pullChoices[path] == false ? "checkmark.circle.fill" : "circle") }
-                                    Button { pullChoices[path] = true } label: { Label("采用远端", systemImage: pullChoices[path] == true ? "checkmark.circle.fill" : "circle") }
+                                    Text("基线：" + (binding.snapshot.texts[path] ?? binding.snapshot.hashes[path] ?? "已删除")).softGroupedRow(top: true)
+                                    Text("本地：" + (pending.local.texts[path] ?? pending.local.hashes[path] ?? "已删除")).softGroupedRow()
+                                    Text("远端：" + (pending.binding.snapshot.texts[path] ?? pending.binding.snapshot.hashes[path] ?? "已删除")).softGroupedRow()
+                                    Button { pullChoices[path] = false } label: { Label("保留本地", systemImage: pullChoices[path] == false ? "checkmark.circle.fill" : "circle") }.softGroupedRow()
+                                    Button { pullChoices[path] = true } label: { Label("采用远端", systemImage: pullChoices[path] == true ? "checkmark.circle.fill" : "circle") }.softGroupedRow(bottom: true)
                                 }.font(.system(.caption, design: .monospaced))
                             }
-                            Button("安全应用全部选择") { Task { await applyResolvedPull() } }.disabled(busy || pending.conflicts.contains { pullChoices[$0] == nil })
+                            Button("安全应用全部选择") { Task { await applyResolvedPull() } }.disabled(busy || pending.conflicts.contains { pullChoices[$0] == nil }).softGroupedRow(top: true, bottom: true)
                         }
                     }.navigationTitle("拉取冲突对照")
                         .toolbar { Button("取消") { resolvingPull = false } }

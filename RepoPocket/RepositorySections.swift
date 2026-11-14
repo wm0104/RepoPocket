@@ -79,12 +79,17 @@ struct RepositoryCollectionView: View {
     }
     var body: some View {
         List {
-            if busy && repositories.isEmpty && !refreshing { ProgressView().frame(maxWidth: .infinity) }
-            else if loaded && repositories.isEmpty { Text("暂无仓库").foregroundStyle(.secondary) }
-            else if !loaded && !busy { Text("请登录后刷新").foregroundStyle(.secondary) }
+            if busy && repositories.isEmpty && !refreshing { ProgressView().frame(maxWidth: .infinity).softGroupedRow(top: true, bottom: true) }
+            else if loaded && repositories.isEmpty { Text("暂无仓库").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
+            else if !loaded && !busy { Text("请登录后刷新").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
+            else if loaded && filteredRepositories.isEmpty { Text("没有匹配仓库").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
             ForEach(filteredRepositories) { repository in
                 NavigationLink { BrowserView(api: api, repo: repository.full_name, path: "", branch: repository.default_branch ?? "") }
                 label: { RepositoryCard(repository: repository, account: api.login, api: api) }
+                // Same full-width separators and card spacing as the home list;
+                // boundaries follow the filtered result, not the unfiltered cache.
+                .softGroupedRow(top: repository.id == filteredRepositories.first?.id,
+                                bottom: repository.id == filteredRepositories.last?.id)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     if !RepositoryGroupRules.isOwned(repository.full_name, login: api.login) {
                         Button("复刻") { pendingFork = repository }.tint(.accentColor).disabled(busy)

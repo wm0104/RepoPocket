@@ -11,10 +11,10 @@ class BuildWorkflowTests(unittest.TestCase):
         cls.source = Path(REPO_ROOT, '.github/workflows/build.yml').read_text()
 
     def test_test_branches_build_on_push(self):
-        self.assertIn("push:\n    branches: [main, 'test/**']", self.source)
+        self.assertNotIn("  push:", self.source)
 
     def test_pull_requests_and_manual_dispatch(self):
-        self.assertIn('pull_request:\n    branches: [main]', self.source)
+        self.assertNotIn('  pull_request:', self.source)
         self.assertIn('  workflow_dispatch:', self.source)
 
     def test_read_only_permissions_and_apple_runner(self):
@@ -24,6 +24,10 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertNotIn('gh release', self.source)
         self.assertNotIn('softprops/action-gh-release', self.source)
         self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "2"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.3"', self.source)
+        project = (REPO_ROOT / 'project.yml').read_text()
+        self.assertIn('MARKETING_VERSION: "1.0.3"', project)
+        self.assertIn('CURRENT_PROJECT_VERSION: "2"', project)
 
     def test_python_scripts_use_organized_existing_paths(self):
         import re
@@ -37,15 +41,26 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertTrue((REPO_ROOT / 'tests/WorkspaceZIP-original.swift.txt').is_file())
         self.assertIn('sh DebControlEditorTests/run-macos.sh', self.source)
 
+    def test_optional_update_probe_keeps_release_artifact_separate(self):
+        self.assertIn('build_update_probe:', self.source)
+        self.assertIn('default: false', self.source)
+        self.assertIn('if: ${{ inputs.build_update_probe }}', self.source)
+        self.assertIn('Set :CFBundleShortVersionString 1.0.3-rc.1', self.source)
+        self.assertIn('codesign --force --sign - --entitlements Entitlements.plist "$APP"', self.source)
+        self.assertIn('codesign --verify --deep --strict verify/Payload/RepoPocket.app', self.source)
+        self.assertIn('name: RepoPocket-update-probe', self.source)
+        self.assertIn('probe/RepoPocket-1.0.3-rc.1.ipa.sha256', self.source)
+        self.assertNotIn('gh release', self.source)
+
     def test_compile_and_package_verification_remain_enabled(self):
         commands = self.source
         for required in ('xcodebuild', 'CODE_SIGNING_ALLOWED=NO',
                          'codesign --verify --deep --strict',
-                         'unzip -t RepoPocket-1.0.0-build2.ipa',
-                         'shasum -a 256 -c RepoPocket-1.0.0-build2.ipa.sha256'):
+                         'unzip -t RepoPocket-1.0.3.ipa',
+                         'shasum -a 256 -c RepoPocket-1.0.3.ipa.sha256'):
             self.assertIn(required, commands)
         self.assertIn('uses: actions/upload-artifact@v4', commands)
-        self.assertIn('name: RepoPocket-1.0.0-build2', commands)
+        self.assertIn('name: RepoPocket-1.0.3', commands)
 
 
 if __name__ == '__main__':

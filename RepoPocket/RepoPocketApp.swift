@@ -26,14 +26,16 @@ struct RepoPocketApp: App {
 struct AccountRootView: View {
     @StateObject private var api = GitHub()
     @StateObject private var gitCore = GitCore()
+    @StateObject private var updateChecker = UpdateChecker()
     var body: some View {
             TabView {
                 RepositoriesView(api: api).tabItem { Label("仓库", systemImage: "shippingbox") }
                 GitWorkspaceView().environmentObject(gitCore).tabItem { Label("Git", systemImage: "arrow.triangle.branch") }
                 WorkspaceView(api: api).tabItem { Label("本地", systemImage: "folder.badge.gearshape") }
                 UploadView(api: api).tabItem { Label("提交 / 发布", systemImage: "arrow.up.doc") }
-                SettingsView(api: api).tabItem { Label("设置", systemImage: "gear") }
+                SettingsView(api: api, updateChecker: updateChecker).tabItem { Label("设置", systemImage: "gear") }
             }
+            .task { await updateChecker.automaticCheck(api: api) }
             .alert("提示", isPresented: Binding(get: { !api.message.isEmpty }, set: { if !$0 { api.message = "" } })) {
                 Button("好", role: .cancel) { api.message = "" }
             } message: { Text(api.message) }
@@ -115,12 +117,12 @@ struct RepositoriesView: View {
             .sheet(isPresented: $showOpen) {
                 NavigationStack {
                     Form {
-                        TextField("仓库链接", text: $input).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        TextField("仓库链接", text: $input).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
                         NavigationLink("浏览") { BrowserView(api: api, repo: input, path: "", branch: "") }
-                            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).softGroupedRow()
                         Button("Fork 到我的账号") { Task { await fork() } }
-                            .disabled(busy || isOwnRepository || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        if isOwnRepository { Text("自己的仓库无需 Fork，直接浏览或上传。").font(.caption).foregroundColor(.secondary) }
+                            .disabled(busy || isOwnRepository || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).softGroupedRow(bottom: !isOwnRepository)
+                        if isOwnRepository { Text("自己的仓库无需 Fork，直接浏览或上传。").font(.caption).foregroundColor(.secondary).softGroupedRow(bottom: true) }
                     }.navigationTitle("打开仓库").toolbar { Button("关闭") { showOpen = false } }
                 }
             }
@@ -133,10 +135,10 @@ struct RepositoriesView: View {
             .sheet(isPresented: $showCreate) {
                 NavigationStack {
                     Form {
-                        TextField("新仓库名", text: $newName).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Toggle("私有仓库", isOn: $isPrivate)
-                        Text("在你的 GitHub 账号下创建，包含初始 README。不会覆盖现有仓库。").font(.caption)
-                        Button("创建仓库") { Task { await create() } }.disabled(busy || newName.isEmpty)
+                        TextField("新仓库名", text: $newName).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
+                        Toggle("私有仓库", isOn: $isPrivate).softGroupedRow()
+                        Text("在你的 GitHub 账号下创建，包含初始 README。不会覆盖现有仓库。").font(.caption).softGroupedRow()
+                        Button("创建仓库") { Task { await create() } }.disabled(busy || newName.isEmpty).softGroupedRow(bottom: true)
                     }.navigationTitle("新建仓库").adaptiveWorkspaceLayout().toolbar { Button("关闭") { showCreate = false } }
                 }
             }
@@ -191,6 +193,8 @@ struct BrowserView: View {
     @State private var repositoryInfo: Repository?
     @StateObject private var copyFeedback = RepositoryCopyFeedback()
     @StateObject private var forkMenu = RepositoryForkMenuState()
+    @StateObject private var releasePresence = ReleasePresenceState()
+    @State private var creatingRelease = false
     private var canWrite: Bool { RepositoryWriteRules.canWrite(push: repositoryInfo?.permissions?.push, sessionMatches: api.isCurrentSession) }
     @State private var showBranches = false
     @State private var repositoryDeletionTarget: RepositoryDeletionTarget?
@@ -219,6 +223,13 @@ struct BrowserView: View {
                         CompactRepositorySummary(fullName: repo, name: "")
                     }
                 }.textSelection(.enabled).softGroupedRow(top: true, bottom: true)
+            }
+            if path.isEmpty && releasePresence.exists && api.isCurrentSession {
+                Section {
+                    NavigationLink { ReleaseManagementDestination(api: api, repo: repo) } label: {
+                        Label("发行版", systemImage: "shippingbox")
+                    }.softGroupedRow(top: true, bottom: true)
+                }
             }
             if busy && entries.isEmpty && !refreshing { LoadingRows() }
             if entries.isEmpty && !busy {
@@ -273,6 +284,7 @@ struct BrowserView: View {
                 RepositoryStarMenuButton(name: repo, repository: repositoryInfo, api: api)
                 Button("切换 / 创建分支") { showBranches = true }
                 NavigationLink("提交历史") { HistoryView(api: api, repo: repo, branch: activeBranch) }
+                if path.isEmpty && canWrite { Button("新建发行版") { creatingRelease = true } }
                 Button("下载整个仓库 ZIP") { Task { await zip() } }
                 Button("刷新目录") { Task { await load() } }
                 Button("删除远端仓库…", role: .destructive) {
@@ -285,6 +297,18 @@ struct BrowserView: View {
         .repositoryCopyNotice(copyFeedback)
         .repositoryForkConfirmation(forkMenu, api: api)
         .task { if !loaded { await load() } }
+        .task { if path.isEmpty { releasePresence.load(api: api, repo: repo) } }
+        .onDisappear { releasePresence.cancel() }
+        .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in releasePresence.reset() }
+        .onReceive(NotificationCenter.default.publisher(for: .releaseManagementChanged)) { notice in
+            if path.isEmpty, notice.userInfo?["repo"] as? String == repo,
+               notice.userInfo?["generation"] as? UUID == AccountStore.generation {
+                releasePresence.load(api: api, repo: repo, refresh: true)
+            }
+        }
+        .sheet(isPresented: $creatingRelease, onDismiss: {
+            if path.isEmpty { releasePresence.load(api: api, repo: repo, refresh: true) }
+        }) { if canWrite { ReleaseEditorView(api: api, repo: repo, original: nil) } }
         .sheet(item: $repositoryDeletionTarget) { target in
             RepositoryDeletionView(api: api, repository: target.repository, context: target.context) {
                 entries = []; repositoryInfo = nil; dismiss()
@@ -396,19 +420,19 @@ struct FileView: View {
             Section("文件") {
                 Label(entry.name, systemImage: entry.name.lowercased().hasSuffix(".deb") ? "shippingbox.fill" : "doc.text.fill")
                     .font(.headline).foregroundColor(.primary).padding(.vertical, 4).softGroupedRow(top: true)
-                LabeledContent("路径") { Text(entry.path).textSelection(.enabled) }
-                LabeledContent("仓库", value: repo)
+                LabeledContent("路径") { Text(entry.path).textSelection(.enabled) }.softGroupedRow()
+                LabeledContent("仓库", value: repo).softGroupedRow()
                 LabeledContent("分支", value: branch.isEmpty ? "默认分支" : branch).softGroupedRow(bottom: true)
             }
             Section {
-                if writable && entry.name.lowercased().hasSuffix(".deb") { Button("编辑包信息") { showDeb = true }.disabled(busy || deleted) }
-                if writable && entry.name.lowercased().hasSuffix(".dylib") { Button("编辑插件信息") { showMetadata = true }.disabled(busy || deleted) }
-                Button("下载 / 存到文件") { Task { await download() } }.disabled(busy || deleted)
-                Button("加载文本（最多 1 MiB）") { Task { await read() } }.disabled(busy || deleted)
-                if busy { ProgressView() }
+                if writable && entry.name.lowercased().hasSuffix(".deb") { Button("编辑包信息") { showDeb = true }.disabled(busy || deleted).softGroupedRow(top: true) }
+                if writable && entry.name.lowercased().hasSuffix(".dylib") { Button("编辑插件信息") { showMetadata = true }.disabled(busy || deleted).softGroupedRow(top: true) }
+                Button("下载 / 存到文件") { Task { await download() } }.disabled(busy || deleted).softGroupedRow(top: !(writable && (entry.name.lowercased().hasSuffix(".deb") || entry.name.lowercased().hasSuffix(".dylib"))))
+                Button("加载文本（最多 1 MiB）") { Task { await read() } }.disabled(busy || deleted).softGroupedRow(bottom: !busy)
+                if busy { ProgressView().softGroupedRow(bottom: true) }
             }
             if editable && !deleted {
-                if !writable { Section("文本预览") { Text(text).font(.system(.body, design: .monospaced)).textSelection(.enabled) } }
+                if !writable { Section("文本预览") { Text(text).font(.system(.body, design: .monospaced)).textSelection(.enabled).softGroupedRow(top: true, bottom: true) } }
                 else {
                 Section("编辑") { TextEditor(text: $text).font(.system(.body, design: .monospaced)).frame(minHeight: 260).softGroupedRow(top: true, bottom: true) }
                 Section("提交") {
@@ -418,7 +442,7 @@ struct FileView: View {
             }
             }
             if writable { Section { Button("删除仓库里的此文件", role: .destructive) { confirmDelete = true }.disabled(busy || deleted).softGroupedRow(top: true, bottom: true) } }
-            if deleted { Text("文件已删除，请返回目录刷新。") }
+            if deleted { Text("文件已删除，请返回目录刷新。").softGroupedRow(top: true, bottom: true) }
         }
         .navigationTitle(entry.name)
         .adaptiveWorkspaceLayout()
@@ -479,7 +503,7 @@ struct FileView: View {
 
 struct SettingsView: View {
     @ObservedObject var api: GitHub
-    @StateObject private var updateChecker = UpdateChecker()
+    @ObservedObject var updateChecker: UpdateChecker
     @State private var pendingRemoval: GitHubAccount?
     @EnvironmentObject private var accountPresentation: AccountPresentation
     @State private var token = ""
@@ -528,7 +552,7 @@ struct SettingsView: View {
                 Section {
                     AppUpdateSection(api: api, checker: updateChecker)
                     // The version is the stable final row of the update group in every state.
-                    Text("RepoPocket \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") · iOS 16+").foregroundColor(.secondary).softGroupedRow(bottom: true)
+                    Text("RepoPocket " + AppUpdateSessionRules.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—", build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—") + " · iOS 16+").foregroundColor(.secondary).softGroupedRow(bottom: true)
                 }
             }.formStyle(.grouped).navigationTitle("设置").adaptiveWorkspaceLayout()
             .task { if !CredentialStore.read().isEmpty { try? await api.identify() } }

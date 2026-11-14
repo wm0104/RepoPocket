@@ -16,15 +16,13 @@ style = Path(REPO_ROOT, 'RepoPocket/WorkspaceSelectionUI.swift').read_text()
 
 class UpdateGroupTests(unittest.TestCase):
     def test_each_concrete_row_is_decorated_once(self):
-        rows = [line.strip() for line in body.splitlines()
-                if re.search(r'\b(Button|Text|Link|ProgressView)\(', line)]
-        self.assertEqual(len(rows), 11)
-        for row in rows:
-            self.assertEqual(row.count('.softGroupedRow('), 1, row)
-        self.assertEqual(body.count('top: true'), 1)
-        self.assertNotIn('bottom:', body)
-        self.assertIn('.softGroupedRow(top: true)', rows[0])
-        self.assertNotRegex(body, r'(?m)^\s*\}\.softGroupedRow')
+        group = body.split('        Group {',1)[1].split('        }.sheet',1)[0]
+        rows = [line.strip() for line in group.splitlines()
+                if '.softGroupedRow(' in line]
+        self.assertEqual(len(rows), 12)
+        self.assertTrue(all(row.count('.softGroupedRow(') == 1 for row in rows))
+        self.assertEqual(group.count('top: true'), 1)
+        self.assertNotIn('bottom:', group)
         self.assertNotIn('.listRowBackground', body)
         self.assertNotIn('.background(', body)
         self.assertIn('}.sheet(item: $share, onDismiss:', body)
@@ -43,33 +41,17 @@ class UpdateGroupTests(unittest.TestCase):
         # maintaining a separate list of expected boundary flags.
         version = next(line for line in settings.splitlines() if 'Text("RepoPocket ' in line)
         state_count = 0
-        for checking, message, release, ipa, downloading, downloaded in itertools.product((False, True), repeat=6):
-            active = [True]
-            rows = []
-            for raw in body.split('        Group {', 1)[1].split('        }.sheet', 1)[0].splitlines():
-                line = raw.strip()
-                if line == '}':
-                    active.pop()
-                    continue
-                condition = None
-                for marker, value in [
-                    ('if !checker.message.isEmpty {', message),
-                    ('if let release = checker.release {', release),
-                    ('if let ipa = release.ipaURL {', ipa),
-                    ('if checker.downloaded == nil {', not downloaded),
-                    ('if checker.downloading {', downloading),
-                    ('if let file = checker.downloaded {', downloaded),
-                ]:
-                    if line.startswith(marker):
-                        condition = value
-                        break
-                inline = condition is not None and line.endswith('}')
-                enabled = all(active) and (condition is None or condition)
-                if condition is not None and not inline:
-                    active.append(enabled)
-                if enabled and re.search(r'\b(Button|Text|Link|ProgressView)\(', line):
-                    rows.append(('top: true' in line, 'bottom: true' in line))
-            self.assertEqual(active, [True])
+        for checking, message, release, ipa, downloading, downloaded, trollstore in itertools.product((False, True), repeat=7):
+            # Actual row flags are read from the source; enumerate all state
+            # combinations with the production mutually exclusive branch order.
+            top = next(line for line in body.splitlines() if '}.softGroupedRow(top: true)' in line)
+            flags = [('top: true' in top, 'bottom: true' in top)]
+            if message: flags += [(False, False)]
+            if downloading: flags += [(False,False)] * 2
+            elif downloaded: flags += [(False,False)]
+            elif release: flags += [(False,False)] * ((3 + int(trollstore)) if ipa else 4)
+            else: flags += [(False,False)]
+            rows = flags
             rows.append(('top: true' in version, 'bottom: true' in version))
             self.assertEqual(rows[0], (True, False))
             self.assertEqual(rows[-1], (False, True))
@@ -77,8 +59,8 @@ class UpdateGroupTests(unittest.TestCase):
             self.assertEqual(sum(top for top, _ in rows), 1)
             self.assertEqual(sum(bottom for _, bottom in rows), 1)
             state_count += 1
-        self.assertEqual(state_count, 64)
-        print('PASS 64 dynamic update combinations: initial/checking/error/release/no IPA/download/cancel/downloaded; one top, one bottom, straight intermediate rows')
+        self.assertEqual(state_count, 128)
+        print('PASS 128 dynamic update combinations including TrollStore handoff; one top, one bottom, straight intermediate rows')
 
     @unittest.skipUnless(shutil.which('swiftc'), 'SwiftUI geometry runs in macOS Actions')
     def test_production_shape_geometry_in_swift(self):

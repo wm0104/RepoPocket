@@ -11,7 +11,7 @@ struct HistoryView: View {
     @ScaledMetric(relativeTo: .body) private var messageSize: CGFloat = 16
     var body: some View {
         List {
-            Section { Text(repo); Text("分支：" + branch) }.font(.caption)
+            Section { Text(repo).softGroupedRow(top: true); Text("分支：" + branch).softGroupedRow(bottom: true) }.font(.caption)
             ForEach(commits) { c in
                 NavigationLink { CommitDetailView(api: api, repo: repo, sha: c.sha) } label: {
                     VStack(alignment: .leading, spacing: 6) {
@@ -23,11 +23,11 @@ struct HistoryView: View {
                     }
                     .padding(.vertical, 7)
                     .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
+                }.softGroupedRow(top: c.id == commits.first?.id, bottom: c.id == commits.last?.id && !more)
             }
-            if busy && commits.isEmpty { ProgressView() }
-            if commits.isEmpty && !busy { Text("暂无提交，或加载失败；可下拉重试。") }
-            if more { Button("加载更多提交") { Task { await load() } }.disabled(busy) }
+            if busy && commits.isEmpty { ProgressView().softGroupedRow(top: true, bottom: !more) }
+            if commits.isEmpty && !busy { Text("暂无提交，或加载失败；可下拉重试。").softGroupedRow(top: true, bottom: !more) }
+            if more { Button("加载更多提交") { Task { await load() } }.disabled(busy).softGroupedRow(top: false, bottom: true) }
         }
         .navigationTitle("提交历史")
         .adaptiveWorkspaceLayout()
@@ -70,8 +70,8 @@ struct CommitDetailView: View {
                         .lineLimit(messageExpanded ? nil : 4)
                         .textSelection(.enabled)
                         .padding(.vertical, 6).softGroupedRow(top: true)
-                    Button(messageExpanded ? "收起说明" : "展开完整说明") { messageExpanded.toggle() }
-                    Text(sha).font(.caption).textSelection(.enabled)
+                    Button(messageExpanded ? "收起说明" : "展开完整说明") { messageExpanded.toggle() }.softGroupedRow()
+                    Text(sha).font(.caption).textSelection(.enabled).softGroupedRow()
                     Text(d.commit.author?.name ?? "未知作者").softGroupedRow(bottom: d.stats == nil && d.commit.author?.date == nil)
                     if let date = d.commit.author?.date { Text(date).font(.caption).softGroupedRow(bottom: d.stats == nil) }
                     if let s = d.stats { Text("总计 +\(s.additions) / −\(s.deletions)").softGroupedRow(bottom: true) }
@@ -79,9 +79,7 @@ struct CommitDetailView: View {
                 Section("变更文件") {
                     ForEach(files) { f in
                         NavigationLink {
-                            ScrollView([.horizontal, .vertical]) {
-                                Text(f.preview).font(.system(.caption, design: .monospaced)).textSelection(.enabled).padding()
-                            }.navigationTitle((f.filename as NSString).lastPathComponent)
+                            CommitPatchDestination(file: f)
                         } label: {
                             VStack(alignment: .leading) {
                                 Text(f.filename)
@@ -93,8 +91,10 @@ struct CommitDetailView: View {
                     Text("Patch 由 GitHub 提供；二进制及部分大文件不可预览，不代表无变化。GitHub 最多返回 3,000 个文件。").font(.caption).foregroundColor(.secondary).softGroupedRow(top: files.isEmpty, bottom: true)
                 }
             }
-            if busy { ProgressView() }
-            if more { Button(detail == nil ? "加载详情" : "加载更多文件") { Task { await load() } }.disabled(busy) }
+            Section {
+                if busy { ProgressView().softGroupedRow(top: true, bottom: !more) }
+                if more { Button(detail == nil ? "加载详情" : "加载更多文件") { Task { await load() } }.disabled(busy).softGroupedRow(top: !busy, bottom: true) }
+            }
         }.listStyle(.insetGrouped).navigationTitle("提交详情").adaptiveWorkspaceLayout()
         .task { if detail == nil { await load() } }
     }
@@ -126,22 +126,22 @@ struct BranchPickerView: View {
         NavigationStack {
             Form {
                 Section("切换远端浏览分支") {
-                    Text("当前：" + current).font(.caption)
+                    Text("当前：" + current).font(.caption).softGroupedRow(top: true, bottom: branches.isEmpty && !more)
                     ForEach(branches) { b in
                         Button { select(b.name); dismiss() } label: {
                             HStack { Text(b.name); if b.name == current { Image(systemName: "checkmark") } }
-                        }.disabled(busy)
+                        }.disabled(busy).softGroupedRow(bottom: b.id == branches.last?.id && !more)
                     }
-                    if more { Button("加载更多分支") { Task { await load() } }.disabled(busy) }
+                    if more { Button("加载更多分支") { Task { await load() } }.disabled(busy).softGroupedRow(bottom: true) }
                 }
                 if canWrite && api.isCurrentSession { Section("从当前分支创建") {
-                    TextField("新分支名，例如 feature/mobile", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Text("来源：" + current + " @ " + String(head.prefix(7))).font(.caption)
-                    Text("只创建新的远端引用，不覆盖已有分支；不切换本地工作区或上传队列的目标。").font(.caption)
-                    Button("创建并切换") { confirm = true }.disabled(busy || head.isEmpty || !DesktopRules.validBranch(name))
+                    TextField("新分支名，例如 feature/mobile", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
+                    Text("来源：" + current + " @ " + String(head.prefix(7))).font(.caption).softGroupedRow()
+                    Text("只创建新的远端引用，不覆盖已有分支；不切换本地工作区或上传队列的目标。").font(.caption).softGroupedRow()
+                    Button("创建并切换") { confirm = true }.disabled(busy || head.isEmpty || !DesktopRules.validBranch(name)).softGroupedRow(bottom: true)
                 }
                 }
-                if busy { ProgressView() }
+                if busy { Section { ProgressView().softGroupedRow(top: true, bottom: true) } }
             }
             .navigationTitle("分支").adaptiveWorkspaceLayout()
             .toolbar { Button("关闭") { dismiss() }.disabled(busy) }

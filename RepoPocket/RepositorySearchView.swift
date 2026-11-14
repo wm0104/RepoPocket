@@ -28,18 +28,18 @@ struct RepositorySearchView: View {
                                 Button { query = item.query; begin(item.kind) } label: {
                                     Label(item.query, systemImage: item.kind == .repositories ? "shippingbox" : "person")
                                 }
-                                .swipeActions { Button("删除", role: .destructive) { store.remove(item); history = store.read() } }
+                                .swipeActions { Button("删除", role: .destructive) { store.remove(item); history = store.read() } }.softGroupedRow(top: item.id == history.first?.id, bottom: item.id == history.last?.id)
                             }
                         } header: {
                             HStack { Text("近期搜索"); Spacer(); Button("清除") { store.clear(); history = [] }.disabled(history.isEmpty) }
                         }
                     } else {
                         Section("搜索建议") {
-                            Button { begin(.repositories) } label: { Label("搜索仓库：" + clean, systemImage: "shippingbox") }
-                            Button { begin(.users) } label: { Label("搜索用户：" + clean, systemImage: "person") }
+                            Button { begin(.repositories) } label: { Label("搜索仓库：" + clean, systemImage: "shippingbox") }.softGroupedRow(top: true)
+                            Button { begin(.users) } label: { Label("搜索用户：" + clean, systemImage: "person") }.softGroupedRow(bottom: (try? RepositoryInput.parse(clean)) == nil)
                             if let repo = try? RepositoryInput.parse(clean) {
                                 NavigationLink { BrowserView(api: api, repo: repo, path: "", branch: "") }
-                                label: { Label("打开仓库：" + repo, systemImage: "arrow.up.forward.square") }
+                                label: { Label("打开仓库：" + repo, systemImage: "arrow.up.forward.square") }.softGroupedRow(bottom: true)
                             }
                         }
                     }
@@ -47,19 +47,21 @@ struct RepositorySearchView: View {
                     Section(kind == .repositories ? "仓库结果" : "用户结果") {
                         ForEach(repositories) { repository in
                             NavigationLink { BrowserView(api: api, repo: repository.full_name, path: "", branch: repository.default_branch ?? "") }
-                            label: { RepositoryCard(repository: repository, account: api.login, api: api) }
+                            label: { RepositoryCard(repository: repository, account: api.login, api: api) }.softGroupedRow(top: repository.id == repositories.first?.id, bottom: repository.id == repositories.last?.id && !more)
                         }
                         ForEach(users, id: \.login) { user in
                             NavigationLink { UserRepositoriesView(api: api, user: user) } label: {
                                 HStack { GitHubAvatar(url: user.avatar_url); Text(user.login) }
-                            }
+                            }.softGroupedRow(top: repositories.isEmpty && user.login == users.first?.login, bottom: user.login == users.last?.login && !more)
                         }
-                        if !busy && repositories.isEmpty && users.isEmpty && error.isEmpty { Text("没有搜索结果").foregroundStyle(.secondary) }
-                        if more { Button("加载更多") { startLoad() }.disabled(busy) }
+                        if !busy && repositories.isEmpty && users.isEmpty && error.isEmpty { Text("没有搜索结果").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: !more) }
+                        if more { Button("加载更多") { startLoad() }.disabled(busy).softGroupedRow(top: repositories.isEmpty && users.isEmpty && (busy || !error.isEmpty), bottom: true) }
                     }
                 }
-                if busy { ProgressView("搜索中…") }
-                if !error.isEmpty { Text(error).foregroundStyle(.secondary); Button("重试") { startLoad() }.disabled(busy) }
+                Section {
+                    if busy { ProgressView("搜索中…").softGroupedRow(top: true, bottom: error.isEmpty) }
+                    if !error.isEmpty { Text(error).foregroundStyle(.secondary).softGroupedRow(top: !busy); Button("重试") { startLoad() }.disabled(busy).softGroupedRow(bottom: true) }
+                }
             }
             // Do not animate structural List mutations during keyboard/sheet transitions.
             // Native sheet and navigation animations remain enabled.
@@ -141,11 +143,14 @@ struct UserRepositoriesView: View {
         List {
             ForEach(repositories) { repository in
                 NavigationLink { BrowserView(api: api, repo: repository.full_name, path: "", branch: repository.default_branch ?? "") }
-                label: { RepositoryCard(repository: repository, account: api.login, api: api) }
+                label: { RepositoryCard(repository: repository, account: api.login, api: api) }.softGroupedRow(top: repository.id == repositories.first?.id, bottom: repository.id == repositories.last?.id && !more)
             }
-            if busy { ProgressView() }
-            if !error.isEmpty { Text(error) }
-            if more { Button("加载更多仓库") { Task { await load() } }.disabled(busy) }
+            if more { Button("加载更多仓库") { Task { await load() } }.disabled(busy).softGroupedRow(top: repositories.isEmpty, bottom: true) }
+            Section {
+                if busy { ProgressView().softGroupedRow(top: true, bottom: error.isEmpty) }
+                if !error.isEmpty { Text(error).softGroupedRow(top: !busy, bottom: true) }
+                if !busy && error.isEmpty && repositories.isEmpty && !more { Text("暂无仓库").softGroupedRow(top: true, bottom: true) }
+            }
         }.navigationTitle(user.login).adaptiveWorkspaceLayout().task { if repositories.isEmpty { await load() } }
     }
     private func load() async {

@@ -23,29 +23,29 @@ struct TrollMetadataView: View {
         NavigationStack {
             Form {
                 Section("已有插件 · 仅修改索引") {
-                    Text(repo + "/" + entry.path)
-                    Text("不下载、不重新上传 dylib；仅提交根目录 trollpackages.json。").font(.caption)
-                    if !notice.isEmpty { Text(notice).foregroundColor(.orange) }
+                    Text(repo + "/" + entry.path).softGroupedRow(top: true)
+                    Text("不下载、不重新上传 dylib；仅提交根目录 trollpackages.json。").font(.caption).softGroupedRow(bottom: notice.isEmpty)
+                    if !notice.isEmpty { Text(notice).foregroundColor(.orange).softGroupedRow(bottom: true) }
                 }
                 if original != nil && canWrite && api.isCurrentSession {
                     Section("插件元信息") {
-                        TextField("名称", text: $name)
-                        TextField("版本", text: $version)
-                        TextField("描述", text: $detail)
-                        TextField("Bundle ID", text: $bundle)
-                        TextField("作者", text: $author)
+                        TextField("名称", text: $name).softGroupedRow(top: true)
+                        TextField("版本", text: $version).softGroupedRow()
+                        TextField("描述", text: $detail).softGroupedRow()
+                        TextField("Bundle ID", text: $bundle).softGroupedRow()
+                        TextField("作者", text: $author).softGroupedRow(bottom: true)
                     }
                     if preview {
                         Section("最终预览") {
-                            ForEach(fields.keys.sorted(), id: \.self) { key in LabeledContent(key, value: fields[key] ?? "") }
-                            Text("只写 trollpackages.json；保留其它条目、URL、section 和未知字段。远端发生变化将拒绝。")
-                            Button("确认提交元信息") { Task { await save() } }
-                            Button("返回修改") { preview = false }
+                            ForEach(fields.keys.sorted(), id: \.self) { key in LabeledContent(key, value: fields[key] ?? "").softGroupedRow(top: key == fields.keys.sorted().first) }
+                            Text("只写 trollpackages.json；保留其它条目、URL、section 和未知字段。远端发生变化将拒绝。").softGroupedRow()
+                            Button("确认提交元信息") { Task { await save() } }.softGroupedRow()
+                            Button("返回修改") { preview = false }.softGroupedRow(bottom: true)
                         }
-                    } else { Button("预览修改") { preview = true }.disabled(complete) }
+                    } else { Button("预览修改") { preview = true }.disabled(complete).softGroupedRow(top: true, bottom: true) }
                 }
-                if busy { ProgressView("处理中，请保持前台") }
-                if !error.isEmpty { Section("结果") { Text(error).textSelection(.enabled) } }
+                if busy { ProgressView("处理中，请保持前台").softGroupedRow(top: true, bottom: true) }
+                if !error.isEmpty { Section("结果") { Text(error).textSelection(.enabled).softGroupedRow(top: true, bottom: true) } }
             }
             .disabled(busy)
             .navigationTitle("编辑插件信息")

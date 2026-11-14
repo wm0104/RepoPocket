@@ -471,7 +471,7 @@ final class GitHub: ObservableObject {
     func downloadWorkspace(repo: String, branch: String) async throws -> URL {
         let (binding, stage) = try await fetchWorkspace(repo, branch: branch)
         defer { try? FileManager.default.removeItem(at: stage) }
-        let folder = try LocalStore.importFolder(stage, name: binding.repo.replacingOccurrences(of: "/", with: "-") + (binding.branch == "main" || binding.branch == "master" ? "" : "-" + binding.branch))
+        let folder = try LocalStore.importFolder(stage, name: binding.repo.replacingOccurrences(of: "/", with: "-") + "-" + binding.branch + "-" + (binding.remoteCommitterDate.map { ISO8601DateFormatter().string(from: $0) } ?? String(binding.head.prefix(8))))
         var downloadedBinding = binding
         downloadedBinding.lastPulled = Date()
         do { try LocalStore.saveBinding(downloadedBinding, folder: folder) }
@@ -866,4 +866,187 @@ final class GitHub: ObservableObject {
         try FileManager.default.moveItem(at: tmp, to: target)
         return target
     }
+    // These bounded endpoints do not use decoded(): large JSON is parsed off MainActor.
+    private func managedJSON<T: Decodable>(_ type: T.Type, repo: String, suffix: String,
+        method: String = "GET", object: [String: Any]? = nil, page: Int? = nil, perPage: Int = 20) async throws -> T {
+        let canonical = try RepositoryInput.parse(repo)
+        try Task.checkCancellation(); try ensureActiveAccount()
+        if let page, !ReleaseManagementRules.validPage(page) { throw AppError(text: "已达分页预算，请在 GitHub 查看更多。") }
+        let body = try object.map { try JSONSerialization.data(withJSONObject: $0) }
+        let query: [URLQueryItem] = page.map { [.init(name: "per_page", value: String(perPage)), .init(name: "page", value: String($0))] } ?? []
+        let r = try request(url(Self.repoPath(canonical) + suffix, query: query), method: method, body: body)
+        let budget = ReleaseAPIRedirectPolicy()
+        let file: URL
+        let response: URLResponse
+        do { (file, response) = try await session.download(for: r, delegate: budget) }
+        catch {
+            try Task.checkCancellation(); try ensureActiveAccount()
+            if budget.exceededBudget { throw AppError(text: "发行版 JSON 超过 8 MiB 网络预算，已停止请求，请在 GitHub 查看。") }
+            throw error
+        }
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Task.checkCancellation(); try ensureActiveAccount()
+        // Error payloads are also bounded; never synchronously load a huge response.
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            let payload = try await Task.detached { () -> Data in
+                let handle = try FileHandle(forReadingFrom: file); defer { try? handle.close() }
+                return try handle.read(upToCount: 8192) ?? Data()
+            }.value
+            if http.statusCode == 404 { throw ManagedReleaseHTTPError(status: 404, tagAlreadyExists: false) }
+            if http.statusCode == 422 && ReleaseManagementRules.tagAlreadyExists(payload) {
+                throw AppError(text: "此标签已有发行版，请编辑原发行版。")
+            }
+            try check(payload, response, operation: "发行版管理")
+        } else { try check(Data(), response, operation: "发行版管理") }
+        let result = try await Task.detached { try ReleaseJSON.decode(type, file: file) }.value
+        try Task.checkCancellation(); try ensureActiveAccount()
+        return result
+    }
+    private var managedPresenceCache: [String: Bool] = [:]
+    func managedReleasePresence(_ repo: String, refresh: Bool = false) async throws -> Bool {
+        let canonical = try RepositoryInput.parse(repo)
+        try ensureActiveAccount(); try Task.checkCancellation()
+        if !refresh, let cached = managedPresenceCache[canonical] { return cached }
+        struct Presence: Decodable { let id: Int }
+        let rows = try await managedJSON([Presence].self, repo: canonical, suffix: "/releases", page: 1, perPage: 1)
+        try ensureActiveAccount(); try Task.checkCancellation()
+        if managedPresenceCache.count >= 100 { managedPresenceCache.removeAll() }
+        managedPresenceCache[canonical] = !rows.isEmpty
+        return !rows.isEmpty
+    }
+    private var managedLatestCache: [String: Int] = [:] // 0 represents a verified 404; owner is this account/session API.
+    func managedLatestID(_ repo: String, refresh: Bool = false) async throws -> Int? {
+        let canonical = try RepositoryInput.parse(repo)
+        try ensureActiveAccount(); try Task.checkCancellation()
+        if !refresh, let cached = managedLatestCache[canonical] { return cached == 0 ? nil : cached }
+        struct Latest: Decodable { let id: Int }
+        let id: Int
+        do { id = try await managedJSON(Latest.self, repo: canonical, suffix: "/releases/latest").id }
+        catch let error as ManagedReleaseHTTPError where error.status == 404 {
+            _ = try await managedRepository(canonical) // A hidden/inaccessible repo is not "no latest".
+            id = 0
+        }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        if managedLatestCache.count >= 100 { managedLatestCache.removeAll() }
+        managedLatestCache[canonical] = id
+        return id == 0 ? nil : id
+    }
+    private func verifyManagedTagAvailable(_ repo: String, tag: String, originalID: Int?) async throws {
+        do {
+            let found = try await managedJSON(ManagedRelease.self, repo: repo, suffix: "/releases/tags/" + Self.component(tag))
+            guard found.id == originalID else { throw AppError(text: "此标签已有发行版，请编辑原发行版。") }
+        } catch let error as ManagedReleaseHTTPError where error.status == 404 {
+            // The tag endpoint omits drafts. Check all visible releases, not git refs.
+        }
+        for page in 1...ReleaseManagementRules.pageLimit {
+            let rows = try await managedReleases(repo, page: page)
+            if rows.contains(where: { $0.tag_name == tag && $0.id != originalID }) {
+                throw AppError(text: "此标签已有发行版，请编辑原发行版。")
+            }
+            if rows.count < ReleaseManagementRules.pageSize { return }
+        }
+        throw AppError(text: "发行版超过标签检查范围，请在 GitHub 管理。")
+    }
+    func invalidateManagedPresence(_ repo: String) {
+        managedPresenceCache.removeValue(forKey: repo)
+        managedLatestCache.removeValue(forKey: repo)
+    }
+    func managedRepository(_ repo: String) async throws -> Repository {
+        try await managedJSON(Repository.self, repo: repo, suffix: "")
+    }
+    func managedReleases(_ repo: String, page: Int) async throws -> [ReleaseSummary] {
+        try await managedJSON([ReleaseSummary].self, repo: repo, suffix: "/releases", page: page)
+    }
+    func managedRelease(_ repo: String, id: Int) async throws -> ManagedRelease {
+        guard id > 0 else { throw AppError(text: "无效发行版 ID") }
+        return try await managedJSON(ManagedRelease.self, repo: repo, suffix: "/releases/\(id)")
+    }
+    func managedAssets(_ repo: String, id: Int, page: Int) async throws -> [Asset] {
+        guard id > 0 else { throw AppError(text: "无效发行版 ID") }
+        return try await managedJSON([Asset].self, repo: repo, suffix: "/releases/\(id)/assets", page: page)
+    }
+    private func managedWriteAccess(_ repo: String) async throws {
+        let info = try await managedRepository(repo)
+        guard ReleaseManagementRules.canWrite(info.permissions?.push, session: isCurrentSession) else {
+            throw AppError(text: "没有已确认的仓库写权限；Token 还需 Contents 写权限。")
+        }
+        try Task.checkCancellation()
+    }
+    func saveManagedRelease(_ repo: String, original: ManagedRelease?, form: ReleaseForm) async throws -> ManagedRelease {
+        try await managedWriteAccess(repo)
+        guard ReleaseManagementRules.validTag(form.tag), form.validMarker, ReleaseManagementRules.editable(form.body) else {
+            throw AppError(text: "请填写有效标签；正文编辑限 128 KiB，超限请在 GitHub 编辑，不会截断保存。")
+        }
+        if let original {
+            let current = try await managedRelease(repo, id: original.id)
+            guard current == original else { throw AppError(text: "远端发行版已变化，请关闭编辑并刷新；未覆盖远端。") }
+        }
+        if original?.tag_name != form.tag { try await verifyManagedTagAvailable(repo, tag: form.tag, originalID: original?.id) }
+        if let original, form.marker == .latest {
+            let latest = try await managedLatestID(repo, refresh: true)
+            if form.initialLatestID == original.id && latest != original.id {
+                throw AppError(text: "最新版标记已变化，请关闭编辑并刷新。")
+            }
+        }
+        var object: [String: Any] = ["name": form.title, "tag_name": form.tag, "body": form.body, "draft": form.draft, "prerelease": form.prerelease, "make_latest": form.makeLatest]
+        if let original, form.initialLatestID == original.id, form.marker == .latest {
+            object.removeValue(forKey: "make_latest") // Preserve an unchanged official Latest; do not promote it again.
+        }
+        if original == nil && !form.branch.isEmpty { object["target_commitish"] = form.branch }
+        // PATCH only changes release metadata; never calls git refs/tag mutation APIs.
+        return try await managedJSON(ManagedRelease.self, repo: repo,
+            suffix: original.map { "/releases/\($0.id)" } ?? "/releases",
+            method: original == nil ? "POST" : "PATCH", object: object)
+    }
+    func deleteManagedRelease(_ repo: String, original: ManagedRelease, asset: Asset?) async throws {
+        try await managedWriteAccess(repo)
+        let current = try await managedRelease(repo, id: original.id)
+        guard current == original else { throw AppError(text: "远端发行版已变化，请刷新后重新确认。") }
+        if let asset {
+            // Verify fixed asset ID belongs to the confirmed release, within a finite budget.
+            var matched = false
+            for page in 1...ReleaseManagementRules.pageLimit {
+                let rows = try await managedAssets(repo, id: original.id, page: page)
+                if rows.contains(where: { $0.id == asset.id && $0.name == asset.name }) { matched = true; break }
+                if rows.count < ReleaseManagementRules.pageSize { break }
+            }
+            guard matched else { throw AppError(text: "附件已变化或超出核验预算，请刷新。") }
+        }
+        let suffix = asset.map { "/releases/assets/\($0.id)" } ?? "/releases/\(original.id)"
+        let r = try request(url(Self.repoPath(repo) + suffix), method: "DELETE")
+        let (d, response) = try await session.data(for: r, delegate: ReleaseAPIRedirectPolicy())
+        try Task.checkCancellation(); try check(d, response, operation: "删除发行版/附件（不删除标签）")
+        guard (response as? HTTPURLResponse)?.statusCode == 204 else { throw AppError(text: "未收到删除成功确认，请刷新核实。") }
+    }
+    func uploadManagedAsset(_ repo: String, original: ManagedRelease, file: URL,
+        progress: @escaping (Double) -> Void) async throws -> Asset {
+        try await managedWriteAccess(repo)
+        let current = try await managedRelease(repo, id: original.id)
+        guard current == original else { throw AppError(text: "远端发行版已变化，请刷新后重新上传。") }
+        let size = try await Task.detached { (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max }.value
+        guard ReleaseManagementRules.validAsset(size: size, name: file.lastPathComponent) else { throw AppError(text: "附件必须小于 2 GiB，且文件名有效。") }
+        var checkedAll = false
+        for page in 1...ReleaseManagementRules.pageLimit {
+            let rows = try await managedAssets(repo, id: original.id, page: page)
+            guard !ReleaseManagementRules.duplicate(name: file.lastPathComponent, names: rows.map(\.name)) else { throw AppError(text: "同名附件已存在；请改名或单独确认删除，不自动覆盖。") }
+            if rows.count < ReleaseManagementRules.pageSize { checkedAll = true; break }
+        }
+        guard checkedAll else { throw AppError(text: "附件超过同名检查预算，未上传。请在 GitHub 管理。") }
+        let canonical = try RepositoryInput.parse(repo)
+        var c = URLComponents(string: "https://uploads.github.com" + (try Self.repoPath(canonical)) + "/releases/\(original.id)/assets")!
+        c.queryItems = [.init(name: "name", value: file.lastPathComponent)]
+        let r = try request(c.url!, method: "POST", binary: true)
+        let (data, response) = try await session.upload(for: r, fromFile: file, delegate: ManagedUploadProgress(update: progress))
+        try Task.checkCancellation(); try check(data, response, operation: "上传附件")
+        guard data.count <= ReleaseManagementRules.jsonLimit else { throw AppError(text: "上传响应超预算，请刷新核实。") }
+        let asset = try await Task.detached { try JSONDecoder().decode(Asset.self, from: data) }.value
+        try Task.checkCancellation(); try ensureActiveAccount()
+        return asset
+    }
+    func downloadManagedAsset(_ repo: String, asset: Asset, progress: @escaping (Double) -> Void) async throws -> URL {
+        var r = try request(url(Self.repoPath(repo) + "/releases/assets/\(asset.id)"))
+        r.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        return try await download(r, name: asset.name, redirect: ManagedDownloadProgress(update: progress))
+    }
+
 }
