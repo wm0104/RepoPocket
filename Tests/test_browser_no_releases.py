@@ -20,7 +20,9 @@ class BrowserRollbackTests(unittest.TestCase):
                 # Only the newly approved star/fork count destinations differ.
                 begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
                 self.assertEqual(current.split(begin)[0], historic.split(begin)[0])
-                self.assertEqual(current.split(end)[1], historic.split(end)[1])
+                self.assertEqual(current.split('struct LoadingRows:')[1], historic.split('struct LoadingRows:')[1])
+                self.assertEqual(current.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0], historic.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0])
+                self.assertIn('openOwner: openOwner', current)
                 self.assertIn('RepositorySocialView', current)
             else: self.assertEqual(current, historic)
         # RepoPocketApp.swift is not compared byte-for-byte: the directory-nav

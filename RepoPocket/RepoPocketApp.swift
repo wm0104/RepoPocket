@@ -274,6 +274,7 @@ struct BrowserView: View {
     @State private var creatingRelease = false
     private var canWrite: Bool { RepositoryWriteRules.canWrite(push: repositoryInfo?.permissions?.push, sessionMatches: api.isCurrentSession) }
     @State private var showBranches = false
+    @State private var showingRepositoryOwner = false
     @State private var repositoryDescriptionTarget: RepositoryDescriptionTarget?
     @State private var repositoryDeletionTarget: RepositoryDeletionTarget?
     @Environment(\.dismiss) private var dismiss
@@ -299,7 +300,7 @@ struct BrowserView: View {
                 Group {
                     if let repositoryInfo {
                         HStack(alignment: .top, spacing: 8) {
-                            RepositoryCard(repository: repositoryInfo, account: api.login, api: api, descriptionLineLimit: nil, copyLinkContextMenu: false)
+                            RepositoryCard(repository: repositoryInfo, account: api.login, api: api, descriptionLineLimit: nil, copyLinkContextMenu: false, openOwner: { showingRepositoryOwner = true })
                                 .environment(\.repositorySocialAPI, api)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if RepositoryDescriptionRules.canEdit(repositoryInfo, login: api.login, sessionMatches: api.isCurrentSession) {
@@ -423,6 +424,12 @@ struct BrowserView: View {
         }
         .repositoryCopyNotice(copyFeedback)
         .repositoryForkConfirmation(forkMenu, api: api)
+        .navigationDestination(isPresented: $showingRepositoryOwner) {
+            if let repositoryInfo {
+                let owner = RepositoryPresentationRules.owner(login: repositoryInfo.owner?.login, fullName: repositoryInfo.full_name)
+                UserRepositoriesView(api: api, user: User(id: nil, login: owner, avatar_url: repositoryInfo.owner?.avatar_url, name: nil, followers: nil, following: nil))
+            }
+        }
         .task { if !loaded { await load() } }
         .sheet(isPresented: $creatingRelease) { if canWrite { ReleaseEditorView(api: api, repo: repo, original: nil).appSheetCornerRadius() } }
         .sheet(item: $repositoryDescriptionTarget) { target in

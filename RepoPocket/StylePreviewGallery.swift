@@ -14,7 +14,9 @@ struct StylePreviewGallery: View {
     private var readme: Bool { ProcessInfo.processInfo.arguments.contains("-readme-style-preview") }
     private let sample = "# RepoPocket\n\n适用于 iOS 16 的 GitHub 客户端。\n\n- 原生代码浏览\n- Issue 与 PR\n- Actions 与发行版\n\n" + String(repeating: "支持在 App 内浏览与管理仓库。\n\n", count: 30)
     var body: some View {
-        if ProcessInfo.processInfo.arguments.contains("-account-session-style-preview") {
+        if ProcessInfo.processInfo.arguments.contains("-release-download-style-preview") {
+            ReleaseDownloadStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-account-session-style-preview") {
             AccountSessionStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-user-connections-style-preview") {
             UserConnectionsStylePreview()

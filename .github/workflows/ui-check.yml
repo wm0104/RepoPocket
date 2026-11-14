@@ -1,6 +1,12 @@
 name: Native UI checks
 on:
   workflow_dispatch:
+    inputs:
+      test_scope:
+        description: Run all UI checks or the profile navigation regression
+        type: choice
+        options: [all, profiles]
+        default: all
   push:
     branches: [main, 'codex/**']
     paths:
@@ -32,6 +38,8 @@ jobs:
   preview:
     runs-on: macos-14
     timeout-minutes: 30
+    env:
+      RP_STYLE_TEST_SCOPE: ${{ inputs.test_scope || 'all' }}
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode 15.4

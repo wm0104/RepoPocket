@@ -71,16 +71,19 @@ struct CollaborationListView: View {
             }
             for item in visible {
                 SoftGroupRow("item-\(item.id)") {
+                VStack(alignment: .leading, spacing: 6) {
                 NavigationLink { CollaborationDetailView(api: api, repo: repo, kind: kind, number: item.number) } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(item.title).font(.headline)
-                        Text("#\(item.number) · \(item.user?.login ?? "未知作者") · \(item.draft == true ? "草稿" : item.state)")
+                        Text("#\(item.number) · \(item.draft == true ? "草稿" : item.state)")
                             .font(.caption).foregroundStyle(.secondary)
                         if let date = item.updated_at { Text(ChinaDate.dateTime(date)).font(.caption2).foregroundStyle(.secondary) }
                     }.padding(.vertical, 4)
                 }
                 .issueDeletionMenu(api: api, state: deletions, subject: kind == .issues ? IssueDeletionSubject(item, repo: repo) : nil, target: $deletionTarget)
                 .accessibilityIdentifier("repository-issue-\(item.number)")
+                CommunityAuthorLink(api: api, user: item.user, opensInSheet: true).accessibilityIdentifier("issue-list-author-\(item.number)")
+                }
                 }
             }
             if store.loaded && visible.isEmpty && store.error.isEmpty { SoftGroupRow("empty") { Text("当前页没有符合条件的 \(kind.title)" + (store.more ? "，可继续加载。" : "。")) } }
@@ -145,7 +148,8 @@ struct CollaborationDetailView: View {
                 Section {
                     SoftGroupRows {
                     SoftGroupRow("title") { Text(item.title).font(.title3.bold()).textSelection(.enabled) }
-                    SoftGroupRow("state") { Text("#\(number) · \(item.merged == true ? "已合并" : item.state) · \(item.user?.login ?? "未知作者")").font(.caption) }
+                    SoftGroupRow("state") { Text("#\(number) · \(item.merged == true ? "已合并" : item.state)").font(.caption) }
+                    SoftGroupRow("author") { CommunityAuthorLink(api: api, user: item.user).accessibilityIdentifier("issue-author") }
                     if let labels = item.labels, !labels.isEmpty { SoftGroupRow("labels") { Text(labels.map { $0.name }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary) } }
                     if let head = item.head, let base = item.base { SoftGroupRow("branches") { Text(head.ref + " → " + base.ref).font(.caption).textSelection(.enabled) } }
                     if let count = item.changed_files { SoftGroupRow("stats") { Text("\(count) 个文件 · +\(item.additions ?? 0) / −\(item.deletions ?? 0)").font(.caption) } }
@@ -223,13 +227,8 @@ struct DiscussionView: View {
                 Section {
                     SoftGroupRows {
                     SoftGroupRow("user") {
-                        HStack(spacing: 12) {
-                            GitHubAvatar(url: comment.user?.avatar_url, size: 36)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(comment.user?.login ?? "已删除用户").font(.headline)
-                                if let date = comment.created_at { Text(ChinaDate.dateTime(date)).font(.caption).foregroundStyle(.secondary) }
-                            }
-                        }
+                        CommunityAuthorLink(api: api, user: comment.user, date: comment.created_at)
+                            .accessibilityIdentifier("discussion-author-\(comment.id)")
                     }
                     if let state = comment.state { SoftGroupRow("state") { Text(state).font(.caption).foregroundStyle(.secondary) } }
                     if let path = comment.path { SoftGroupRow("path") { Text(path + (comment.line.map { ":\($0)" } ?? "")).font(.caption).textSelection(.enabled) } }

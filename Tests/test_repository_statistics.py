@@ -20,7 +20,7 @@ class RepositoryStatisticsTests(unittest.TestCase):
             self.assertIn(f'= repository.{field}', ui)
             self.assertNotIn(f'repository.{field} ?? 0', ui)
         self.assertIn('RepositoryStatistics(repository: repository)', ui)
-        self.assertIn('RepositoryCard(repository: repositoryInfo, account: api.login, api: api, descriptionLineLimit: nil, copyLinkContextMenu: false)', app)
+        self.assertIn('RepositoryCard(repository: repositoryInfo, account: api.login, api: api, descriptionLineLimit: nil, copyLinkContextMenu: false, openOwner:', app)
         self.assertIn('let info = try await api.repository(repo)', app)
         self.assertIn('repositoryInfo = nil', app)
         self.assertIn('try await decoded(Repository.self, Self.repoPath(repo))', github)

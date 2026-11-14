@@ -47,6 +47,7 @@ struct CommunityEventsView: View {
     let login: String
     var received = false
     @StateObject private var store = CommunityPageStore<CommunityEvent>()
+    @State private var selectedRepository: String?
 
     var body: some View {
         List {
@@ -54,12 +55,13 @@ struct CommunityEventsView: View {
                 SoftGroupRows {
                     for event in store.items {
                         SoftGroupRow(event.id) {
-                            NavigationLink { BrowserView(api: api, repo: event.repo.name, path: "", branch: "") } label: {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack { GitHubAvatar(url: event.actor.avatar_url, size: 24); Text(event.actor.login + " " + event.summary) }
-                                    Text(event.repo.name).font(.headline)
-                                    if let date = event.created_at { Text(ChinaDate.dateTime(date)).font(.caption).foregroundStyle(.secondary) }
-                                }
+                            VStack(alignment: .leading, spacing: 6) {
+                                CommunityAuthorLink(api: api, user: User(id: nil, login: event.actor.login, avatar_url: event.actor.avatar_url, name: nil, followers: nil, following: nil), date: event.created_at, opensInSheet: true)
+                                    .accessibilityIdentifier("event-author-" + event.id)
+                                Text(event.summary).font(.caption).foregroundStyle(.secondary)
+                                Button { selectedRepository = event.repo.name } label: {
+                                    Text(event.repo.name).font(.headline).frame(minHeight: 44)
+                                }.buttonStyle(.borderless).accessibilityIdentifier("event-repository-" + event.id)
                             }
                         }
                     }
@@ -69,6 +71,9 @@ struct CommunityEventsView: View {
             }
             CommunityPageFooter(store: store, next: { load() })
         }.navigationTitle(received ? "关注动态" : "公开活动").adaptiveWorkspaceLayout()
+        .navigationDestination(isPresented: Binding(get: { selectedRepository != nil }, set: { if !$0 { selectedRepository = nil } })) {
+            if let selectedRepository { BrowserView(api: api, repo: selectedRepository, path: "", branch: "") }
+        }
         .toolbar { Button("刷新") { load(reset: true) }.disabled(store.busy) }
         .task { if !store.loaded { load() } }.onDisappear { store.cancel() }
     }

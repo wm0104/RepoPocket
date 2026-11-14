@@ -55,15 +55,20 @@ struct WorkflowRunHeading: View {
 
 struct WorkflowRunMetadata: View {
     let run: WorkflowRun
+    var api: GitHub? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 6) {
+            if let api, let actor = run.actor {
+                CommunityAuthorLink(api: api, user: User(id: nil, login: actor.login, avatar_url: nil, name: nil, followers: nil, following: nil))
+                Text(WorkflowTime.trigger(run.event)).font(.caption).foregroundStyle(.secondary)
+                WorkflowCreatedText(timestamp: run.created_at).font(.caption).foregroundStyle(.secondary)
+            } else { HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "person.crop.circle")
                 VStack(alignment: .leading, spacing: 4) {
                     Text((run.actor?.login ?? "未知用户") + " · " + WorkflowTime.trigger(run.event))
                     WorkflowCreatedText(timestamp: run.created_at)
                 }
-            }.font(.caption).foregroundStyle(.secondary)
+            }.font(.caption).foregroundStyle(.secondary) }
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) { commit; branch }
                 VStack(alignment: .leading, spacing: 8) { commit; branch }

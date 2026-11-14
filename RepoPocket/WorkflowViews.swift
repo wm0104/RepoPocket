@@ -77,7 +77,7 @@ struct WorkflowRunView: View {
             }
             Section {
                 SoftGroupRows {
-                    SoftGroupRow("metadata") { WorkflowRunMetadata(run: displayedRun) }
+                    SoftGroupRow("metadata") { WorkflowRunMetadata(run: displayedRun, api: api) }
                     SoftGroupRow("metrics") { WorkflowRunMetrics(api: api, repo: repo, run: displayedRun, artifactCount: artifactCount) }
                     if !statusError.isEmpty { SoftGroupRow("status-error") { Text(statusError).font(.caption).foregroundStyle(.secondary) } }
                 }

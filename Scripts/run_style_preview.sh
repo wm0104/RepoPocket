@@ -92,9 +92,14 @@ xcrun simctl terminate "$DEVICE" com.wm0104.RepoPocket
 xcrun simctl io "$DEVICE" recordVideo --codec=h264 screenshots/local-git-interactions.mp4 > local-git-recording.log 2>&1 &
 RECORDING_PID=$!
 TEST_STATUS=0
-xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -only-testing:RepoPocketStyleUITests test-without-building > style-tests.log 2>&1 || { tail -100 style-tests.log; TEST_STATUS=1; }
+case "${RP_STYLE_TEST_SCOPE:-all}" in
+  all) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests) ;;
+  profiles) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testIssueAndCommentAuthorsOpenTheirProfiles) ;;
+  *) echo 'Unknown UI test scope'; exit 1 ;;
+esac
+xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${TEST_ARGUMENTS[@]}" test-without-building > style-tests.log 2>&1 || { tail -100 style-tests.log; TEST_STATUS=1; }
 kill -INT "$RECORDING_PID" 2>/dev/null || true
 wait "$RECORDING_PID" || true
 RECORDING_PID=""
-python3 Scripts/export_style_attachments.py style-tests.xcresult screenshots || TEST_STATUS=1
+python3 Scripts/export_style_attachments.py style-tests.xcresult screenshots "${RP_STYLE_TEST_SCOPE:-all}" || TEST_STATUS=1
 exit "$TEST_STATUS"

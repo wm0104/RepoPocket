@@ -10,6 +10,12 @@ struct UserConnectionsStylePreview: View {
             if let api {
                 if ProcessInfo.processInfo.arguments.contains("-issue-deletion-repository-preview") {
                     NavigationStack { CollaborationListView(api: api, repo: "fixture-owner/sample", kind: .issues) }
+                } else if ProcessInfo.processInfo.arguments.contains("-fork-author-preview") {
+                    RepositorySocialView(api: api, repository: try! JSONDecoder().decode(Repository.self, from: Data(ConnectionsPreviewProtocol.repository.utf8)), destination: .forks)
+                } else if ProcessInfo.processInfo.arguments.contains("-event-author-preview") {
+                    NavigationStack { CommunityEventsView(api: api, login: "fixture-follower") }
+                } else if ProcessInfo.processInfo.arguments.contains("-search-style-preview") {
+                    RepositorySearchView(api: api)
                 } else { RepositoriesView(api: api) }
             }
             else if !error.isEmpty { Text(error) }
@@ -73,13 +79,18 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
             payload = #"[{"id":402,"login":"fixture-follower"},{"id":403,"login":"fixture-second"}]"#
         } else if path == "/users/fixture-owner/following" {
             payload = #"[{"id":404,"login":"fixture-following"}]"#
-        } else if path == "/users/fixture-follower" || path == "/users/fixture-following" {
+        } else if ["/users/fixture-follower", "/users/fixture-following", "/users/fixture-owner", "/users/fixture-second"].contains(path) {
             let login = path.components(separatedBy: "/").last!
             payload = "{\"login\":\"" + login + "\",\"bio\":\"关注列表测试用户\",\"public_repos\":0,\"followers\":0,\"following\":0}"
         } else if path == "/user/repos" {
             payload = #"[{"id":501,"name":"alpha","full_name":"fixture-owner/alpha","html_url":"https://github.com/fixture-owner/alpha"},{"id":502,"name":"beta","full_name":"fixture-owner/beta","html_url":"https://github.com/fixture-owner/beta"}]"#
         } else if path == "/user/starred" {
             payload = #"[{"id":503,"name":"starred","full_name":"other/starred","html_url":"https://github.com/other/starred"}]"#
+        } else if path == "/search/repositories" {
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value ?? ""
+            payload = query.contains("://") ? #"{"message":"Unexpected fixture route: URL must bypass search"}"# : "{\"total_count\":1,\"items\":[" + Self.repository + "]}"
+        } else if path == "/search/users" {
+            payload = #"{"total_count":1,"items":[{"id":402,"login":"fixture-follower"}]}"#
         } else if path == "/search/issues" {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value ?? ""
             Self.lock.lock(); let deleted = Self.deleted; Self.lock.unlock()
@@ -90,7 +101,11 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
         } else if path == "/repos/fixture-owner/sample/issues/4" {
             payload = Self.issue
         } else if path == "/repos/fixture-owner/sample" {
-            payload = #"{"id":504,"name":"sample","full_name":"fixture-owner/sample","html_url":"https://github.com/fixture-owner/sample","permissions":{"push":false}}"#
+            payload = Self.repository
+        } else if path == "/repos/fixture-owner/sample/contents" {
+            payload = "[]"
+        } else if path == "/repos/fixture-owner/sample/forks" {
+            payload = #"[{"id":505,"name":"sample","full_name":"fixture-follower/sample","default_branch":"main","fork":true,"owner":{"id":402,"login":"fixture-follower"},"html_url":"https://github.com/fixture-follower/sample"}]"#
         } else if path == "/repos/fixture-owner/sample/issues/4/comments" {
             Self.lock.lock(); let posted = Self.posted; Self.lock.unlock()
             let rows: [[String: Any]] = [
@@ -101,7 +116,9 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
         } else if path == "/users/fixture-follower/events/public" {
             let page = Int(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "page" }?.value ?? "1") ?? 1
             let formatter = ISO8601DateFormatter()
-            let date = formatter.string(from: Date().addingTimeInterval(page == 1 ? -600 : -86400))
+            var calendar = Calendar(identifier: .gregorian); calendar.timeZone = ChinaDate.timeZone
+            // Keep today's events on today even when the test runs just after midnight.
+            let date = formatter.string(from: calendar.startOfDay(for: Date()).addingTimeInterval(page == 1 ? 0 : -86400))
             let rows: [[String: Any]] = page <= 3 ? (0..<30).map {
                 ["id":"\(page)-\($0)","type":"PushEvent","actor":["login":"fixture-follower"],"repo":["name":"fixture-owner/sample"],"created_at":date]
             } : []
@@ -119,6 +136,7 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
         client?.urlProtocolDidFinishLoading(self)
     }
     private static let issue = #"{"id":601,"number":4,"title":"Add English support","state":"open","html_url":"https://github.com/fixture-owner/sample/issues/4","body":"Issue fixture body","comments":2,"updated_at":"2026-10-19T00:00:00Z","user":{"login":"fixture-follower"}}"#
+    static let repository = #"{"id":504,"name":"sample","full_name":"fixture-owner/sample","default_branch":"main","owner":{"id":401,"login":"fixture-owner"},"html_url":"https://github.com/fixture-owner/sample","permissions":{"push":false}}"#
     private static func body(_ request: URLRequest) -> Data? {
         if let data = request.httpBody { return data }
         guard let stream = request.httpBodyStream else { return nil }

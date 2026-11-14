@@ -172,11 +172,10 @@ assert 'top: state.rows.isEmpty && state.busy, bottom: true' in release
 detail_ui = release.split('struct ReleaseDetailView: View', 1)[1].split('private func upload', 1)[0]
 asset_ui = detail_ui.split('ForEach(state.assets) { asset in', 1)[1].split('if state.assets.isEmpty', 1)[0]
 assert 'let isLastAsset = asset.id == state.assets.last?.id && !state.assetMore' in asset_ui
-assert asset_ui.count('.softGroupedRow(') == 4  # metadata, download, optional copy, optional delete
-assert '}.softGroupedRow(top: asset.id == state.assets.first?.id)' in asset_ui
-assert '.softGroupedRow(bottom: isLastAsset && link == nil && !state.canWrite)' in asset_ui
-assert '.softGroupedRow(bottom: isLastAsset && !state.canWrite)' in asset_ui
-assert '.softGroupedRow(bottom: isLastAsset)' in asset_ui
+assert asset_ui.count('.softGroupedRow(') == 1  # approved compact attachment row with native actions
+assert '}.softGroupedRow(top: asset.id == state.assets.first?.id, bottom: isLastAsset)' in asset_ui
+assert 'LocalGitFileLabel(' in asset_ui and 'Menu {' in asset_ui
+assert 'ReleaseAssetDownloadStatusView(' in asset_ui
 assert 'Divider()' not in asset_ui and 'Rectangle().fill' not in asset_ui
 assert 'bottom: item.id == attachments.last?.id && !staging' in release
 assert 'bottom: markerReady || state.busy' in release
@@ -287,6 +286,10 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         deletion_end = current.index('    @Published private(set) var starRevision', deletion_start)
         assert 'func issueDeletionGraphQL(' in current[deletion_start:deletion_end]
         current = current[:deletion_start] + current[deletion_end:]
+        transfer_start = current.index('    func downloadManagedAssetWithProgress(')
+        transfer_end = current.index('\n    }', transfer_start) + len('\n    }') + 1
+        assert 'ReleaseAssetDownloadDelegate(update: transfer)' in current[transfer_start:transfer_end]
+        current = current[:transfer_start] + current[transfer_end:]
         # The authorized metadata editor has separate permission/race tests.
         description_start = current.index('    func descriptionContext(')
         description_end = current.index('    func deletionContext(', description_start)
@@ -370,7 +373,9 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         old = baseline(file)
         begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
         assert current.split(begin)[0] == old.split(begin)[0]
-        assert current.split(end)[1] == old.split(end)[1]
+        assert current.split('struct LoadingRows:')[1] == old.split('struct LoadingRows:')[1]
+        assert current.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0] == old.split('.task(id: repository.id) {')[1].split('.sheet(isPresented: $showParent)')[0]
+        assert 'openOwner: openOwner' in current
         assert 'repositorySocialAPI' in current and 'RepositorySocialView' in current
     elif file == 'RepositoryStarUI.swift':
         # The home action adds retryable status reads. Preserve the complete
@@ -443,7 +448,8 @@ for file, marker in [
         # UserRepositories UI is also explicitly allowed, its network code isn't.
         current = current.replace('        requestedOptions = options\n', '')
         current = current.replace('requested, page: requestedPage, options: requestedOptions)', 'requested, page: requestedPage)')
-        assert current.split(marker)[1].split('struct UserRepositoriesView:')[0] == old.split(marker)[1].split('struct UserRepositoriesView:')[0]
+        assert current.split('    private func invalidate()')[1].split('struct UserRepositoriesView:')[0] == old.split('    private func invalidate()')[1].split('struct UserRepositoriesView:')[0]
+        assert 'RepositorySearchRouting.repository(clean)' in current
         assert current.split('    private func load() async {')[-1] == old.split('    private func load() async {')[-1]
     else:
         assert current.split(marker, 1)[1] == old.split(marker, 1)[1], file
@@ -487,10 +493,13 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'error = ""; notice = ""; progress = 0' in body
             assert 'defer { if operation == token { busy = false; task = nil } }' in body
             continue
+        if file == 'ReleaseManagementUI.swift' and signature == 'func cancel()':
+            assert 'task?.cancel()' in current[signature] and 'assetDownload?.stage = .cancelled' in current[signature]
+            continue
         if file == 'ReleaseManagementUI.swift' and signature == 'func download(_ asset: Asset)':
             body = current.get(signature, '')
-            assert 'downloadManagedAsset' in body
-            assert 'try await DownloadStore.shared.persist(' in body
+            assert 'self.downloader.download(' in body
+            assert 'try await self.downloader.persist(' in body
             assert 'self.notice =' in body
             assert 'SharedFile' not in body and 'self.saved' not in body
             continue

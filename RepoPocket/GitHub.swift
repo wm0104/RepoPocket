@@ -1402,5 +1402,10 @@ final class GitHub: ObservableObject {
         r.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         return try await download(r, name: asset.name, redirect: ManagedDownloadProgress(update: progress))
     }
+    func downloadManagedAssetWithProgress(_ repo: String, asset: Asset, transfer: @escaping (ReleaseDownloadProgress) -> Void) async throws -> URL {
+        var r = try request(url(Self.repoPath(repo) + "/releases/assets/\(asset.id)"))
+        r.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        return try await download(r, name: asset.name, redirect: ReleaseAssetDownloadDelegate(update: transfer))
+    }
 
 }

@@ -18,11 +18,21 @@ struct RepositorySearchView: View {
     @State private var error = ""
     @State private var options = RepositorySearchOptions()
     @State private var requestedOptions = RepositorySearchOptions()
+    @State private var directRepository: String?
+    @State private var lastSubmittedKind = RepositorySearchKind.repositories
     private var store: RepositorySearchHistory { RepositorySearchHistory(accountID: api.accountID) }
     private var clean: String { RepositorySearchRules.normalized(query) }
+    private var invalidLink: Bool { RepositorySearchRouting.isLink(submitted) && RepositorySearchRouting.repository(submitted) == nil }
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    Picker("搜索类型", selection: $kind) {
+                        Text("仓库").tag(RepositorySearchKind.repositories)
+                        Text("用户").tag(RepositorySearchKind.users)
+                    }.pickerStyle(.segmented).softGroupedRow(top: true, bottom: true)
+                }
+                if kind == .repositories {
                 Section("仓库筛选") {
                     SoftGroupRows {
                     SoftGroupRow("language") {
@@ -40,6 +50,7 @@ struct RepositorySearchView: View {
                         SoftGroupRow("apply") { Button("应用筛选并重新搜索") { begin(.repositories) } }
                     }
                     }
+                }
                 }
                 if submitted.isEmpty {
                     if clean.isEmpty {
@@ -72,7 +83,8 @@ struct RepositorySearchView: View {
                         ForEach(users, id: \.login) { user in
                             NavigationLink { UserRepositoriesView(api: api, user: user) } label: {
                                 HStack { GitHubAvatar(url: user.avatar_url); Text(user.login) }
-                            }.softGroupedRow(top: repositories.isEmpty && user.login == users.first?.login, bottom: user.login == users.last?.login && !more)
+                            }.accessibilityIdentifier("search-user-" + user.login)
+                            .softGroupedRow(top: repositories.isEmpty && user.login == users.first?.login, bottom: user.login == users.last?.login && !more)
                         }
                         if !busy && repositories.isEmpty && users.isEmpty && error.isEmpty { Text("没有搜索结果").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: !more) }
                         if more { Button("加载更多") { startLoad() }.disabled(busy).softGroupedRow(top: repositories.isEmpty && users.isEmpty && (busy || !error.isEmpty), bottom: true) }
@@ -80,7 +92,10 @@ struct RepositorySearchView: View {
                 }
                 Section {
                     if busy { ProgressView("搜索中…").softGroupedRow(top: true, bottom: error.isEmpty) }
-                    if !error.isEmpty { Text(error).foregroundStyle(.secondary).softGroupedRow(top: !busy); Button("重试") { startLoad() }.disabled(busy).softGroupedRow(bottom: true) }
+                    if !error.isEmpty {
+                        Text(error).foregroundStyle(.secondary).softGroupedRow(top: !busy, bottom: invalidLink)
+                        if !invalidLink { Button("重试") { startLoad() }.disabled(busy).softGroupedRow(bottom: true) }
+                    }
                 }
             }
             // Do not animate structural List mutations during keyboard/sheet transitions.
@@ -88,7 +103,14 @@ struct RepositorySearchView: View {
             .navigationTitle("搜索").navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索仓库或用户")
             .textInputAutocapitalization(.never).autocorrectionDisabled()
-            .onSubmit(of: .search) { begin(.repositories) }
+            .onSubmit(of: .search) { begin(kind) }
+            .onChange(of: kind) { selected in
+                guard directRepository == nil, !submitted.isEmpty, submitted == clean, selected != lastSubmittedKind else { return }
+                begin(selected)
+            }
+            .navigationDestination(isPresented: Binding(get: { directRepository != nil }, set: { if !$0 { directRepository = nil } })) {
+                if let directRepository { BrowserView(api: api, repo: directRepository, path: "", branch: "") }
+            }
             .onChange(of: query) { _ in
                 // A history tap sets query and submits in the same transaction;
                 // do not invalidate that newly submitted request afterwards.
@@ -111,7 +133,18 @@ struct RepositorySearchView: View {
     }
     private func begin(_ selected: RepositorySearchKind) {
         guard !clean.isEmpty else { return }
-        invalidate(); kind = selected; submitted = clean
+        if let target = RepositorySearchRouting.repository(clean) {
+            invalidate(); submitted = clean; repositories = []; users = []; more = false; error = ""
+            store.record(clean, kind: .repositories); history = store.read()
+            directRepository = target
+            return
+        }
+        if RepositorySearchRouting.isLink(clean) {
+            invalidate(); submitted = clean; repositories = []; users = []; more = false
+            error = RepositoryInput.Invalid().localizedDescription
+            return
+        }
+        invalidate(); lastSubmittedKind = selected; kind = selected; submitted = clean
         requestedOptions = options
         repositories = []; users = []; page = 1; more = false; busy = false; error = ""
         store.record(submitted, kind: selected); history = store.read()

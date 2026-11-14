@@ -76,6 +76,7 @@ struct RepositorySocialView: View {
     let destination: RepositorySocialDestination
     @StateObject private var stars = SocialPageState<RepositorySocialUser>()
     @StateObject private var forks = SocialPageState<Repository>()
+    @State private var selectedFork: Repository?
     @Environment(\.dismiss) private var dismiss
     private var isStars: Bool { destination == .stars }
     var body: some View {
@@ -94,17 +95,22 @@ struct RepositorySocialView: View {
                             NavigationLink { UserRepositoriesView(api: api, user: forkUser(fork)) } label: { SocialPersonRow(login: forkUser(fork).login, avatar: fork.owner?.avatar_url) }
                                 .softGroupedRow(top: fork.id == forks.items.first?.id, bottom: fork.id == forks.items.last?.id)
                         } else {
-                            NavigationLink { ForkRepositoryView(api: api, base: repository, fork: fork) } label: {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    SocialPersonRow(login: forkUser(fork).login, avatar: fork.owner?.avatar_url)
+                            VStack(alignment: .leading, spacing: 6) {
+                                CommunityAuthorLink(api: api, user: forkUser(fork), opensInSheet: true)
+                                    .accessibilityIdentifier("fork-author-\(fork.id)")
+                                Button { selectedFork = fork } label: {
                                     Text(fork.full_name).font(.caption).foregroundStyle(.secondary)
-                                }
+                                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                }.buttonStyle(.borderless).accessibilityIdentifier("fork-repository-\(fork.id)")
                             }.softGroupedRow(top: fork.id == forks.items.first?.id, bottom: fork.id == forks.items.last?.id)
                         }
                     }
                     SocialPageFooter(state: forks, load: { Task { await load() } }, retry: { Task { await retry() } })
                 }
             }.navigationTitle(isStars ? "星标用户" : "复刻者")
+            .navigationDestination(isPresented: Binding(get: { selectedFork != nil }, set: { if !$0 { selectedFork = nil } })) {
+                if let selectedFork { ForkRepositoryView(api: api, base: repository, fork: selectedFork) }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
                 ToolbarItem(placement: .primaryAction) { Button("刷新") { Task { await load(refresh: true) } }.disabled(stars.busy || forks.busy) }

@@ -22,7 +22,7 @@ class DownloadTests(unittest.TestCase):
   self.assertIn('Task.detached(priority: .utility)', store)
   self.assertIn('withTaskCancellationHandler', store)
   self.assertIn('Task.isCancelled', store)
-  for name in ['RepoPocketApp.swift', 'UploadView.swift', 'UpdateFeature.swift', 'WorkflowViews.swift', 'ReleaseManagementUI.swift']:
+  for name in ['RepoPocketApp.swift', 'UploadView.swift', 'UpdateFeature.swift', 'WorkflowViews.swift', 'ReleaseAssetDownload.swift']:
    self.assertIn('try await DownloadStore.shared.persist(', Path(REPO_ROOT, 'RepoPocket', name).read_text())
 
  def test_real_callsites_and_lifecycle(self):

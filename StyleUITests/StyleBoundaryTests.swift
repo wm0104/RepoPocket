@@ -2,6 +2,106 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-release-download-style-preview", "-release-download-failure"]; app.launch()
+        let file = app.buttons["release-asset-1"]
+        XCTAssertTrue(file.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["release-asset-3"].exists)
+        XCTAssertFalse(app.buttons["下载并保存"].exists)
+        keepScreenshot(app, name: "release-compact-attachments")
+        file.tap()
+        XCTAssertTrue(app.buttons["下载并保存"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["复制下载链接"].exists)
+        XCTAssertFalse(app.buttons["删除附件"].exists)
+        app.buttons["取消"].tap()
+        app.buttons["附件操作：sample-1.ipa"].tap()
+        XCTAssertTrue(app.buttons["删除附件"].waitForExistence(timeout: 5)); app.buttons["删除附件"].tap()
+        XCTAssertTrue(app.buttons["删除"].waitForExistence(timeout: 5)); app.buttons["取消"].tap()
+        file.tap(); app.buttons["下载并保存"].tap()
+        let retry = app.buttons["release-download-retry-1"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        let status = app.staticTexts["release-download-status-1"]
+        XCTAssertTrue(status.label.contains("下载失败"))
+        retry.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS '40%'"), object: status)], timeout: 10), .completed)
+        keepScreenshot(app, name: "release-inline-progress")
+        app.buttons["取消下载"].tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == '下载已取消'"), object: status)], timeout: 5), .completed)
+        retry.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS '已下载并保存到'"), object: status)], timeout: 15), .completed)
+    }
+    func testDirectRepositorySearchAndTypedUserNavigation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-search-style-preview"]; app.launch()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20)); field.tap(); field.typeText("https://github.com/fixture-owner/sample\n")
+        let owner = app.buttons["repository-owner-link"]
+        XCTAssertTrue(owner.waitForExistence(timeout: 20)); owner.tap()
+        XCTAssertTrue(app.navigationBars["fixture-owner"].waitForExistence(timeout: 10))
+        keepScreenshot(app, name: "repository-owner-profile")
+        app.terminate(); app.launch()
+        XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText("sample\n")
+        let resultOwner = app.buttons["repository-owner-link"].firstMatch
+        XCTAssertTrue(resultOwner.waitForExistence(timeout: 15)); resultOwner.tap()
+        XCTAssertTrue(app.navigationBars["fixture-owner"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["关闭"].exists, "Card owner must open the profile sheet, not the repository")
+        app.buttons["关闭"].tap()
+        app.terminate(); app.launch()
+        app.segmentedControls.buttons["用户"].tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText("fixture-follower\n")
+        let person = app.buttons["search-user-fixture-follower"]
+        XCTAssertTrue(person.waitForExistence(timeout: 15)); person.tap()
+        XCTAssertTrue(app.navigationBars["fixture-follower"].waitForExistence(timeout: 10))
+    }
+    func testIssueAndCommentAuthorsOpenTheirProfiles() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview"]; app.launch()
+        let issue = app.buttons["home-issue-4"]
+        XCTAssertTrue(issue.waitForExistence(timeout: 20)); issue.tap()
+        let author = app.buttons["issue-author"]
+        XCTAssertTrue(author.waitForExistence(timeout: 15)); author.tap()
+        XCTAssertTrue(app.navigationBars["fixture-follower"].waitForExistence(timeout: 10))
+        app.navigationBars.buttons["Issue #4"].tap()
+        XCTAssertTrue(app.staticTexts["Issue fixture body"].waitForExistence(timeout: 15))
+        app.buttons["讨论评论"].tap()
+        let commenter = app.buttons["discussion-author-72"]
+        XCTAssertTrue(commenter.waitForExistence(timeout: 15)); commenter.tap()
+        XCTAssertTrue(app.navigationBars["fixture-second"].waitForExistence(timeout: 10))
+        app.terminate()
+        app.launchArguments.append("-issue-deletion-repository-preview"); app.launch()
+        let listAuthor = app.buttons["issue-list-author-4"]
+        XCTAssertTrue(listAuthor.waitForExistence(timeout: 20)); listAuthor.tap()
+        XCTAssertTrue(app.navigationBars["fixture-follower"].waitForExistence(timeout: 10))
+        keepScreenshot(app, name: "profile-issue-list")
+        app.navigationBars["fixture-follower"].buttons["关闭"].tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.navigationBars["fixture-follower"])], timeout: 10), .completed)
+        app.buttons["repository-issue-4"].tap()
+        XCTAssertTrue(app.navigationBars["Issue #4"].waitForExistence(timeout: 10))
+        for (argument, identity, destination) in [
+            ("-fork-author-preview", "fork-author-505", "fork-repository-505"),
+            ("-event-author-preview", "event-author-1-0", "event-repository-1-0")
+        ] {
+            app.terminate()
+            app.launchArguments = ["-style-preview", "-user-connections-style-preview", argument]; app.launch()
+            let author = app.buttons[identity]
+            XCTAssertTrue(author.waitForExistence(timeout: 20)); author.tap()
+            XCTAssertTrue(app.navigationBars["fixture-follower"].waitForExistence(timeout: 10))
+            keepScreenshot(app, name: argument == "-fork-author-preview" ? "profile-fork" : "profile-activity")
+            app.navigationBars["fixture-follower"].buttons["关闭"].tap()
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.navigationBars["fixture-follower"])], timeout: 10), .completed)
+            app.buttons[destination].firstMatch.tap()
+            keepScreenshot(app, name: argument == "-fork-author-preview" ? "profile-fork-repository" : "profile-activity-repository")
+            if argument == "-fork-author-preview" {
+                XCTAssertTrue(app.buttons["浏览复刻仓库"].waitForExistence(timeout: 10))
+            } else {
+                XCTAssertTrue(app.buttons["repository-owner-link"].waitForExistence(timeout: 10))
+            }
+        }
+    }
     func testIssueDeletionRequiresConfirmationOnHomeAndRepositoryList() {
         continueAfterFailure = false
         for (extra, identifier, empty) in [

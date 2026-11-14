@@ -40,7 +40,7 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertIn('复制下载链接', ui)
         self.assertIn('UIPasteboard.general.url = link', ui)
         self.assertIn('asset.browser_download_url, repo: state.repo', ui)
-        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'ForEach(state.rows)', 'ForEach(state.assets)', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', '确认删除这个附件？', '确认删除整个发行版？', '此操作不可恢复。', 'Button("删除", role: .destructive) { performDelete() }', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'DownloadStore.shared.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup', 'if expanded', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
+        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'ForEach(state.rows)', 'ForEach(state.assets)', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', '确认删除这个附件？', '确认删除整个发行版？', '此操作不可恢复。', 'Button("删除", role: .destructive) { performDelete() }', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'self.downloader.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup', 'if expanded', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
             self.assertIn(token,ui)
         self.assertNotIn('AsyncImage',ui)
         transfers=(ROOT/'RepoPocket/ReleaseTransfers.swift').read_text()
@@ -70,43 +70,18 @@ class ReleaseManagementTests(unittest.TestCase):
             self.assertNotEqual(text.strip().lower(), 'delete')
 
     def test_asset_row_actions_are_independent_and_accessible(self):
-        import re
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
-        row = ui.split('ForEach(state.assets) { asset in', 1)[1].split('if state.assets.isEmpty', 1)[0]
-        self.assertIn('VStack(alignment: .leading, spacing: 12)', row)
-        self.assertEqual(len(re.findall(r'^\s*Button(?:\(| \{)', row, re.M)), 3)
-        actions = re.findall(r'Button(?:\(role: \.destructive\))? \{ ([^{}]+) \} label: \{\s*Text\("([^"]+)"\)(.*?)\n\s*\}\s*\.buttonStyle\(\.(borderless|plain)\)', row, re.S)
-        self.assertEqual(len(actions), 3, 'Every asset button must explicitly opt out of automatic List activation')
-        expected = {
-            '下载并保存': 'state.download(asset)',
-            '复制下载链接': 'UIPasteboard.general.url = link; copied = true',
-            '删除附件': 'prepareDelete(r, asset: asset)',
-        }
-        self.assertEqual({label: action.strip() for action, label, _, _ in actions}, expected)
-        for _, _, label_view, _ in actions:
-            self.assertIn('.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)', label_view)
-            self.assertIn('.contentShape(Rectangle())', label_view)
-            self.assertNotIn('.lineLimit', label_view)
-        # The file metadata and every action must be distinct native List rows.
-        # An inset Divider inside one VStack caused the measured 1050/1168px mix
-        # and omitted separators between metadata/download/copy in the screenshots.
-        metadata = row.split('VStack(alignment: .leading, spacing: 12) {', 1)[1].split('}.softGroupedRow(', 1)[0]
-        self.assertIn('Text(asset.name)', metadata)
-        self.assertIn('asset.size', metadata)
-        self.assertNotIn('Button', metadata)
-        self.assertNotIn('Divider()', row)
-        self.assertEqual(row.count('.softGroupedRow('), 4)
-        self.assertIn('}.softGroupedRow(top: asset.id == state.assets.first?.id)', row)
-        self.assertIn('let isLastAsset = asset.id == state.assets.last?.id && !state.assetMore', row)
-        self.assertIn('.softGroupedRow(bottom: isLastAsset && link == nil && !state.canWrite)', row)
-        self.assertIn('.softGroupedRow(bottom: isLastAsset && !state.canWrite)', row)
-        self.assertIn('.softGroupedRow(bottom: isLastAsset)', row)
-        self.assertIn('if state.canWrite {', row)
-        self.assertIn('if let link = link {', row)
-        self.assertEqual(row.count('.disabled(state.busy)'), 2)
-        self.assertNotIn('.automatic', row)
-        self.assertNotIn('.onTapGesture', row)
-        self.assertNotIn('HStack', row)  # Stack vertically for iOS 16, small screens and Dynamic Type.
+        row = ui.split('ForEach(state.assets) { asset in',1)[1].split('if state.assets.isEmpty',1)[0]
+        self.assertEqual(row.count('.softGroupedRow('), 1)
+        for token in ['LocalGitFileLabel(name: asset.name, size: Int64(asset.size))', 'Menu {', '.buttonStyle(.borderless)', 'assetActions(asset)', 'if state.canWrite', 'prepareDelete(r, asset: asset)', 'ReleaseAssetDownloadStatusView(']: self.assertIn(token,row)
+        self.assertIn('bottom: isLastAsset',row)
+        self.assertNotIn('Divider()',row)
+        actions=ui.split('@ViewBuilder private func assetActions(',1)[1].split('    private var deleteDescription',1)[0]
+        self.assertIn('state.download(asset)',actions)
+        self.assertIn('UIPasteboard.general.url = link',actions)
+        self.assertIn('asset.browser_download_url, repo: state.repo',actions)
+        self.assertIn('presenting: assetAction',ui)
+        self.assertIn('target.generation == AccountStore.generation',ui)
 
     def test_concise_copy_keeps_safety_and_budget_guards(self):
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()

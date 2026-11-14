@@ -158,16 +158,22 @@ struct RepositoryCard: View {
     let api: GitHub
     var descriptionLineLimit: Int? = 2
     var copyLinkContextMenu = true
+    var openOwner: (() -> Void)? = nil
     @StateObject private var copyFeedback = RepositoryCopyFeedback()
     @StateObject private var forkMenu = RepositoryForkMenuState()
     @State private var parent: RepositoryReference?
     @State private var showParent = false
+    @State private var showOwnerProfile = false
+    private var ownerProfile: User {
+        let login = RepositoryPresentationRules.owner(login: repository.owner?.login, fullName: repository.full_name)
+        return User(id: repository.owner?.id, login: login, avatar_url: repository.owner?.avatar_url, name: nil, followers: nil, following: nil)
+    }
     var body: some View {
         CompactRepositorySummary(fullName: repository.full_name, name: repository.name,
             owner: repository.owner?.login, avatarURL: repository.owner?.avatar_url,
             description: repository.description, repository: repository, starStore: api.stars,
             descriptionLineLimit: descriptionLineLimit, parent: repository.fork == true ? (repository.parent ?? parent) : nil,
-            openParent: { showParent = true })
+            openParent: { showParent = true }, openOwner: openOwner ?? { showOwnerProfile = true })
         .contextMenu {
             if copyLinkContextMenu {
                 CopyRepositoryLinkButton(repository: repository.full_name, feedback: copyFeedback)
@@ -177,6 +183,12 @@ struct RepositoryCard: View {
         }
         .repositoryCopyNotice(copyFeedback)
         .repositoryForkConfirmation(forkMenu, api: api)
+        .sheet(isPresented: $showOwnerProfile) {
+            NavigationStack {
+                UserRepositoriesView(api: api, user: ownerProfile)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showOwnerProfile = false } } }
+            }.appSheetCornerRadius()
+        }
         .task(id: repository.id) {
             let resolved = await api.forkParent(for: repository)
             guard !Task.isCancelled else { return }
@@ -204,15 +216,16 @@ struct CompactRepositorySummary: View {
     var descriptionLineLimit: Int? = 2
     var parent: RepositoryReference? = nil
     var openParent: (() -> Void)? = nil
+    var openOwner: (() -> Void)? = nil
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     var body: some View {
         VStack(alignment: .leading, spacing: verticalSizeClass == .compact ? 4 : 6) {
-            HStack(spacing: 8) {
-                GitHubAvatar(url: avatarURL, size: 24)
-                Text(RepositoryPresentationRules.owner(login: owner, fullName: fullName))
-                    .font(.subheadline).foregroundStyle(.secondary)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            }
+            if let openOwner {
+                Button(action: openOwner) { ownerIdentity.frame(minHeight: 44, alignment: .leading) }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("查看作者 " + RepositoryPresentationRules.owner(login: owner, fullName: fullName) + " 的主页")
+                    .accessibilityIdentifier("repository-owner-link")
+            } else { ownerIdentity }
             Text(RepositoryPresentationRules.name(name, fullName: fullName))
                 .font(.headline).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             if let description, !description.isEmpty {
@@ -233,7 +246,15 @@ struct CompactRepositorySummary: View {
         .padding(.vertical, verticalSizeClass == .compact ? 3 : 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: openOwner == nil ? .combine : .contain)
+    }
+    private var ownerIdentity: some View {
+        HStack(spacing: 8) {
+            GitHubAvatar(url: avatarURL, size: 24)
+            Text(RepositoryPresentationRules.owner(login: owner, fullName: fullName))
+                .font(.subheadline).foregroundStyle(.secondary)
+                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

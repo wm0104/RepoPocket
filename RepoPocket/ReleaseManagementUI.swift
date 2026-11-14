@@ -27,22 +27,28 @@ struct ReleaseManagementDestination: View {
     @Published var more = false
     @Published var listLoaded = false
     @Published var assetMore = false
+    @Published private(set) var assetDownload: ReleaseAssetDownload?
     private var page = 1
     private var assetPage = 1
     private var task: Task<Void, Never>?
     private var operation = UUID()
     private var accountObserver: AnyCancellable?
-    init(api: GitHub, repo: String) {
-        self.api = api; self.repo = repo
+    private let downloader: ReleaseAssetDownloading
+    init(api: GitHub, repo: String, downloader: ReleaseAssetDownloading? = nil) {
+        self.api = api; self.repo = repo; self.downloader = downloader ?? LiveReleaseAssetDownloader()
         accountObserver = NotificationCenter.default.publisher(for: .githubAccountChanged).sink { [weak self] _ in
             self?.cancel(); self?.canWrite = false; self?.rows = []; self?.assets = []; self?.release = nil; self?.notice = ""; self?.latestID = nil
         }
     }
     var valid: Bool { generation == AccountStore.generation && api.isCurrentSession }
-    func cancel() { operation = UUID(); task?.cancel(); task = nil; busy = false }
+    func cancel() {
+        operation = UUID(); task?.cancel(); task = nil; busy = false
+        if assetDownload?.active == true { assetDownload?.stage = .cancelled }
+    }
     func run(_ work: @escaping () async throws -> Void) {
         guard valid, !busy else { return }
         busy = true; error = ""; notice = ""; progress = 0
+        assetDownload = nil
         let token = UUID(); operation = token
         task = Task {
             defer { if operation == token { busy = false; task = nil } }
@@ -51,6 +57,10 @@ struct ReleaseManagementDestination: View {
         }
     }
     func check() throws { try Task.checkCancellation(); guard valid else { throw CancellationError() } }
+    func prepareImport() {
+        guard valid, !busy else { return }
+        assetDownload = nil; error = ""; notice = ""
+    }
     func access() async throws {
         canWrite = false
         do {
@@ -90,17 +100,36 @@ struct ReleaseManagementDestination: View {
         assetMore = ReleaseManagementRules.more(count: batch.count, page: p); assetPage = p + 1
     }
     func download(_ asset: Asset) {
+        guard valid, !busy else { return }
+        let initial = ReleaseAssetDownload(assetID: asset.id)
         run {
-            try await DownloadStore.shared.requireAuthorization(); try self.check()
-            DownloadStore.shared.begin(); defer { DownloadStore.shared.end() }
-            let temporary = try await self.api.downloadManagedAsset(self.repo, asset: asset) { p in
-                Task { @MainActor in if self.valid && self.busy { self.progress = p } }
+            do {
+            try await self.downloader.authorize(); try self.check()
+            guard self.assetDownload?.request == initial.request else { throw CancellationError() }
+            self.assetDownload?.stage = .connecting
+            self.downloader.begin(); defer { self.downloader.end() }
+            let temporary = try await self.downloader.download(api: self.api, repo: self.repo, asset: asset) { [weak self] value in
+                Task { @MainActor in
+                    guard let self, self.valid, self.busy, self.assetDownload?.request == initial.request,
+                          self.assetDownload?.stage == .connecting || self.assetDownload?.stage == .downloading else { return }
+                    self.assetDownload?.stage = .downloading; self.assetDownload?.progress = value
+                }
             }
             defer { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) }
             try self.check()
-            _ = try await DownloadStore.shared.persist(temporary, session: self.generation)
-            try self.check(); self.notice = "已下载并保存到 " + DownloadStore.shared.label
+            self.assetDownload?.stage = .saving
+            try await self.downloader.persist(temporary, generation: self.generation)
+            try self.check(); self.notice = "已下载并保存到 " + self.downloader.label
+            self.assetDownload?.stage = .completed; self.assetDownload?.message = self.notice
+            } catch {
+                if self.valid, self.assetDownload?.request == initial.request {
+                    self.assetDownload?.stage = RefreshFailure.isCancellation(error) || Task.isCancelled ? .cancelled : .failed
+                    self.assetDownload?.message = error.localizedDescription
+                }
+                throw error
+            }
         }
+        assetDownload = initial
     }
 }
 
@@ -178,9 +207,11 @@ struct ReleaseDetailView: View {
     @State private var uploading: URL?
     @State private var deleteTarget: ReleaseDeleteTarget?
     @State private var copied = false
-    init(api: GitHub, repo: String, id: Int) {
-        self.id = id; _state = StateObject(wrappedValue: ReleaseScreenState(api: api, repo: repo))
+    @State private var assetAction: Asset?
+    init(api: GitHub, repo: String, id: Int, downloader: ReleaseAssetDownloading? = nil) {
+        self.id = id; _state = StateObject(wrappedValue: ReleaseScreenState(api: api, repo: repo, downloader: downloader))
     }
+    init(state: ReleaseScreenState, id: Int) { self.id = id; _state = StateObject(wrappedValue: state) }
     var body: some View {
         List {
             if let r = state.release {
@@ -203,41 +234,25 @@ struct ReleaseDetailView: View {
                 }
                 Section {
                     ForEach(state.assets) { asset in
-                        let link = ReleaseManagementRules.browserDownloadURL(asset.browser_download_url, repo: state.repo)
                         let isLastAsset = asset.id == state.assets.last?.id && !state.assetMore
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text(asset.name).lineLimit(2)
-                            Text(ByteCountFormatter.string(fromByteCount: Int64(asset.size), countStyle: .file)).font(.caption)
-                        }.softGroupedRow(top: asset.id == state.assets.first?.id)
-                        // Each action is a native List row, with the same full-width separator.
-                        // Explicit borderless buttons also keep List activation independent.
-                        Button { state.download(asset) } label: {
-                            Text("下载并保存")
-                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(state.busy)
-                        .softGroupedRow(bottom: isLastAsset && link == nil && !state.canWrite)
-                        if let link = link {
-                            Button { UIPasteboard.general.url = link; copied = true } label: {
-                                Text("复制下载链接")
-                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                    .contentShape(Rectangle())
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Button { assetAction = asset } label: {
+                                    LocalGitFileLabel(name: asset.name, size: Int64(asset.size))
+                                }.buttonStyle(.borderless).disabled(state.busy)
+                                    .accessibilityIdentifier("release-asset-\(asset.id)")
+                                Menu {
+                                    assetActions(asset)
+                                    if state.canWrite {
+                                        Button("删除附件", role: .destructive) { prepareDelete(r, asset: asset) }.disabled(state.busy)
+                                    }
+                                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                                    .buttonStyle(.borderless).accessibilityLabel("附件操作：" + asset.name)
                             }
-                            .buttonStyle(.borderless)
-                            .softGroupedRow(bottom: isLastAsset && !state.canWrite)
-                        }
-                        if state.canWrite {
-                            Button(role: .destructive) { prepareDelete(r, asset: asset) } label: {
-                                Text("删除附件")
-                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                    .contentShape(Rectangle())
+                            if let download = state.assetDownload, download.assetID == asset.id {
+                                ReleaseAssetDownloadStatusView(download: download, cancel: { state.cancel() }, retry: { state.download(asset) })
                             }
-                            .buttonStyle(.borderless)
-                            .disabled(state.busy)
-                            .softGroupedRow(bottom: isLastAsset)
-                        }
+                        }.softGroupedRow(top: asset.id == state.assets.first?.id, bottom: isLastAsset)
                     }
                     if state.assets.isEmpty && !state.assetMore { Text("暂无附件").softGroupedRow(top: true, bottom: true) }
                     if state.assetMore { Button("加载更多附件") { state.run { try await state.nextAssets(id) } }.disabled(state.busy).softGroupedRow(top: state.assets.isEmpty, bottom: true) }
@@ -251,17 +266,21 @@ struct ReleaseDetailView: View {
                         Button("编辑发行版") { editing = true }.disabled(state.busy || !ReleaseManagementRules.editable(r.body ?? "")).softGroupedRow(top: true)
                         if !ReleaseManagementRules.editable(r.body ?? "") { Text("正文超过128 KiB，禁止本地编辑，避免截断保存；请在 GitHub 编辑。").softGroupedRow() }
                         if r.draft { Button("发布草稿（在编辑表单确认）") { editing = true }.disabled(state.busy).softGroupedRow() }
-                        Button("上传附件") { picking = true }.disabled(state.busy).softGroupedRow()
-                        Button("从待上传文件选择") { pickingInbox = true }.disabled(state.busy).softGroupedRow()
+                        Button("上传附件") { state.prepareImport(); picking = true }.disabled(state.busy).softGroupedRow()
+                        Button("从待上传文件选择") { state.prepareImport(); pickingInbox = true }.disabled(state.busy).softGroupedRow()
                         Button("删除发行版（不删除 git 标签）", role: .destructive) { prepareDelete(r, asset: nil) }.disabled(state.busy).softGroupedRow(bottom: true)
                     }
                 }
             }
-            Section { releaseStatus(state) }
+            if state.assetDownload == nil { Section { releaseStatus(state) } }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("发行版详情")
         .alert("下载链接已复制", isPresented: $copied) { Button("好", role: .cancel) {} }
+        .confirmationDialog(assetAction?.name ?? "附件", isPresented: Binding(get: { assetAction != nil }, set: { if !$0 { assetAction = nil } }), titleVisibility: .visible, presenting: assetAction) { asset in
+            assetActions(asset)
+            Button("取消", role: .cancel) { assetAction = nil }
+        }
         .toolbar { Button("刷新") { state.detail(id) }.disabled(state.busy) }
         .task { if state.release == nil { state.detail(id) } }
         .onDisappear { state.cancel() }
@@ -292,6 +311,12 @@ struct ReleaseDetailView: View {
     }
     private var deleteTitle: String {
         deleteTarget?.asset == nil ? "确认删除整个发行版？" : "确认删除这个附件？"
+    }
+    @ViewBuilder private func assetActions(_ asset: Asset) -> some View {
+        Button("下载并保存") { assetAction = nil; state.download(asset) }.disabled(state.busy || !state.valid)
+        if let link = ReleaseManagementRules.browserDownloadURL(asset.browser_download_url, repo: state.repo) {
+            Button("复制下载链接") { assetAction = nil; UIPasteboard.general.url = link; copied = true }
+        }
     }
     private var deleteDescription: String {
         guard let target = deleteTarget else { return "" }

@@ -25,7 +25,7 @@ class RepositoryUIPerformanceTests(unittest.TestCase):
         self.assertNotIn('ViewThatFits', summary)
         self.assertNotIn('?? 0', summary)
         self.assertIn('GitHubAvatar(url: avatarURL, size: 24)', summary)
-        self.assertIn('.accessibilityElement(children: .combine)', summary)
+        self.assertIn('.accessibilityElement(children: openOwner == nil ? .combine : .contain)', summary)
 
     def test_avatar_work_is_shared_bounded_and_off_main(self):
         for required in ('actor AvatarPipeline', 'pending: [URL: Task<UIImage?, Never>]',
