@@ -89,6 +89,14 @@ final class WorkflowLogTests: XCTestCase {
         XCTAssertTrue(position.label.contains(30001.formatted(.number)), position.label)
         XCTAssertTrue(position.label.contains("1/2"), "Exit code is not a concrete root cause: " + position.label)
         var report = logPosition(app)
+        if report["selectedVisible"] != "1" {
+            let initial = report
+            app.buttons["workflow-error-next"].tap()
+            let next = logPosition(app)
+            let evidence = XCTAttachment(string: "initial: \(initial)\nnext: \(next)")
+            evidence.name = "workflow-log-reveal-diagnostic"; evidence.lifetime = .keepAlways; add(evidence)
+            XCTAssertEqual(initial["selectedVisible"], "1", "Initial: \(initial); explicit next: \(next)")
+        }
         XCTAssertEqual(report["selectedVisible"], "1", "The actual error caret must be inside the visible UIKit viewport: \(report)")
         XCTAssertGreaterThan(Int(report["verticalOffset"] ?? "") ?? 0, 1000)
         screenshot(app, "workflow-log-long-located")

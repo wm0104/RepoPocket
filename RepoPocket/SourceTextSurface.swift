@@ -99,6 +99,9 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
     private var lastRevealID: UUID?
     private var pendingReveal: SourceTextReveal?
     private var pendingReadingOffset: CGPoint?
+    #if DEBUG
+    private(set) var revealDiagnostic = ""
+    #endif
     private var searchManager: SourceSearchLayoutManager { textView.layoutManager as! SourceSearchLayoutManager }
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -177,15 +180,27 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
                 textView.layoutManager.ensureLayout(forCharacterRange: request.range)
                 textView.selectedRange = request.range
                 textView.layoutIfNeeded()
+                #if DEBUG
+                revealDiagnostic = "window:\(window != nil),selection:\(textView.selectedTextRange != nil),height:\(textView.bounds.height),content:\(textView.contentSize.height),before:\(textView.contentOffset.y)"
+                #endif
                 // Error navigation uses an empty selection; scroll its laid-out caret, not an empty range.
                 if let selection = textView.selectedTextRange {
+                    #if DEBUG
+                    revealDiagnostic += ",caret:\(textView.caretRect(for: selection.start))"
+                    #endif
                     textView.scrollRectToVisible(textView.caretRect(for: selection.start), animated: false)
                 }
                 revealSelection()
+                #if DEBUG
+                revealDiagnostic += ",after:\(textView.contentOffset.y)"
+                #endif
             }
         } else if let offset = pendingReadingOffset, height > 0 {
             pendingReadingOffset = nil
             textView.setContentOffset(offset, animated: false)
+            #if DEBUG
+            revealDiagnostic += ",restored:\(offset.y)"
+            #endif
         }
         gutter.setNeedsDisplay()
     }
@@ -434,6 +449,9 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
             self.textView.undoManager?.enableUndoRegistration()
             self.textView.selectedRange = selection
             self.textView.setContentOffset(offset, animated: false)
+            #if DEBUG
+            if !self.revealDiagnostic.isEmpty { self.revealDiagnostic += ",highlight:\(offset.y)->\(self.textView.contentOffset.y)" }
+            #endif
             self.gutter.setNeedsDisplay()
         }
     }
