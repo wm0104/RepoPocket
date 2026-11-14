@@ -15,9 +15,7 @@ assert home.count('ownedExpanded =') == 1 and home.count('starredExpanded =') ==
 assert '查看仓库' not in home and '查看已加星标仓库' not in home
 assert 'RepositoryCollectionView(api: api, section: .owned)' in settings
 assert 'RepositoryCollectionView(api: api, section: .starred)' in settings
-assert 'Transaction(animation: nil)' in sections
-assert 'transaction.disablesAnimations = true' in sections
-assert 'withTransaction(transaction) { expanded.toggle() }' in sections
+assert 'UIRules.withoutAnimation { expanded.toggle() }' in sections
 assert '.softGroupedRow(top: true, bottom: !expanded, animateBackground: false)' in sections
 assert '.softGroupedRow(bottom: true, animateBackground: false)' in sections
 assert 'Color.clear.frame(height: 8)' not in sections

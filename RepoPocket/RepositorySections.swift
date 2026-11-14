@@ -21,9 +21,7 @@ struct RepositoryInlineSection: View {
         Section {
             HStack(spacing: 0) {
             Button {
-                var transaction = Transaction(animation: nil)
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { expanded.toggle() }
+                UIRules.withoutAnimation { expanded.toggle() }
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: section.systemImage).frame(width: 24).foregroundStyle(Color.accentColor)

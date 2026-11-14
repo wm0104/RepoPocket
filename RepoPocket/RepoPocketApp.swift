@@ -128,14 +128,38 @@ struct RepositoriesView: View {
     var body: some View {
         NavigationStack {
             List {
-                if CredentialStore.read().isEmpty { Button("添加账号") { accountPresentation.showing = true } }
+                if CredentialStore.read().isEmpty {
+                    Section {
+                        VStack(spacing: 12) {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                                .font(.largeTitle)
+                                .foregroundStyle(Color.accentColor)
+                                .accessibilityHidden(true)
+                            Text("连接 GitHub 账号").font(.headline)
+                            Text("添加账号后即可浏览仓库、管理发布与同步本地 Git 项目。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                            Button("添加账号") { accountPresentation.showing = true }
+                                .buttonStyle(.borderedProminent)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .listRowBackground(Color.clear)
+                    }
+                } else {
+                    RepositoryInlineSection(api: api, section: .owned, expanded: $ownedExpanded,
+                        repositories: repos, loaded: loaded, busy: busy, fork: { pendingFork = $0 }, search: { collectionSearch = .owned })
+                    RepositoryInlineSection(api: api, section: .starred, expanded: $starredExpanded,
+                        repositories: starred, loaded: loaded, busy: busy, fork: { pendingFork = $0 }, search: { collectionSearch = .starred })
+                }
                 Section {
                     NavigationLink { CommunityDiscoveryView(api: api) } label: { Label("发现与关注动态", systemImage: "safari") }.softGroupedRow(top: true, bottom: true)
                 }
-                RepositoryInlineSection(api: api, section: .owned, expanded: $ownedExpanded,
-                    repositories: repos, loaded: loaded, busy: busy, fork: { pendingFork = $0 }, search: { collectionSearch = .owned })
-                RepositoryInlineSection(api: api, section: .starred, expanded: $starredExpanded,
-                    repositories: starred, loaded: loaded, busy: busy, fork: { pendingFork = $0 }, search: { collectionSearch = .starred })
+                Section {
+                    Text("提示：删除仓库、创建发行版等操作需在 GitHub Token 中勾选对应权限，缺失时请前往 GitHub 补选。")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .softGroupedRow(top: true, bottom: true)
+                }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("RepoPocket")

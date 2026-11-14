@@ -32,10 +32,13 @@ struct WorkflowCreatedText: View {
         } else { Text("创建时间未知") }
     }
     private func relative(_ date: Date, now: Date) -> String {
+        Self.formatter.localizedString(for: date, relativeTo: now)
+    }
+    private static let formatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: now)
-    }
+        return formatter
+    }()
 }
 
 struct WorkflowRunHeading: View {
