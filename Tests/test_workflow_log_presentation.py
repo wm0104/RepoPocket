@@ -9,6 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkflowLogPresentationTests(unittest.TestCase):
+    def test_explicit_reveal_lays_out_and_scrolls_the_caret_even_for_an_empty_range(self):
+        surface = (ROOT / 'RepoPocket/SourceTextSurface.swift').read_text(encoding='utf-8')
+        reveal = surface.split('if let request = pendingReveal, height > 0 {', 1)[1].split('} else if let offset = pendingReadingOffset', 1)[0]
+        self.assertIn('textView.layoutIfNeeded()', reveal)
+        self.assertIn('textView.caretRect(for: selection.start)', reveal)
+        self.assertIn('textView.scrollRectToVisible(', reveal)
+        self.assertNotIn('textView.scrollRangeToVisible(request.range)', reveal)
+        self.assertLess(reveal.index('textView.layoutIfNeeded()'), reveal.index('textView.scrollRectToVisible('))
+        self.assertIn('animated: false', reveal)
+        self.assertIn('textView.selectedRange = request.range', reveal)
+
     def test_long_log_ui_matches_localized_line_numbers_without_dropping_navigation_checks(self):
         ui = (ROOT / 'StyleUITests/WorkflowLogTests.swift').read_text(encoding='utf-8')
         self.assertEqual(ui.count('position.label.contains(30001.formatted(.number))'), 2)

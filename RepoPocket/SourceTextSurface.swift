@@ -176,7 +176,11 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
                NSMaxRange(request.range) <= length {
                 textView.layoutManager.ensureLayout(forCharacterRange: request.range)
                 textView.selectedRange = request.range
-                textView.scrollRangeToVisible(request.range)
+                textView.layoutIfNeeded()
+                // Error navigation uses an empty selection; scroll its laid-out caret, not an empty range.
+                if let selection = textView.selectedTextRange {
+                    textView.scrollRectToVisible(textView.caretRect(for: selection.start), animated: false)
+                }
                 revealSelection()
             }
         } else if let offset = pendingReadingOffset, height > 0 {
