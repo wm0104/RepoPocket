@@ -1,17 +1,5 @@
-name: Build Test IPA
+name: Build IPA
 on:
-  push:
-    branches: [main, 'test/**']
-    paths-ignore:
-      - 'README.md'
-      - 'LICENSE'
-      - '*.md'
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - 'README.md'
-      - 'LICENSE'
-      - '*.md'
   workflow_dispatch:
 permissions:
   contents: read
@@ -82,6 +70,14 @@ jobs:
         run: python3 Tests/test_browser_no_releases.py
       - name: Test lazy directory navigation contract
         run: python3 Tests/test_lazy_directory_navigation.py
+      - name: Test local diff production model and preview contracts
+        run: python3 Tests/test_local_diff.py
+      - name: Test bounded release management and commit patch parser
+        run: python3 Tests/test_release_management.py
+      - name: Test final publishing and update session production models
+        run: python3 Tests/test_final_publish.py
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
       - name: Generate Xcode project
         run: |
           brew install xcodegen
@@ -95,30 +91,31 @@ jobs:
           set -euo pipefail
           APP=build/Build/Products/Release-iphoneos/RepoPocket.app
           test -d "$APP"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0.1"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "6"
+          test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           codesign --force --sign - --entitlements Entitlements.plist "$APP"
           codesign --verify --deep --strict "$APP"
           codesign --display --entitlements :- "$APP"
           mkdir -p dist/Payload
           cp -R "$APP" dist/Payload/
           cd dist
-          zip -qry RepoPocket.ipa Payload
-          unzip -t RepoPocket.ipa
+          zip -qry RepoPocket-1.0.1-build6.ipa Payload
+          unzip -t RepoPocket-1.0.1-build6.ipa
           mkdir verify
-          unzip -q RepoPocket.ipa -d verify
+          unzip -q RepoPocket-1.0.1-build6.ipa -d verify
           codesign --verify --deep --strict verify/Payload/RepoPocket.app
-          shasum -a 256 RepoPocket.ipa > RepoPocket.ipa.sha256
-          shasum -a 256 -c RepoPocket.ipa.sha256
+          shasum -a 256 RepoPocket-1.0.1-build6.ipa > RepoPocket-1.0.1-build6.ipa.sha256
+          shasum -a 256 -c RepoPocket-1.0.1-build6.ipa.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: RepoPocket-iOS16-Test
+          name: RepoPocket-1.0.1-build6
           path: |
-            dist/RepoPocket.ipa
-            dist/RepoPocket.ipa.sha256
+            dist/RepoPocket-1.0.1-build6.ipa
+            dist/RepoPocket-1.0.1-build6.ipa.sha256
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: failure()

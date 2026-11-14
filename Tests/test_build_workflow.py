@@ -11,15 +11,19 @@ class BuildWorkflowTests(unittest.TestCase):
         cls.source = Path(REPO_ROOT, '.github/workflows/build.yml').read_text()
 
     def test_test_branches_build_on_push(self):
-        self.assertIn("push:\n    branches: [main, 'test/**']", self.source)
+        self.assertNotIn("  push:", self.source)
 
     def test_pull_requests_and_manual_dispatch(self):
-        self.assertIn('pull_request:\n    branches: [main]', self.source)
+        self.assertNotIn('  pull_request:', self.source)
         self.assertIn('  workflow_dispatch:', self.source)
 
     def test_read_only_permissions_and_apple_runner(self):
         self.assertIn('permissions:\n  contents: read', self.source)
         self.assertIn('runs-on: macos-14', self.source)
+        self.assertNotIn('contents: write', self.source)
+        self.assertNotIn('gh release', self.source)
+        self.assertNotIn('softprops/action-gh-release', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "6"', self.source)
 
     def test_python_scripts_use_organized_existing_paths(self):
         import re
@@ -37,11 +41,11 @@ class BuildWorkflowTests(unittest.TestCase):
         commands = self.source
         for required in ('xcodebuild', 'CODE_SIGNING_ALLOWED=NO',
                          'codesign --verify --deep --strict',
-                         'unzip -t RepoPocket.ipa',
-                         'shasum -a 256 -c RepoPocket.ipa.sha256'):
+                         'unzip -t RepoPocket-1.0.1-build6.ipa',
+                         'shasum -a 256 -c RepoPocket-1.0.1-build6.ipa.sha256'):
             self.assertIn(required, commands)
         self.assertIn('uses: actions/upload-artifact@v4', commands)
-        self.assertIn('name: RepoPocket-iOS16-Test', commands)
+        self.assertIn('name: RepoPocket-1.0.1-build6', commands)
 
 
 if __name__ == '__main__':

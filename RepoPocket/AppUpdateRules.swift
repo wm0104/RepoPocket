@@ -36,6 +36,11 @@ struct AppUpdateRelease: Decodable {
     let draft: Bool
     let prerelease: Bool
     let assets: [Asset]
+    let body: String?
+    var displayVersionWithBuild: String {
+        guard let value = AppVersion(tag_name), let build = value.build else { return displayVersion }
+        return AppUpdateSessionRules.version(displayVersion, build: String(build))
+    }
     var displayVersion: String { String(tag_name.split(separator: "+", maxSplits: 1)[0]) }
     var ipaURL: URL? {
         let matches = assets.filter { $0.name == "RepoPocket.ipa" || $0.name == "RepoPocket-\(tag_name.hasPrefix("v") ? String(tag_name.dropFirst()) : tag_name).ipa" }

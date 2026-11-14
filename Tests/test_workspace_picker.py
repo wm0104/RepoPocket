@@ -30,7 +30,9 @@ assert 'documentPickerWasCancelled' in picker and 'finish(nil)' in picker
 assert 'guard !finished else' in picker and 'finished = true' in picker
 assert 'workspace.import.cancel' in picker and '取消导入' in picker
 assert 'addChild(picker)' in picker and 'picker.didMove(toParent: self)' in picker
-assert 'picker.view.topAnchor.constraint(equalTo: bar.bottomAnchor)' in picker
+assert 'picker.view.topAnchor.constraint(equalTo: showCancel ? bar.bottomAnchor : view.safeAreaLayoutGuide.topAnchor)' in picker
+assert 'showCancel: !request.isZIP' in picker
+assert 'let label = UILabel()' not in picker
 assert 'view.safeAreaLayoutGuide.topAnchor' in picker
 assert 'button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)' in picker
 for forbidden in ['setValue(', 'value(forKey:', 'navigationItem', 'UTType.data', '[.item]', '[.content]']:

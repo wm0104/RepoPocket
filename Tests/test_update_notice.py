@@ -13,7 +13,7 @@ class NoticeTests(unittest.TestCase):
         self.assertIn('.onDisappear { if !updateChecker.sharing { updateChecker.leavePage() } }', Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text())
         self.assertIn('self.generation == token', feature)
         self.assertNotIn('（build', feature)
-        self.assertNotIn('CFBundleVersion', Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text())
+        self.assertIn('CFBundleVersion', Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text())
         download = feature.split('    func download() {', 1)[1].split('final class UpdateDownloadDelegate', 1)[0]
         self.assertIn('clearNotice()', download)
         self.assertNotIn('showTransient(', download.split('downloading = true', 1)[1])
@@ -34,6 +34,8 @@ struct AppError: Error, LocalizedError { let text: String; var errorDescription:
     let delay: UInt64
     let failure: String
     init(_ failure: String, delay: UInt64 = 0) { self.failure = failure; self.delay = delay }
+    var isCurrentSession = true
+    var accountID = "fixture"
     var canCheckAppUpdate = true
     var calls = 0
     func officialAppUpdateData() async throws -> Data {
@@ -46,7 +48,7 @@ struct AppError: Error, LocalizedError { let text: String; var errorDescription:
         throw AppError(text: failure)
     }
 }
-''' + rules + Path(REPO_ROOT, 'RepoPocket/RepositorySafetyRules.swift').read_text() + checker + '''
+''' + 'enum AccountStore { static var generation = UUID() }\n' + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules + Path(REPO_ROOT, 'RepoPocket/RepositorySafetyRules.swift').read_text() + checker + '''
 @MainActor final class MockNoticeClock {
     var delays: [UInt64] = []
     var waits: [CheckedContinuation<Void, Error>] = []
@@ -92,8 +94,27 @@ struct AppError: Error, LocalizedError { let text: String; var errorDescription:
     for _ in 0..<100 { if !clock.waits.isEmpty { break }; await Task.yield() }
     precondition(clock.delays.last == 6_000_000_000)
     timed.leavePage(); clock.fire(); await Task.yield()
-    precondition(timed.message.isEmpty && timed.release == nil)
+    precondition(timed.message.isEmpty && timed.release != nil)
     print("PASS deterministic production clock: latest 2s, failure 6s, new release untimed, leave-generation protection")
+    let automatic = UpdateChecker(installedVersion: { ("1.0.1", "5") })
+    let autoAPI = GitHub("new"); autoAPI.accountID = "auto-fixture-" + UUID().uuidString
+    await automatic.automaticCheck(api: autoAPI)
+    await automatic.automaticCheck(api: autoAPI)
+    precondition(autoAPI.calls == 1 && automatic.release != nil && automatic.message.isEmpty)
+    automatic.leavePage(); automatic.enterPage()
+    precondition(automatic.release != nil)
+    await automatic.check(api: GitHub("automatic failure"), automatic: true)
+    precondition(automatic.release != nil && automatic.message.isEmpty)
+    await automatic.check(api: autoAPI)
+    precondition(autoAPI.calls == 2) // Explicit manual check bypasses auto cooldown.
+    let switched = UpdateChecker()
+    let lateAPI = GitHub("new", delay: 100_000_000)
+    let switchedTask = Task { await switched.check(api: lateAPI) }
+    for _ in 0..<100 { if lateAPI.calls == 1 { break }; await Task.yield() }
+    AccountStore.generation = UUID()
+    await switchedTask.value
+    precondition(switched.release == nil)
+    print("PASS production automatic once, manual bypass, tab retention, silent failure retains known update, account generation ignores late result")
     let checker = UpdateChecker()
     await checker.check(api: GitHub("first"))
     precondition(checker.message == "检查失败，请稍后重试")

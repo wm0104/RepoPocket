@@ -16,6 +16,18 @@ import ZIPFoundation
     private var generation = UUID()
     private var noticeTask: Task<Void, Never>?
     private var entered = false
+    private var autoRules = AppUpdateSessionRules()
+    private let accountGeneration = AccountStore.generation
+    var hasUpdate: Bool { release != nil }
+    func automaticCheck(api: GitHub) async {
+        guard api.canCheckAppUpdate, api.isCurrentSession, !checking, !downloading else { return }
+        let key = "RepoPocket.update.lastCheck." + api.accountID
+        let now = Date()
+        let last = UserDefaults.standard.object(forKey: key) as? Date
+        guard autoRules.claim(now: now, last: last) else { return }
+        UserDefaults.standard.set(now, forKey: key)
+        await check(api: api, automatic: true)
+    }
     private let noticeSleep: (UInt64) async throws -> Void
     private let installedVersion: () -> (String, String)
     init(noticeSleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) },
@@ -49,27 +61,27 @@ import ZIPFoundation
         // Leaving settings cancels the transfer and invalidates any late check/validation result.
         downloadTask?.cancel(); downloadSession?.invalidateAndCancel()
         downloadTask = nil; downloadSession = nil; delegate = nil
-        downloading = false; progress = 0; release = nil
+        downloading = false; progress = 0
         // Persisted user downloads survive leaving settings.
         downloaded = nil
     }
-    func check(api: GitHub) async {
+    func check(api: GitHub, automatic: Bool = false) async {
         guard !checking, !downloading else { return }
         guard api.canCheckAppUpdate else { showTransient("请登录账号", duration: UpdateNoticeRules.latestNanoseconds); return }
         generation = UUID(); let token = generation
-        clearNotice(); checking = true; release = nil; downloaded = nil
+        clearNotice(); checking = true; downloaded = nil
         defer { if generation == token { checking = false } }
         do {
             let data = try await api.officialAppUpdateData()
-            guard generation == token else { return }
+            guard generation == token, accountGeneration == AccountStore.generation, api.isCurrentSession else { return }
             let value = try JSONDecoder().decode(AppUpdateRelease.self, from: data)
             guard value.html_url.scheme == "https", value.html_url.host == "github.com", value.html_url.path.hasPrefix("/wm0104/RepoPocket/releases/") else { throw AppError(text: "发布页地址不可信。") }
             let (local, build) = installedVersion()
             if try AppUpdateRules.isNewer(value, local: local, localBuild: build) {
                 release = value
                 message = ""
-            } else { showTransient("已是最新版本", duration: UpdateNoticeRules.latestNanoseconds) }
-        } catch { if generation == token { showTransient(AppUpdateRules.conciseCheckError(error)) } }
+            } else { release = nil; if !automatic { showTransient("已是最新版本", duration: UpdateNoticeRules.latestNanoseconds) } }
+        } catch { if generation == token, accountGeneration == AccountStore.generation, !automatic { showTransient(AppUpdateRules.conciseCheckError(error)) } }
     }
     func ignore() { generation = UUID(); release = nil; showTransient("本次不更新。") }
     func cancelDownload() {
@@ -147,26 +159,40 @@ struct AppUpdateSection: View {
     @ObservedObject var checker: UpdateChecker
     @State private var share: SharedFile?
     @State private var authorizing = false
+    @State private var expanded = false
     var body: some View {
         Group {
-            Button(checker.checking ? "检查中…" : "检查应用更新") { Task { await checker.check(api: api) } }.disabled(checker.checking || checker.downloading).softGroupedRow(top: true)
+            HStack {
+                Text("应用更新")
+                if checker.hasUpdate { Circle().fill(Color.red).frame(width: 7, height: 7).accessibilityLabel("有新版本") }
+                Spacer()
+                Menu {
+                    Link("官方发行版页", destination: URL(string: "https://github.com/wm0104/RepoPocket/releases")!)
+                    if let release = checker.release, let ipa = release.ipaURL {
+                        Button("复制可信下载链接") { UIPasteboard.general.url = ipa }
+                    }
+                    if checker.downloaded != nil { Button("重新下载") { authorizeDownload() }.disabled(authorizing || checker.downloading) }
+                } label: { Image(systemName: "ellipsis") }
+            }.softGroupedRow(top: true)
             if !checker.message.isEmpty { Text(checker.message).font(.caption).textSelection(.enabled).softGroupedRow() }
-            Link("打开 RepoPocket 官方仓库下载页", destination: URL(string: "https://github.com/wm0104/RepoPocket/releases")!).softGroupedRow()
-            if let release = checker.release {
-                Text("发现新版本 \(release.displayVersion)，要更新吗？").font(.caption).softGroupedRow()
-                Link("查看正式发布 \(release.displayVersion)", destination: release.html_url).softGroupedRow()
-                if let ipa = release.ipaURL { Link("到官方仓库下载 IPA（可靠兜底）", destination: ipa).softGroupedRow() }
-                if checker.downloaded == nil {
-                    Button("更新：下载 IPA") { authorizeDownload() }.disabled(authorizing || checker.downloading || release.ipaURL == nil).softGroupedRow()
-                    Button("暂不更新") { checker.ignore() }.disabled(checker.downloading).softGroupedRow()
-                }
-            }
             if checker.downloading {
                 ProgressView(value: checker.progress).softGroupedRow()
                 Button("取消下载", role: .cancel) { checker.cancelDownload() }.softGroupedRow()
-            }
-            if let file = checker.downloaded {
-                Button("分享 IPA") { checker.sharing = true; share = SharedFile(url: file) }.softGroupedRow()
+            } else if let file = checker.downloaded {
+                Button("分享 IPA 安装") { checker.sharing = true; share = SharedFile(url: file) }.softGroupedRow()
+            } else if let release = checker.release {
+                Text("新版本 " + release.displayVersionWithBuild).softGroupedRow()
+                DisclosureGroup("发布说明", isExpanded: $expanded) {
+                    Text(String((release.body ?? "暂无发布说明").prefix(16_384))).font(.caption)
+                }.softGroupedRow()
+                if release.ipaURL != nil {
+                    Button("下载更新") { authorizeDownload() }.disabled(authorizing || checker.downloading).softGroupedRow()
+                } else {
+                    Text("未找到唯一可信 IPA，请前往官方发行版下载。").font(.caption).softGroupedRow()
+                    Link("前往下载", destination: release.html_url).softGroupedRow()
+                }
+            } else {
+                Button(checker.checking ? "检查中…" : "检查更新") { Task { await checker.check(api: api) } }.disabled(checker.checking || checker.downloading).softGroupedRow()
             }
         }.sheet(item: $share, onDismiss: { checker.sharing = false }) { ShareSheet(url: $0.url) }
     }
