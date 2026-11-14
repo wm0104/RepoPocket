@@ -6,7 +6,7 @@ struct WorkflowInputField: View {
     @Binding var value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(input.id + (input.required ? " · 必填" : " · 选填")).font(.headline)
             if !input.description.isEmpty { Text(input.description).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             switch input.kind {

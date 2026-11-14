@@ -15,7 +15,7 @@ assert '.overlay(alignment: .bottom)' in style
 assert 'separatorInset: CGFloat = 20' in style
 assert 'if !bottom {' in style
 assert 'GitHubAvatar(url: avatarURL, size: 24)' in card
-assert 'cornerRadius: radius, style: .continuous' in style and 'let radius: CGFloat = 22' in style
+assert 'cornerRadius: radius, style: .continuous' in style and 'let radius: CGFloat = 10' in style
 assert 'listRowBackground(' in style and 'SoftGroupShape' in style and '.secondarySystemGroupedBackground' in style
 # Only the decoration is clipped; never clip the interactive List or its content.
 assert style.count('.clipShape(') == 1
@@ -118,7 +118,7 @@ for has_selection in (False, True):
 assert '.clipShape(' not in workspace and '.listStyle(.insetGrouped)' in workspace
 print('PASS local group boundaries: empty/single/multiple directories, bound/unbound menu, selected/unselected and fixed terminal hint')
 print('PASS divider regression: settings, upload, local directory, workspace detail; conditional last-row corners')
-print('PASS soft grouped UI contracts: equal-width repositories, 22pt continuous row backgrounds, native lists/swipe deletion, semantic colors and adaptive text')
+print('PASS soft grouped UI contracts: equal-width repositories, 10pt continuous row backgrounds, native lists/swipe deletion, semantic colors and adaptive text')
 
 # Feature-page expansion: explicit native-row contracts plus complete conditional
 # edge matrices. No new script: existing workflow registration/count stays exact.
@@ -185,9 +185,10 @@ detail_ui = release.split('struct ReleaseDetailView: View', 1)[1].split('struct 
 asset_ui = detail_ui.split('for asset in state.assets {', 1)[1].split('if state.assets.isEmpty', 1)[0]
 assert 'SoftGroupRow("asset-\\(asset.id)")' in asset_ui
 assert '.softGroupedRow(' not in asset_ui  # the menu and status stay inside one real attachment row
-assert 'LocalGitFileLabel(' in asset_ui and 'Menu {' in asset_ui
+assert 'Text(asset.name)' in asset_ui and '.frame(width: 24)' in asset_ui and 'Menu {' in asset_ui
+assert 'LocalGitFileLabel(' not in asset_ui
 assert 'ReleaseAssetDownloadStatusView(' in asset_ui
-assert 'minHeight: 64' in asset_ui and '.contentShape(Rectangle())' in asset_ui
+assert 'minHeight: 44' in asset_ui and '.contentShape(Rectangle())' in asset_ui
 assert '.disabled(state.busy || !state.valid)' in asset_ui
 assert 'if state.canWrite' in asset_ui and 'prepareDelete(r, asset: asset)' in asset_ui
 assert 'SoftGroupRows(bottom: state.assetDownload != nil || !releaseHasStatus(state))' in detail_ui
@@ -430,6 +431,14 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         description_start = current.index('    func descriptionContext(')
         description_end = current.index('    func deletionContext(', description_start)
         current = current[:description_start] + current[description_end:]
+        code_start = current.index('    func searchCode(')
+        code_end = current.index('    // Read-only gateway', code_start)
+        code_search = current[code_start:code_end]
+        for token in ['request(endpoint)', 'application/vnd.github.text-match+json',
+                      'GitHubAPIRedirectPolicy()', 'try check(bytes, response)',
+                      '8 * 1024 * 1024', 'try Task.checkCancellation(); try ensureActiveAccount()']:
+            assert token in code_search, token
+        current = current[:code_start] + current[code_end:]
         # This feature adds a read-only community gateway and search options;
         # normalize only their exact expressions, keeping all writes frozen.
         start = current.index('    // Read-only gateway')
@@ -554,8 +563,9 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
             '        let config = configuration.copy() as! URLSessionConfiguration\n',
             '    init() {\n        let config = URLSessionConfiguration.ephemeral\n')
     if file == 'WorkspaceSelectionUI.swift':
-        # Separator implementation may change; 1.0.4 shape and layout stay exact.
-        assert current.split('extension View {\n    ///')[0] == baseline(file).split('extension View {\n    ///')[0]
+        # Only the approved card radius changes; the remaining shape/layout stay exact.
+        expected = baseline(file).replace('let radius: CGFloat = 22', 'let radius: CGFloat = 10')
+        assert current.split('extension View {\n    ///')[0] == expected.split('extension View {\n    ///')[0]
     elif file == 'RepositoryUI.swift':
         # Approved star/fork navigation changes only this rendering block.
         old = baseline(file)
@@ -671,6 +681,16 @@ for file, marker in [
         assert current.split(marker, 1)[1] == old.split(marker, 1)[1], file
     elif file == 'RepositorySearchView.swift':
         # UserRepositories UI is also explicitly allowed, its network code isn't.
+        current = current.split('\nprivate struct CodeSearchResultRow: View {', 1)[0]
+        # Only the new read-only code branch is allowed; freeze repository/user
+        # requests, cancellation, generation checks and error handling as before.
+        start = current.index('            } else if requestedKind == .code {')
+        end = current.index('            } else {', start)
+        code_branch = current[start:end]
+        for token in ['api.searchCode(requested, page: requestedPage)', 'RepositorySearchRules.accepts(',
+                      'incomplete_results', 'requestedPage * 30 < min(value.total_count, 1000)']:
+            assert token in code_branch, token
+        current = current[:start] + current[end:]
         current = current.replace('        requestedOptions = options\n', '')
         current = current.replace('requested, page: requestedPage, options: requestedOptions)', 'requested, page: requestedPage)')
         assert current.split('    private func invalidate()')[1].split('struct UserRepositoriesView:')[0] == old.split('    private func invalidate()')[1].split('struct UserRepositoriesView:')[0]

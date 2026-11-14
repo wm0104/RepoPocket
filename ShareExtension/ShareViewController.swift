@@ -25,9 +25,10 @@ final class ShareViewController: UIViewController {
         save.addTarget(self, action: #selector(start), for: .touchUpInside)
         let close = UIButton(type: .system); close.setTitle("关闭", for: .normal)
         close.addTarget(self, action: #selector(closeShare), for: .touchUpInside)
-        let stack = UIStackView(arrangedSubviews: [title, status, save, close]); stack.axis = .vertical; stack.spacing = 24
+        let stack = UIStackView(arrangedSubviews: [title, status, save, close]); stack.axis = .vertical; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(stack)
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24), stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24), stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 32)])
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24), stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24), stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            save.heightAnchor.constraint(greaterThanOrEqualToConstant: 44), close.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)])
     }
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)

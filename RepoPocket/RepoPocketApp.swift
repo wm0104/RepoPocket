@@ -185,6 +185,7 @@ struct RepositoriesView: View {
             .toolbar {
                 Button { showCreate = true } label: { Image(systemName: "plus") }.accessibilityLabel("新建仓库")
                 Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }.accessibilityLabel("搜索仓库或用户")
+                    .accessibilityHint("也可粘贴网址搜索代码内容")
                 NativeActionMenu(title: "仓库操作", symbol: "ellipsis", items: [
                     NativeMenuItem(id: "open", title: "打开仓库", symbol: "folder", perform: { showOpen = true }),
                     NativeMenuItem(id: "refresh", title: "刷新", symbol: "arrow.clockwise", enabled: !busy, perform: {
@@ -400,7 +401,7 @@ struct BrowserView: View {
     @SoftGroupRowsBuilder private var directoryRows: [SoftGroupRow] {
             if busy && entries.isEmpty && !refreshing { SoftGroupRow("loading") { LoadingRows() } }
             if entries.isEmpty && !busy {
-                SoftGroupRow("empty") { Label("此目录没有文件", systemImage: "folder").foregroundColor(.secondary).padding(.vertical) }
+                SoftGroupRow("empty") { Label("此目录没有文件", systemImage: "folder").foregroundColor(.secondary).padding(.vertical, 4) }
             }
             for e in entries.sorted(by: Self.directoryEntryPrecedes) {
               SoftGroupRow("entry-" + e.id) {

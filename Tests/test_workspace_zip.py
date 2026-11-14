@@ -20,7 +20,13 @@ let package = Package(name: "ZIPRegression", platforms: [.macOS(.v12), .iOS(.v16
   z.writestr('build/1_Set up job.txt','setup\n' + 'x'*300000)
   z.writestr('build/63_Test failed.txt','2026-10-17T00:00:01Z \x1b[31merror: 中文失败详情\x1b[0m\n')
   z.writestr('other/63_Test failed.txt','wrong job\n')
-  z.writestr('build/64_Huge.txt','z'*(2*1024*1024+1))
+  z.writestr('build/64_Huge.txt','z'*(16*1024*1024+1))
+  z.writestr('build/65_Long failed.txt',('context ' + 'x'*80 + '\n')*40000 + '##[error]specific tail failure\n')
+ job_text = ('job context ' + 'y'*80 + '\r\n')*40000 + '\x1b[31m##[error]job tail failure\x1b[0m\r\n'
+ (root/'job.log').write_bytes(job_text.encode('utf-8'))
+ (root/'job-invalid.log').write_bytes(b'\xff\xfe\xff')
+ with (root/'job-oversized.log').open('wb') as f:
+  f.truncate(32*1024*1024+1)
  with zipfile.ZipFile(root/'logs-duplicate.zip','w') as z:
   z.writestr('build/1_First.txt','first')
   z.writestr('build/1_Duplicate.txt','wrong')
@@ -109,14 +115,23 @@ for name in ["valid", "directory", "literal", "implicit", "real", "dosutf8", "tr
  }
 }
 let logFile = base.appendingPathComponent("logs.zip")
-let logs = try WorkflowLogArchiveRules.read(logFile, job:"build", steps:[1,63,64])
+let logs = try WorkflowLogArchiveRules.read(logFile, job:"build", steps:[1,63,64,65])
 precondition(logs.steps[1]!.text.utf8.count > 256*1024)
 precondition(logs.steps[63]!.text.contains("error: 中文失败详情"))
 precondition(!logs.steps[63]!.text.contains("wrong job") && logs.steps[63]!.text.contains("\\u{1B}[31merror: 中文失败详情\\u{1B}[0m"))
-precondition(logs.steps[64]!.limited && logs.steps.count == 3)
+precondition(logs.steps[64]!.limited && logs.steps.count == 4)
+precondition(!logs.steps[65]!.limited && logs.steps[65]!.text.utf8.count > 2*1024*1024)
+precondition(logs.steps[65]!.text.hasSuffix("##[error]specific tail failure\\n"))
+precondition(logs.steps[65]!.text.components(separatedBy: "\\n").count == 40002)
+let jobLog = try WorkflowLogArchiveRules.readJob(base.appendingPathComponent("job.log"))
+precondition(jobLog.utf8.count > 2*1024*1024)
+precondition(jobLog.hasSuffix("\\u{1B}[31m##[error]job tail failure\\u{1B}[0m\\r\\n"))
+for file in ["job-invalid.log", "job-oversized.log"] {
+ do { _ = try WorkflowLogArchiveRules.readJob(base.appendingPathComponent(file)); preconditionFailure("invalid job log accepted") } catch {}
+}
 do { _ = try WorkflowLogArchiveRules.read(base.appendingPathComponent("logs-duplicate.zip"),job:"build",steps:[1]);preconditionFailure("ambiguous step accepted") } catch {}
 do { _ = try WorkflowLogArchiveRules.read(logFile,job:"missing",steps:[1]);preconditionFailure("missing job accepted") } catch {}
-print("PASS: exact per-step logs beyond old prefix limit, job isolation, original ANSI retained, oversized steps and duplicate rejection")
+print("PASS: 40000-line step/job logs retain tail errors and ANSI/CRLF; invalid UTF-8, 16/32 MiB limits, job isolation and duplicate rejection")
 print("PASS: real ZIPFoundation extraction; zip slip, absolute, backslash, symlink and duplicate rejection before writes")
 '''
  log_rules=Path(REPO_ROOT,'RepoPocket/WorkflowLogArchive.swift').read_text().split('/// Reuse the existing credential-stripping redirect policy',1)[0]

@@ -61,7 +61,7 @@ struct WorkflowRunHeading: View {
     let repo: String
     let run: WorkflowRun
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(repo + " / " + (run.name ?? "Actions")).font(.caption).foregroundStyle(.secondary)
             Text(run.title).font(.title2.bold())
             Text((run.name ?? "Workflow") + " #\(run.run_number)").font(.title3).foregroundStyle(.secondary)
@@ -73,7 +73,7 @@ struct WorkflowRunMetadata: View {
     let run: WorkflowRun
     var api: GitHub? = nil
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 6) {
             if let api, let actor = run.actor {
                 CommunityAuthorLink(api: api, user: User(id: nil, login: actor.login, avatar_url: actor.avatar_url, name: nil, followers: nil, following: nil))
                 Text(WorkflowTime.trigger(run.event)).font(.caption).foregroundStyle(.secondary)
@@ -114,24 +114,24 @@ struct WorkflowRunMetrics: View {
             HStack(alignment: .top, spacing: 12) { status; Divider(); duration; Divider(); artifacts }
                 .fixedSize(horizontal: false, vertical: true)
         } vertical: {
-            VStack(alignment: .leading, spacing: 16) { status; duration; artifacts }
+            VStack(alignment: .leading, spacing: 8) { status; duration; artifacts }
         }.padding(.vertical, 6)
     }
     private var status: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("状态").font(.caption).foregroundStyle(.secondary)
             WorkflowStatusBadge(status: run.status, conclusion: run.conclusion).font(.subheadline)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private var duration: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("持续时间").font(.caption).foregroundStyle(.secondary)
             WorkflowElapsedText(start: run.run_started_at, end: run.updated_at, status: run.status, approximate: true).font(.subheadline)
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private var artifacts: some View {
         NavigationLink { WorkflowArtifactsView(api: api, repo: repo, run: run.id) } label: {
-            VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("构建产物").font(.caption).foregroundStyle(.secondary)
                 Label(artifactCount.map(String.init) ?? "查看", systemImage: "shippingbox").font(.subheadline)
             }.frame(maxWidth: .infinity, alignment: .leading)

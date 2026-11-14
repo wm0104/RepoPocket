@@ -8,6 +8,9 @@ struct WorkflowLogStylePreview: View {
     @State private var output: WorkflowStepOutput?
     @State private var failure = ""
     @State private var clipboardAudit = ""
+    @State private var revision = 0
+    @State private var positionReport = ""
+    private var longLog: Bool { ProcessInfo.processInfo.arguments.contains("-workflow-log-long-preview") }
     static let rawFixture = "2026-10-17T00:00:00Z 准备步骤日志，保留普通上下文\n"
         + "2026-10-17T00:00:01Z \u{1B}[31m##[error]中文构建失败详情 😀\u{1B}[0m\n"
         + "2026-10-17T00:00:02Z ##[warning]明确警告详情\n"
@@ -24,16 +27,16 @@ struct WorkflowLogStylePreview: View {
                             WorkflowStepRow(step: step, expanded: expanded, toggle: {
                                 UIRules.withoutAnimation { expanded.toggle() }
                             }, output: AnyView(WorkflowInlineLog(output: output, loading: output == nil && failure.isEmpty,
-                                error: failure, skipped: false, retry: {})))
+                                error: failure, skipped: false, failed: true, retry: {})))
                         }
                         if expanded, let output, !output.limited, !output.text.isEmpty, failure.isEmpty {
                             SoftGroupRow("full-log-63") {
-                                NavigationLink("全屏查看此步骤日志") { WorkflowLogReader(rawText: output.text).navigationTitle("步骤日志") }
+                                NavigationLink("全屏查看此步骤日志") { WorkflowLogReader(rawText: output.text, failed: true).navigationTitle("步骤日志") }
                                     .accessibilityIdentifier("workflow-step-full-log-63")
                             }
                         }
                         SoftGroupRow("task-log") {
-                            NavigationLink("查看任务日志") { WorkflowLogReader(rawText: output?.text ?? "").navigationTitle("运行日志") }
+                            NavigationLink("查看任务日志") { WorkflowLogReader(rawText: output?.text ?? "", failed: true).navigationTitle("运行日志") }
                                 .accessibilityIdentifier("workflow-job-log")
                         }
                     }
@@ -46,13 +49,28 @@ struct WorkflowLogStylePreview: View {
                 }.accessibilityIdentifier("workflow-log-check-copy")
                 Text(clipboardAudit).accessibilityIdentifier("workflow-log-copy-audit")
             }.font(.caption).frame(minHeight: 44)
+            if longLog {
+                HStack {
+                    Button("检查日志位置") { revision += 1 }.accessibilityIdentifier("workflow-log-check-position")
+                    Button("追加日志") {
+                        if let output { self.output = WorkflowStepOutput(text: output.text + "background update\n", limited: false) }
+                    }.accessibilityIdentifier("workflow-log-append")
+                }.font(.caption).frame(minHeight: 44)
+                Text(positionReport).font(.caption2).lineLimit(3).accessibilityIdentifier("workflow-log-position-audit")
+                SourcePreviewProbe(revision: revision, report: $positionReport).frame(height: 0)
+            }
           }.navigationTitle("步骤日志预览")
         }.task {
             guard output == nil, failure.isEmpty else { return }
             let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
             defer { try? FileManager.default.removeItem(at: file) }
             do {
-                let bytes = Data(Self.rawFixture.utf8)
+                let raw = longLog
+                    ? String(repeating: "ordinary context\n", count: 30000)
+                        + "##[error]TAIL_MARKER\n" + String(repeating: "more context\n", count: 8)
+                        + "##[error]SECOND_TAIL_MARKER\n##[error]Process completed with exit code 1.\n"
+                    : Self.rawFixture
+                let bytes = Data(raw.utf8)
                 let archive = try Archive(url: file, accessMode: .create)
                 try archive.addEntry(with: "build/63_Test build output.txt", type: .file, uncompressedSize: Int64(bytes.count)) { position, size in
                     bytes.subdata(in: Int(position)..<min(bytes.count, Int(position) + size))
@@ -124,7 +142,8 @@ private struct SourcePreviewProbe: UIViewRepresentable {
         manager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs)) { _, _, _, _, _ in fragments += 1 }
         let hardLines = content.components(separatedBy: "\n").count
         let gutterRect = gutter.convert(gutter.bounds, to: window)
-        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(horizontal.contentOffset.x))|width=\(Int(horizontal.contentSize.width))|viewport=\(Int(horizontal.bounds.width))|tail=\(visible ? 1 : 0)|tailX=\(Int(onScreenTail.minX))|tailY=\(Int(onScreenTail.minY))|tailWidth=\(Int(onScreenTail.width.rounded(.up)))|tailHeight=\(Int(onScreenTail.height.rounded(.up)))|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))|font=\(text.font?.pointSize ?? 0)|lineHeight=\(text.font?.lineHeight ?? 0)|selection=\(text.selectedRange.location):\(text.selectedRange.length)|pinch=\(ContentPinchGesture.diagnostic(in: horizontal))"
+        let selectedVisible = text.selectedTextRange.map { viewport.intersects(text.convert(text.caretRect(for: $0.start), to: window)) } ?? false
+        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(horizontal.contentOffset.x))|verticalOffset=\(Int(text.contentOffset.y))|selectedVisible=\(selectedVisible ? 1 : 0)|width=\(Int(horizontal.contentSize.width))|viewport=\(Int(horizontal.bounds.width))|tail=\(visible ? 1 : 0)|tailX=\(Int(onScreenTail.minX))|tailY=\(Int(onScreenTail.minY))|tailWidth=\(Int(onScreenTail.width.rounded(.up)))|tailHeight=\(Int(onScreenTail.height.rounded(.up)))|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))|font=\(text.font?.pointSize ?? 0)|lineHeight=\(text.font?.lineHeight ?? 0)|selection=\(text.selectedRange.location):\(text.selectedRange.length)|pinch=\(ContentPinchGesture.diagnostic(in: horizontal))"
     }
 }
 

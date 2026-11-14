@@ -145,7 +145,15 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         import re
         script = (Path(__file__).resolve().parents[1] / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8')
         focused = re.findall(r'(?m)^  ([a-z-]+)\)', script)
-        self.assertEqual(len(focused), 18)
+        self.assertEqual(len(focused), 19)
+        self.assertEqual(self.selection('reading-layout', 'selected'), [
+            '-only-testing:RepoPocketStyleUITests/WorkflowLogTests',
+            '-only-testing:RepoPocketStyleUITests/SettingsTests',
+            '-only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSharedGroupCornersSurviveRefreshAndBackNavigation',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testDirectRepositorySearchAndTypedUserNavigation',
+        ])
         self.assertEqual(self.selection('path-time', 'selected'), [
             '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch',
         ])
@@ -200,7 +208,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
             self.assertEqual(first | second | editors, all_names)
             self.assertEqual(len(first) + len(second) + len(editors), len(all_names))
             tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
-                    for name in all_names | config['regression_recheck'] | config['ui_fixes'] | config['path_time']]
+                    for name in all_names | config['regression_recheck'] | config['ui_fixes'] | config['path_time'] | config['reading_layout']]
             for scope, group, expected in [('all', 'boundaries-a', first), ('all', 'boundaries-b', second),
                                            ('all', 'editors', editors),
                                            ('all', 'selected', all_names),
@@ -208,6 +216,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                                            ('ui-fixes', 'selected', config['ui_fixes']),
                                            ('ui-fixes-failed', 'selected', config['ui_fixes_failed']),
                                            ('path-time', 'selected', config['path_time']),
+                                            ('reading-layout', 'selected', config['reading_layout']),
                                            ('upload-viewer', 'editors', config['upload_viewer']),
                                            ('release-editor', 'boundaries', config['release_editor'])]:
                 with self.subTest(scope=scope, group=group), \

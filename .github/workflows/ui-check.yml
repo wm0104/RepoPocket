@@ -5,7 +5,7 @@ on:
       test_scope:
         description: Run all UI checks, profile navigation, or attachment/follow actions
         type: choice
-        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck, ui-fixes, ui-fixes-failed, path-time]
+        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck, ui-fixes, ui-fixes-failed, path-time, reading-layout]
         default: all
   pull_request:
     branches: [main]
@@ -45,6 +45,14 @@ jobs:
           python3 Tests/test_community.py
           python3 Tests/test_social_platforms.py
           python3 Tests/test_style_failure_diagnostics.py
+      - name: Test reading layout, code search and complete log rules
+        if: inputs.test_scope == 'reading-layout'
+        run: |
+          python3 Tests/test_reading_density_refresh.py
+          python3 Tests/test_repository_search_routing.py
+          python3 Tests/test_workflow_log_presentation.py
+          python3 Tests/test_source_text_search.py
+          python3 Tests/test_workspace_zip.py
       - name: Test path-time formatter and compact navigation
         if: inputs.test_scope == 'path-time'
         run: |

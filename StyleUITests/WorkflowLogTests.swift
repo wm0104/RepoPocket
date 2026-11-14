@@ -19,6 +19,7 @@ final class WorkflowLogTests: XCTestCase {
         XCTAssertGreaterThan(colors.error, 40, "The real text surface must paint an error-line background")
         XCTAssertGreaterThan(colors.warning, 40, "The real text surface must paint a warning-line background")
         screenshot(app, "workflow-log-highlighted-context")
+        assertLongErrorNavigation(app)
     }
 
     func testRawToggleAndCopyPreserveTheOriginalWithoutChangingTheReadOnlyDocument() {
@@ -75,6 +76,51 @@ final class WorkflowLogTests: XCTestCase {
         app.buttons["workflow-log-check-copy"].tap()
         let report = app.staticTexts["workflow-log-copy-audit"]
         XCTAssertEqual(report.label, "原文副本一致", "The fixture observes the real pasteboard, including original ANSI and newlines")
+    }
+
+    private func assertLongErrorNavigation(_ app: XCUIApplication) {
+        app.terminate()
+        app.launchArguments = ["-style-preview", "-workflow-log-style-preview", "-workflow-log-long-preview"]
+        app.launch()
+        let step = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Test build output")).firstMatch
+        XCTAssertTrue(step.waitForExistence(timeout: 20)); step.tap()
+        let position = app.staticTexts["workflow-error-position"]
+        XCTAssertTrue(position.waitForExistence(timeout: 45))
+        XCTAssertTrue(position.label.contains("30001"), position.label)
+        XCTAssertTrue(position.label.contains("1/2"), "Exit code is not a concrete root cause: " + position.label)
+        var report = logPosition(app)
+        XCTAssertEqual(report["selectedVisible"], "1", "The actual error caret must be inside the visible UIKit viewport")
+        XCTAssertGreaterThan(Int(report["verticalOffset"] ?? "") ?? 0, 1000)
+        app.buttons["workflow-error-next"].tap()
+        XCTAssertTrue(position.label.contains("30010"), position.label)
+        report = logPosition(app)
+        XCTAssertEqual(report["selectedVisible"], "1")
+        app.buttons["workflow-error-previous"].tap()
+        XCTAssertTrue(position.label.contains("30001"), position.label)
+        app.buttons["workflow-log-toggle-raw"].tap()
+        app.buttons["workflow-error-next"].tap()
+        XCTAssertEqual(logPosition(app)["selectedVisible"], "1")
+        let code = app.textViews["代码正文"]
+        code.swipeDown()
+        let before = Int(logPosition(app)["verticalOffset"] ?? "") ?? -1
+        app.buttons["workflow-log-append"].tap()
+        let updated = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "background update"), object: code)
+        XCTAssertEqual(XCTWaiter.wait(for: [updated], timeout: 30), .completed)
+        let after = Int(logPosition(app)["verticalOffset"] ?? "") ?? -100
+        XCTAssertLessThanOrEqual(abs(after - before), 3, "Background refresh must preserve the reader's manual scroll position")
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+    }
+
+    private func logPosition(_ app: XCUIApplication) -> [String: String] {
+        let report = app.staticTexts["workflow-log-position-audit"]
+        let previous = report.label
+        app.buttons["workflow-log-check-position"].tap()
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", previous), object: report)
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 15), .completed)
+        return Dictionary(uniqueKeysWithValues: report.label.split(separator: "|").compactMap {
+            let item = $0.split(separator: "=", maxSplits: 1).map(String.init)
+            return item.count == 2 ? (item[0], item[1]) : nil
+        })
     }
 
     private func coloredPixels(_ app: XCUIApplication) -> (error: Int, warning: Int) {

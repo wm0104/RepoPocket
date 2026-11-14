@@ -85,12 +85,20 @@ path_time = {name for name in ui_fixes if name.startswith(('repository-time-', '
 path_time.update({'repository-code-compact-root', 'repository-code-compact-nested',
                   'repository-file-folder-search', 'repository-search-opened-code',
                   'repository-search-navigation-restored', 'repository-time-dark'})
+reading_layout = repository_collections | {'star-list-multiple-added-stays-open', 'star-list-partial-removal-remaining',
+    'settings-compact-native-menu', 'workflow-log-highlighted-context', 'workflow-log-raw-original',
+    'release-compact-attachments', 'release-inline-progress', 'repository-owner-profile'}
+reading_layout.update('settings-theme-' + value + '-checked' for value in ('dark', 'light', 'system'))
+reading_layout.update('settings-official-releases-' + str(attempt) for attempt in (1, 2))
+reading_layout.update('group-corners-' + name + '-' + str(cycle) for name in ('仓库', '本地 Git', '设置') for cycle in range(4))
 if scope == 'path-time':
     expected = path_time
 elif scope == 'ui-fixes-failed':
     expected = ui_fixes_failed
 elif scope == 'ui-fixes':
     expected = ui_fixes
+elif scope == 'reading-layout':
+    expected = reading_layout
 elif scope == 'repository-collections':
     expected = repository_collections
 elif scope == 'repository-operations':

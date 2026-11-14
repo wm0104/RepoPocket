@@ -10,8 +10,8 @@ struct LocalGitFileLabel: View {
             Image(systemName: name.lowercased().hasSuffix(".deb") ? "shippingbox.fill" : "doc.text.fill")
                 .font(.title3).foregroundColor(.accentColor)
                 .frame(width: 40, height: 44)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.045), lineWidth: 0.5) }
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.primary.opacity(0.045), lineWidth: 0.5) }
             VStack(alignment: .leading, spacing: 4) {
                 Text(name).foregroundColor(.primary).multilineTextAlignment(.leading).lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -28,7 +28,7 @@ struct HistoryView: View {
                                     if let date = c.commit.author?.date { Text(CommitDatePresentation.local(date)).font(.caption2).foregroundColor(.secondary) }
                                 }
                                 .padding(.vertical, 7)
-                                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                             }
                         }
                     }

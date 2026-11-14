@@ -270,9 +270,17 @@ struct ReleaseDetailView: View {
                                             Button("删除附件", role: .destructive) { prepareDelete(r, asset: asset) }
                                         }
                                     } label: {
-                                        LocalGitFileLabel(name: asset.name, size: Int64(asset.size))
-                                            .padding(.horizontal, 20).padding(.vertical, 6)
-                                            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                                        HStack(spacing: 12) {
+                                            Image(systemName: asset.name.lowercased().hasSuffix(".deb") ? "shippingbox" : "doc.text")
+                                                .font(.body).foregroundStyle(.tint).frame(width: 24)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(asset.name).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                                                Text(ByteCountFormatter.string(fromByteCount: Int64(asset.size), countStyle: .file))
+                                                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                            }
+                                        }
+                                            .padding(.horizontal, 20).padding(.vertical, 8)
+                                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                                             .contentShape(Rectangle())
                                     }.buttonStyle(.borderless).disabled(state.busy || !state.valid)
                                         .accessibilityIdentifier("release-asset-\(asset.id)")

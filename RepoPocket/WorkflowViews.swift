@@ -266,13 +266,17 @@ struct WorkflowDispatchView: View {
                             SoftGroupRow("input-" + input.id) {
                                 WorkflowInputField(input: input, environments: definition.environments,
                                     value: Binding(get: { state.inputValues[input.id] ?? "" }, set: { state.inputValues[input.id] = $0 }))
+                                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                             }
                         }
                         if !state.validationError.isEmpty { SoftGroupRow("validation") { Text(state.validationError).font(.caption).foregroundStyle(.secondary) } }
                     } else if !state.loadingSchema && state.schemaError.isEmpty {
                         SoftGroupRow("schema-select") { Text("请先选择工作流和已有分支。参数配置读取成功前不能启动。") }
                     }
-                    SoftGroupRow("schema-help") { Text("仅发送此文件声明的参数。切换工作流或分支将清除旧值；运行前会再次核对文件。GitHub 仍会校验默认分支中的手动运行资格及 Actions 权限。").font(.caption).foregroundStyle(.secondary) }
+                    SoftGroupRow("schema-help") { Text("仅发送此文件声明的参数。切换工作流或分支将清除旧值；运行前会再次核对文件。GitHub 仍会校验默认分支中的手动运行资格及 Actions 权限。")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                    }
                 }.disabled(state.attempted || !api.isCurrentSession)
                 if hasStatus {
                     SoftGroupRows(top: false) {
@@ -371,7 +375,11 @@ struct WorkflowRunView: View {
                         }
                     }
                     if !statusError.isEmpty { SoftGroupRow("status-error") { Text(statusError).font(.caption).foregroundStyle(.secondary) } }
-                    SoftGroupRow("timing-help") { Text("总耗时按最后更新时间估算；任务与步骤使用各自起止时间。").font(.caption).foregroundStyle(.secondary) }
+                    SoftGroupRow("timing-help") {
+                        Text("总耗时按最后更新时间估算；任务与步骤使用各自起止时间。")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                    }
                     SoftGroupRow("jobs-heading") { Text("任务").font(.subheadline).foregroundStyle(.secondary) }
                     for job in store.items {
                         SoftGroupRow("job-\(job.id)") {
@@ -588,6 +596,7 @@ struct WorkflowJobView: View {
     @State private var expandedSteps: Set<Int> = []
     @State private var error = ""
     private var displayedJob: WorkflowJob { freshJob ?? job }
+    private var logIdentity: String { repo + ":\(run):\(job.id):\(displayedJob.run_attempt ?? 0):" + generation.uuidString }
     var body: some View {
         List {
             Section {
@@ -603,18 +612,22 @@ struct WorkflowJobView: View {
                                 }
                                 if expandedSteps.contains(step.number), step.conclusion != "skipped" { Task { await loadLogs() } }
                             }, output: AnyView(WorkflowInlineLog(output: logs.value?.steps[step.number], loading: logs.loading,
-                                error: logs.error, skipped: step.conclusion == "skipped", retry: { Task { await loadLogs(refresh: true) } })))
+                                error: logs.error, skipped: step.conclusion == "skipped", failed: step.conclusion == "failure",
+                                retry: { Task { await loadLogs(refresh: true) } }).id(logIdentity + ":\(step.number)")))
                         }
-                        if expandedSteps.contains(step.number), step.conclusion != "skipped", !logs.loading, logs.error.isEmpty,
+                        if expandedSteps.contains(step.number), step.conclusion != "skipped",
                            let output = logs.value?.steps[step.number], !output.limited, !output.text.isEmpty {
                             SoftGroupRow("full-log-\(step.number)") {
-                                NavigationLink("全屏查看此步骤日志") { WorkflowLogReader(rawText: output.text).navigationTitle("步骤日志") }
+                                NavigationLink("全屏查看此步骤日志") {
+                                    WorkflowLogReader(rawText: output.text, failed: step.conclusion == "failure")
+                                        .id(logIdentity + ":\(step.number)").navigationTitle("步骤日志")
+                                }
                                     .accessibilityIdentifier("workflow-step-full-log-\(step.number)")
                             }
                         }
                     }
                     SoftGroupRow("log") {
-                        NavigationLink("查看任务日志") { WorkflowLogView(api: api, repo: repo, id: job.id) }
+                        NavigationLink("查看任务日志") { WorkflowLogView(api: api, repo: repo, id: job.id, failed: displayedJob.conclusion == "failure") }
                             .accessibilityIdentifier("workflow-job-log")
                     }
                 }
@@ -634,7 +647,7 @@ struct WorkflowJobView: View {
     }
     private func loadLogs(refresh: Bool = false) async {
         let current = displayedJob
-        await logs.load(key: repo + ":\(run):\(job.id):\(current.run_attempt ?? 0):" + generation.uuidString, refresh: refresh,
+        await logs.load(key: logIdentity, refresh: refresh,
             operation: {
                 guard let attempt = current.run_attempt else { throw AppError(text: "尚未确认任务运行次数，请刷新任务后重试。") }
                 return try await api.communityRunStepLogs(repo, run: run, attempt: attempt, job: current.name, steps: Set((current.steps ?? []).map(\.number)))
@@ -648,18 +661,21 @@ struct WorkflowInlineLog: View {
     let loading: Bool
     let error: String
     let skipped: Bool
+    var failed = false
     let retry: () -> Void
     var body: some View {
         if skipped { Text("此步骤已跳过，没有输出。") }
-        else if loading { ProgressView("读取步骤日志…") }
-        else if !error.isEmpty { Text(error).foregroundStyle(.secondary); Button("重试读取日志", action: retry) }
         else if let output {
             if output.limited { Text(output.text).foregroundStyle(.secondary) }
             else if output.text.isEmpty { Text("此步骤没有输出。") }
             else {
-                WorkflowLogReader(rawText: output.text).frame(height: 260)
+                WorkflowLogReader(rawText: output.text, failed: failed).frame(height: 260)
             }
-        } else { Text("该步骤日志暂未提供，运行结束后可刷新重试。").foregroundStyle(.secondary) }
+            if loading { ProgressView("更新步骤日志…") }
+            if !error.isEmpty { Text(error).foregroundStyle(.secondary); Button("重试读取日志", action: retry).disabled(loading) }
+        } else if loading { ProgressView("读取步骤日志…") }
+        else if !error.isEmpty { Text(error).foregroundStyle(.secondary); Button("重试读取日志", action: retry) }
+        else { Text("该步骤日志暂未提供，运行结束后可刷新重试。").foregroundStyle(.secondary) }
     }
 }
 
@@ -667,12 +683,13 @@ struct WorkflowLogView: View {
     @ObservedObject var api: GitHub
     let repo: String
     let id: Int
+    var failed = false
     @State private var log: String?
     @State private var error = ""
     @State private var revision = 0
     var body: some View {
         Group {
-          if let log { WorkflowLogReader(rawText: log) }
+          if let log { WorkflowLogReader(rawText: log, failed: failed) }
           else {
             VStack(alignment: .leading) {
                 if error.isEmpty { ProgressView("加载日志…") }

@@ -146,6 +146,14 @@ TEST_STATUS=0
 select_test_scope() {
 local RP_STYLE_TEST_SCOPE="$1"
 case "${RP_STYLE_TEST_SCOPE:-all}" in
+  reading-layout) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/WorkflowLogTests
+    -only-testing:RepoPocketStyleUITests/SettingsTests
+    -only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSharedGroupCornersSurviveRefreshAndBackNavigation
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testDirectRepositorySearchAndTypedUserNavigation
+  ) ;;
   upload-viewer) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/UploadEditorTests
     -only-testing:RepoPocketStyleUITests/ContentZoomTests

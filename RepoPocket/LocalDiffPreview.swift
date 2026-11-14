@@ -23,7 +23,7 @@ struct LocalDiffPreview: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text(change.kind + " · " + change.path).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     Spacer(minLength: 0)
@@ -44,7 +44,7 @@ struct LocalDiffPreview: View {
                     }
                 }
                 if fullText, let failure { Text(failure).font(.caption).foregroundStyle(.secondary) }
-            }.padding()
+            }.padding(.horizontal).padding(.vertical, 8)
             Divider()
             if fullText { originalText }
             else if let result { diff(result) }
