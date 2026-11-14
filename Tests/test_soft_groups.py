@@ -23,13 +23,13 @@ assert '.appearance()' not in style and '.blur(' not in style
 for text in [ui, workspace, upload, detail]:
     assert '.softGroupedRow(top: true)' in text
     assert '.softGroupedRow(bottom: true)' in text
-section = ui.split('RepositoryInlineSection(api: api, section: .owned', 1)[1].split('.listStyle(.insetGrouped)', 1)[0]
+section = ui.split('RepositoryHomeLinksSection(api: api', 1)[1].split('.listStyle(.insetGrouped)', 1)[0]
 assert 'DisclosureGroup' not in section and 'repositoriesExpanded' not in ui
 repoSection = section.split('发现与关注动态', 1)[0]
 assert 'softGroupedRow' not in repoSection
 # Task-first home: owned/starred repositories come first; community discovery
 # stays below them as one standalone rounded row.
-assert section.index('发现与关注动态') > section.index('section: .starred')
+assert section.index('发现与关注动态') > section.index('UserConnectionsSection')
 assert '.softGroupedRow(top: true, bottom: true)' in section
 assert 'refresh()' not in section and 'repos = []' not in section
 assert 'NavigationLink("添加 / 更新 GitHub 账号")' in Path(REPO_ROOT, 'RepoPocket/AccountManagement.swift').read_text()
@@ -281,6 +281,12 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
              'ReleasePublishPlan.swift', 'ReleaseTransfers.swift']:
     current = source(file)
     if file == 'GitHub.swift':
+        # The explicitly approved issue deletion transport has separate native
+        # permission, account-generation, and mutation acknowledgement fixtures.
+        deletion_start = current.index('    lazy var issueDeletions = IssueDeletionState()')
+        deletion_end = current.index('    @Published private(set) var starRevision', deletion_start)
+        assert 'func issueDeletionGraphQL(' in current[deletion_start:deletion_end]
+        current = current[:deletion_start] + current[deletion_end:]
         # The authorized metadata editor has separate permission/race tests.
         description_start = current.index('    func descriptionContext(')
         description_end = current.index('    func deletionContext(', description_start)
@@ -350,6 +356,12 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         current = current[:release_start] + old_github[old_release_start:old_release_end] + current[release_end:]
         current = current.replace('session.data(for: r, delegate: GitHubAPIRedirectPolicy())',
                                   'session.data(for: r, delegate: OfficialUpdateRedirectPolicy())')
+        # Account-sheet integration tests inject an isolated URL protocol through
+        # the session configuration; preserve the byte guard for unrelated API code.
+        current = current.replace(
+            '    init(configuration: URLSessionConfiguration = .ephemeral) {\n'
+            '        let config = configuration.copy() as! URLSessionConfiguration\n',
+            '    init() {\n        let config = URLSessionConfiguration.ephemeral\n')
     if file == 'WorkspaceSelectionUI.swift':
         # Separator implementation may change; 1.0.4 shape and layout stay exact.
         assert current.split('extension View {\n    ///')[0] == baseline(file).split('extension View {\n    ///')[0]

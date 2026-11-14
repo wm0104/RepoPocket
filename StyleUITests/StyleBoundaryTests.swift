@@ -2,6 +2,214 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testIssueDeletionRequiresConfirmationOnHomeAndRepositoryList() {
+        continueAfterFailure = false
+        for (extra, identifier, empty) in [
+            ("", "home-issue-4", "暂无相关议题"),
+            ("-issue-deletion-repository-preview", "repository-issue-4", "当前页没有符合条件的 Issue。"),
+            ("personal", "personal-issue-4", "没有符合条件的议题")
+        ] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-style-preview", "-user-connections-style-preview"] + (extra.hasPrefix("-") ? [extra] : [])
+            app.launch()
+            if extra == "personal" {
+                let all = app.buttons["home-personal-issues"]
+                XCTAssertTrue(all.waitForExistence(timeout: 20)); all.tap()
+            }
+            let issue = app.buttons[identifier]
+            XCTAssertTrue(issue.waitForExistence(timeout: 20))
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == '可删除议题'"), object: issue)], timeout: 15), .completed)
+            issue.press(forDuration: 1.2)
+            let menu = app.buttons["删除议题"]
+            XCTAssertTrue(menu.waitForExistence(timeout: 10)); menu.tap()
+            XCTAssertTrue(app.buttons["永久删除议题"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'fixture-owner/sample #4'")).firstMatch.exists)
+            keepScreenshot(app, name: "issue-delete-confirmation-" + identifier)
+            app.buttons["取消"].tap()
+            XCTAssertTrue(issue.exists, "Cancelling must leave the issue in the list")
+            issue.press(forDuration: 1.2); app.buttons["删除议题"].tap()
+            app.buttons["永久删除议题"].tap()
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == false"), object: issue)], timeout: 15), .completed)
+            // Confirm the server-backed fixture also stays deleted after refresh.
+            if !extra.isEmpty {
+                app.buttons["刷新"].tap()
+                XCTAssertTrue(app.staticTexts[empty].waitForExistence(timeout: 15))
+            } else { XCTAssertTrue(app.staticTexts[empty].waitForExistence(timeout: 15)) }
+            app.terminate()
+        }
+    }
+    func testHomeCollectionsAndPeopleUseSearchDestinations() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview"]; app.launch()
+        for (entry, title, empty) in [
+            ("home-collection-owned", "我的仓库", "没有匹配仓库"),
+            ("home-collection-starred", "已加星标", "没有匹配仓库"),
+            ("account-connections-followers", "关注者", "没有匹配用户"),
+            ("account-connections-following", "正在关注", "没有匹配用户")
+        ] {
+            let link = app.buttons[entry]
+            XCTAssertTrue(link.waitForExistence(timeout: 20)); link.tap()
+            let search = app.buttons["list-search-button"]
+            XCTAssertTrue(search.waitForExistence(timeout: 15)); search.tap()
+            let field = app.textFields["list-search-field"]
+            XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("no-such-person-or-repo")
+            XCTAssertTrue(app.staticTexts[empty].waitForExistence(timeout: 10))
+            search.tap()
+            XCTAssertFalse(app.textFields["list-search-field"].exists)
+            if title == "我的仓库" { keepScreenshot(app, name: "home-owned-destination") }
+            app.navigationBars.buttons["RepoPocket"].tap()
+        }
+        keepScreenshot(app, name: "home-grouped-navigation")
+    }
+    func testIssueReplyCarriesRecipientQuoteAndConfirmedText() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview"]; app.launch()
+        let issue = app.buttons["home-issue-4"]
+        XCTAssertTrue(issue.waitForExistence(timeout: 20)); issue.tap()
+        let comments = app.buttons["讨论评论"]
+        XCTAssertTrue(comments.waitForExistence(timeout: 15))
+        // Markdown finishes asynchronously and changes the rows below its height.
+        // Wait for that content before computing the navigation button's tap point.
+        XCTAssertTrue(app.staticTexts["Issue fixture body"].waitForExistence(timeout: 15))
+        comments.tap()
+        XCTAssertTrue(app.navigationBars["讨论"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["请增加英文支持"].waitForExistence(timeout: 15))
+        let reply = app.buttons["reply-comment-71"]
+        XCTAssertTrue(reply.waitForExistence(timeout: 15)); reply.tap()
+        XCTAssertTrue(app.staticTexts["reply-recipient"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["reply-recipient"].label, "回复 @fixture-follower")
+        XCTAssertTrue(app.staticTexts["请增加英文支持"].exists)
+        XCTAssertFalse(app.buttons["发送"].isEnabled)
+        let editor = app.textViews["Markdown 正文"]
+        editor.tap(); editor.typeText("confirmed reply")
+        keepScreenshot(app, name: "issue-quoted-reply")
+        app.buttons["发送"].tap(); app.buttons["确认发送"].tap()
+        XCTAssertTrue(app.navigationBars["讨论"].waitForExistence(timeout: 20)); app.swipeUp()
+        let delivered = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'confirmed reply'")).firstMatch
+        XCTAssertTrue(delivered.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["reply-comment-73"].exists)
+    }
+    func testActivityCalendarSelectsDayAndShowsEvents() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview"]; app.launch()
+        let followers = app.buttons["account-connections-followers"]
+        XCTAssertTrue(followers.waitForExistence(timeout: 20)); followers.tap()
+        let person = app.buttons["connection-person-fixture-follower"]
+        XCTAssertTrue(person.waitForExistence(timeout: 15)); person.tap()
+        let chart = app.buttons["活动图表"]
+        XCTAssertTrue(chart.waitForExistence(timeout: 15)); chart.tap()
+        XCTAssertTrue(app.staticTexts["已加载 90 条公开活动"].waitForExistence(timeout: 20))
+        let formatter = DateFormatter(); formatter.timeZone = TimeZone(identifier: "Asia/Shanghai"); formatter.dateFormat = "yyyy-MM-dd"
+        let cell = app.buttons["activity-day-" + formatter.string(from: Date())]
+        XCTAssertTrue(cell.waitForExistence(timeout: 10)); cell.tap()
+        keepScreenshot(app, name: "activity-daily-calendar")
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts.matching(identifier: "推送了提交").firstMatch.waitForExistence(timeout: 10))
+    }
+    func testCurrentAccountConnectionsOpenPeopleAndProfiles() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview"]
+        app.launch()
+        let followers = app.buttons["account-connections-followers"]
+        XCTAssertTrue(followers.waitForExistence(timeout: 20))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS '2'"), object: followers)], timeout: 15), .completed)
+        keepScreenshot(app, name: "account-connections-home")
+        followers.tap()
+        let follower = app.buttons["connection-person-fixture-follower"]
+        XCTAssertTrue(follower.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["connection-person-fixture-second"].exists)
+        keepScreenshot(app, name: "account-followers-list")
+        follower.tap()
+        XCTAssertTrue(app.staticTexts["关注列表测试用户"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["fixture-follower"].exists)
+        app.navigationBars.buttons["关注者"].tap()
+        XCTAssertTrue(follower.waitForExistence(timeout: 5))
+        app.navigationBars.buttons["RepoPocket"].tap()
+        let following = app.buttons["account-connections-following"]
+        XCTAssertTrue(following.waitForExistence(timeout: 5)); following.tap()
+        let person = app.buttons["connection-person-fixture-following"]
+        XCTAssertTrue(person.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["connection-person-fixture-follower"].exists)
+        person.tap()
+        XCTAssertTrue(app.staticTexts["关注列表测试用户"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["fixture-following"].exists)
+        keepScreenshot(app, name: "account-following-user-profile")
+    }
+    func testAccountTokenAdditionWorksWithoutSwitching() {
+        exerciseAccountAddition(switchFirst: false)
+    }
+    func testAccountTokenAdditionStillWorksAfterSwitching() {
+        exerciseAccountAddition(switchFirst: true)
+    }
+    private func exerciseAccountAddition(switchFirst: Bool) {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-account-session-style-preview"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["fixture-active-account"].waitForExistence(timeout: 20))
+        app.buttons["打开账号管理"].tap()
+        XCTAssertTrue(app.buttons["完成"].waitForExistence(timeout: 10))
+        if switchFirst {
+            app.buttons["切换"].tap()
+            XCTAssertFalse(app.buttons["移除本机账号"].exists)
+        }
+        app.buttons["添加 / 更新 GitHub 账号"].tap()
+        let token = app.secureTextFields["粘贴你自己的 Token"]
+        XCTAssertTrue(token.waitForExistence(timeout: 5))
+        token.tap(); token.typeText("fixture-charlie")
+        app.buttons["验证并安全保存"].tap()
+        let active = app.staticTexts["fixture-active-account"]
+        let completed = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == '303' AND hittable == true"), object: active)], timeout: 20) == .completed
+        if !completed {
+            app.navigationBars.buttons["账号管理"].tap()
+            keepScreenshot(app, name: switchFirst ? "account-switch-failure" : "account-control-failure")
+        }
+        XCTAssertTrue(completed,
+                      "The current account session must verify and save the new account after switching")
+        if switchFirst { keepScreenshot(app, name: "account-session-after-switch") }
+    }
+    func testLocalChangeDeletionUsesGuardedConfirmationAndCanCancel() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-local-git-style-preview"]
+        app.launch()
+        let folder = app.buttons["localgit.folder.debs"]
+        XCTAssertTrue(folder.waitForExistence(timeout: 40)); folder.tap()
+        let file = app.staticTexts["package-01.deb"]
+        XCTAssertTrue(file.waitForExistence(timeout: 10)); file.press(forDuration: 1)
+        app.buttons["删除文件"].tap()
+        XCTAssertTrue(app.buttons["确认删除此文件"].waitForExistence(timeout: 15))
+        keepScreenshot(app, name: "local-delete-confirmation")
+        app.buttons["关闭"].tap()
+        XCTAssertTrue(file.waitForExistence(timeout: 10), "Cancelling confirmation must retain the selected file")
+    }
+    func testLocalImportDestinationClosesAtNestedFolder() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-local-git-style-preview"]
+        app.launch()
+        let choose = app.buttons["导入位置：根目录"]
+        XCTAssertTrue(app.buttons["localgit.folder.debs"].waitForExistence(timeout: 40))
+        reveal(choose, in: app); choose.tap()
+        for name in ["目标", "子目录"] {
+            let matches = app.buttons.matching(identifier: name)
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in matches.allElementsBoundByIndex.contains { $0.isHittable } }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+            matches.allElementsBoundByIndex.first(where: { $0.isHittable })!.tap()
+        }
+        app.buttons["选择此文件夹"].tap()
+        let selected = app.buttons["导入位置：目标/子目录"]
+        XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"), object: selected)], timeout: 10) == .completed,
+                      "Choosing a nested import destination must dismiss the entire picker")
+        keepScreenshot(app, name: "local-import-destination")
+    }
     func testLocalDEBUsesExistingEditorAndSavesToProject() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -15,7 +223,21 @@ final class StyleBoundaryTests: XCTestCase {
         let version = app.textFields["Version"]
         XCTAssertTrue(version.waitForExistence(timeout: 20))
         XCTAssertEqual(version.value as? String, "1.0")
-        version.tap(); version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "2.0")
+        version.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        // Wait for each edit to reach the SwiftUI field before sending the next
+        // phase; batching deletes with replacement text can race keyboard focus.
+        version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            // XCUITest may expose the placeholder as value when actual text is empty.
+            predicate: NSPredicate { _, _ in
+                let value = version.value as? String
+                return value == nil || value == "" || value == version.placeholderValue
+            }, object: version)], timeout: 10), .completed,
+            "Cleared field: value=\(String(describing: version.value)), placeholder=\(String(describing: version.placeholderValue))")
+        version.typeText("2.0")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == '2.0'"), object: version)], timeout: 10), .completed)
         XCTAssertEqual(version.value as? String, "2.0")
         let returnKey = app.keyboards.buttons["return"]
         if returnKey.exists { returnKey.tap() }
@@ -45,6 +267,14 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 30))
         XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: search)], timeout: 15) == .completed)
         let candidates = app.collectionViews.cells.containing(.staticText, identifier: "debs")
+        // Files may restore the previous browser location instead of honoring
+        // directoryURL. Navigate the real picker from either observed location.
+        let fixtureParent = app.collectionViews.cells.containing(.staticText, identifier: "导入测试")
+        let browserReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (fixtureParent.allElementsBoundByIndex + candidates.allElementsBoundByIndex).contains { $0.isHittable }
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [browserReady], timeout: 30), .completed)
+        if let parent = fixtureParent.allElementsBoundByIndex.first(where: { $0.isHittable }) { parent.tap() }
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in candidates.allElementsBoundByIndex.contains { $0.isHittable } }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
         guard let source = candidates.allElementsBoundByIndex.first(where: { $0.isHittable }) else { XCTFail("Missing actual Files folder cell"); return }
@@ -356,13 +586,18 @@ final class StyleBoundaryTests: XCTestCase {
         app.launch()
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15))
+        // WebKit can expose its accessibility tree before navigation finishes.
+        // A tap during that interval is ignored despite the link already existing.
+        XCTAssertTrue(app.staticTexts["readme-document-ready"].waitForExistence(timeout: 30))
         XCTAssertTrue(web.images["累计下载次数"].waitForExistence(timeout: 30))
         XCTAssertTrue(web.images["最新版本"].waitForExistence(timeout: 10))
         XCTAssertLessThan(web.frame.height, 750, "Short README must not grow to the viewport/inline height cap")
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "readme-badges"; attachment.lifetime = .keepAlways; add(attachment)
-        web.links["在 App 内打开仓库"].tap()
-        XCTAssertTrue(app.staticTexts["readme-link-opened"].waitForExistence(timeout: 5))
+        let link = web.links["在 App 内打开仓库"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"), object: link)], timeout: 10), .completed)
+        link.tap()
+        XCTAssertTrue(app.staticTexts["readme-link-opened"].waitForExistence(timeout: 15))
     }
     func testNativeSwipeBoundaries() {
         let app = XCUIApplication()

@@ -1,5 +1,12 @@
 import Foundation
 
+enum UserConnectionKind: String, CaseIterable, Identifiable {
+    case followers, following
+    var id: String { rawValue }
+    var title: String { self == .followers ? "关注者" : "正在关注" }
+    var symbol: String { self == .followers ? "person.2" : "person.crop.circle.badge.checkmark" }
+}
+
 enum DiscussionStream: String, CaseIterable, Identifiable {
     case conversation, reviews, inline
     var id: String { rawValue }

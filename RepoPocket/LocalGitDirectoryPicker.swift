@@ -6,7 +6,6 @@ struct LocalGitDirectoryPicker: View {
     let internalRoot: URL
     var directory = ""
     let onPick: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
     @State private var folders: [Folder] = []
     @State private var error = ""
     @State private var loaded = false
@@ -23,7 +22,6 @@ struct LocalGitDirectoryPicker: View {
                 SoftGroupRow("pick-current") {
                     Button {
                         onPick(directory)
-                        dismiss()
                     } label: {
                         Label(directory.isEmpty ? "选择根目录" : "选择此文件夹", systemImage: "checkmark.circle")
                     }

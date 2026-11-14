@@ -11,8 +11,13 @@ pending = [None]
 seen = set()
 exported = set()
 expected = {'swipe-first', 'swipe-middle', 'swipe-last', 'readme-badges'}
+expected.update({'issue-delete-confirmation-home-issue-4', 'issue-delete-confirmation-repository-issue-4',
+                 'issue-delete-confirmation-personal-issue-4'})
+expected.update({'account-connections-home', 'account-followers-list', 'account-following-user-profile',
+                 'home-owned-destination', 'home-grouped-navigation', 'issue-quoted-reply', 'activity-daily-calendar'})
 expected.update({'workflow-step-output', 'local-folder-selection', 'long-patch-leading', 'local-import-picker', 'recorded-patch-leading'})
 expected.update({'local-deb-editor', 'local-whole-folder-import'})
+expected.update({'account-session-after-switch', 'local-delete-confirmation', 'local-import-destination'})
 expected.update({'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
                  'local-commit-patch', 'local-history-after-folding'})
 expected.update({'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'})

@@ -51,6 +51,12 @@ class BrowserRollbackTests(unittest.TestCase):
         # account/host/error guards. Normalize only those exact additions before
         # comparing the complete historic write/download implementation.
         normalized = api_new[:added_start].replace(approved, historic)
+        # Approved issue deletion has dedicated native permission and mutation
+        # tests; preserve the exact guard on all unrelated API implementation.
+        deletion_start = normalized.index('    lazy var issueDeletions = IssueDeletionState()')
+        deletion_end = normalized.index('    @Published private(set) var starRevision', deletion_start)
+        self.assertIn('func issueDeletionGraphQL(', normalized[deletion_start:deletion_end])
+        normalized = normalized[:deletion_start] + normalized[deletion_end:]
         # Authorized description-only PATCH is verified by its dedicated owner,
         # permission and account-race fixtures; freeze all unrelated transport.
         description_start = normalized.index('    func descriptionContext(')
@@ -119,6 +125,12 @@ class BrowserRollbackTests(unittest.TestCase):
         normalized = normalized[:release_start] + api_original[old_release_start:old_release_end] + normalized[release_end:]
         normalized = normalized.replace('session.data(for: r, delegate: GitHubAPIRedirectPolicy())',
                                         'session.data(for: r, delegate: OfficialUpdateRedirectPolicy())')
+        # Account-session UI tests inject an isolated URLSession configuration.
+        # Keep the production default and all unrelated transport byte-protected.
+        normalized = normalized.replace(
+            '    init(configuration: URLSessionConfiguration = .ephemeral) {\n'
+            '        let config = configuration.copy() as! URLSessionConfiguration\n',
+            '    init() {\n        let config = URLSessionConfiguration.ephemeral\n')
         self.assertEqual(normalized.rstrip() + '\n}\n', api_original)
         self.assertEqual(BROWSER.count('.task { if !loaded { await load() } }'),1)
         for menu in ('CopyRepositoryLinkButton','ForkRepositoryMenuButton','RepositoryStarMenuButton'):

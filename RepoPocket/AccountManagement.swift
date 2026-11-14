@@ -4,16 +4,19 @@ import SwiftUI
     @Published var showing = false
 }
 
-struct AccountManagementView: View {
+@MainActor struct AccountManagementView: View {
     @EnvironmentObject private var presentation: AccountPresentation
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var api = GitHub()
+    @StateObject private var api: GitHub
     @State private var accounts = AccountStore.accounts
     @State private var pendingRemoval: GitHubAccount?
     @State private var token = ""
     @State private var busy = false
     @State private var verification: Task<Void, Never>?
     @State private var error = ""
+    init(configuration: URLSessionConfiguration = .ephemeral) {
+        _api = StateObject(wrappedValue: GitHub(configuration: configuration))
+    }
     private func close() {
         verification?.cancel(); verification = nil; token = ""
         presentation.showing = false; dismiss()
@@ -41,7 +44,7 @@ struct AccountManagementView: View {
                             Button("验证并安全保存") {
                                 guard !busy else { return }
                                 let credential = token
-                                busy = true
+                                busy = true; error = ""
                                 verification = Task { @MainActor in
                                     defer { busy = false }
                                     do {
@@ -56,7 +59,8 @@ struct AccountManagementView: View {
                                 }
                             }.disabled(busy || token.isEmpty).softGroupedRow()
                             if busy { ProgressView().softGroupedRow() }
-                            Link("在 GitHub 创建 Token", destination: URL(string: "https://github.com/settings/tokens")!).softGroupedRow(bottom: true)
+                            Link("在 GitHub 创建 Token", destination: URL(string: "https://github.com/settings/tokens")!).softGroupedRow(bottom: error.isEmpty)
+                            if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.red).softGroupedRow(bottom: true) }
                         }.navigationTitle("添加 / 更新账号").onDisappear { token = "" }
                     }.softGroupedRow()
                     Text("仅移除本机凭据，不会删除 GitHub 账号、远端仓库或本地工作区。").font(.caption).softGroupedRow(bottom: error.isEmpty)

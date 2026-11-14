@@ -2,20 +2,36 @@ name: Native UI checks
 on:
   workflow_dispatch:
   push:
-    branches: [codex/local-git-tools]
+    branches: [main, 'codex/**']
     paths:
-      - RepoPocket/SourceTextSurface.swift
-      - RepoPocket/CommitPatchView.swift
-      - RepoPocket/LocalDiffPreview.swift
-      - RepoPocket/SourceStylePreview.swift
+      - RepoPocket/**
+      - SharedInbox/**
+      - ShareExtension/**
+      - Vendor/**
+      - project.yml
       - StyleUITests/**
-      - Scripts/run_style_preview.sh
+      - Scripts/**
       - .github/workflows/ui-check.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - RepoPocket/**
+      - SharedInbox/**
+      - ShareExtension/**
+      - Vendor/**
+      - project.yml
+      - StyleUITests/**
+      - Scripts/**
+      - .github/workflows/ui-check.yml
+concurrency:
+  group: ui-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   preview:
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode 15.4
@@ -30,7 +46,7 @@ jobs:
           bash Scripts/build_native_git.sh iphonesimulator
           brew install xcodegen
           xcodegen generate
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
       - name: Exercise shipping local Git and code surfaces
         run: bash Scripts/run_style_preview.sh
       - uses: actions/upload-artifact@v4
@@ -42,6 +58,7 @@ jobs:
             screenshots/*.mp4
             local-git-recording.log
             preview-build.log
+            style-test-build.log
             app-preview.log
             style-tests.log
             style-tests.xcresult

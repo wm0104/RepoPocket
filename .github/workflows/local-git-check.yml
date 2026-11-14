@@ -2,12 +2,18 @@ name: Local Git checks
 on:
   workflow_dispatch:
   push:
-    branches: [codex/local-git-tools]
+    branches: [main, 'codex/**']
+  pull_request:
+    branches: [main]
+concurrency:
+  group: local-git-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   native:
     runs-on: macos-14
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode
@@ -38,6 +44,11 @@ jobs:
             -L NativeBuild/iphoneos/lib -lgit2 -lz -liconv \
             -framework Foundation -framework Security -framework CoreFoundation \
             -o NativeBuild/ios-probe
+      - name: Test home and community production models
+        run: |
+          python3 Tests/test_home_community.py
+          python3 Tests/test_issue_deletion.py
+          python3 Tests/test_community.py
       - name: Generate application project
         run: |
           brew install xcodegen

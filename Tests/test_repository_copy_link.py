@@ -15,7 +15,7 @@ class CopyLinkTests(unittest.TestCase):
         app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
         sections = (ROOT/'RepoPocket/RepositorySections.swift').read_text()
         search = (ROOT/'RepoPocket/RepositorySearchView.swift').read_text()
-        self.assertEqual(sections.count('RepositoryCard(repository: repository,'), 2)
+        self.assertEqual(sections.count('RepositoryCard(repository: repository,'), 1)
         self.assertEqual(search.count('RepositoryCard(repository: repository,'), 2)
         self.assertNotIn('.contextMenu', sections + search)
         self.assertIn('.contextMenu {', ui)
@@ -26,7 +26,7 @@ class CopyLinkTests(unittest.TestCase):
         self.assertIn('CopyRepositoryLinkButton(repository: repo, feedback: copyFeedback)', browser)
         self.assertNotIn('CopyRepositoryLinkButton(repository: path', browser)
         self.assertIn('.repositoryCopyNotice(copyFeedback)', browser)
-        self.assertEqual(sections.count('.swipeActions(edge: .trailing, allowsFullSwipe: false)'), 2)
+        self.assertEqual(sections.count('.swipeActions(edge: .trailing, allowsFullSwipe: false)'), 1)
         self.assertIn('NavigationLink', sections)
         self.assertNotIn('.onLongPressGesture', ui)
 
@@ -80,10 +80,16 @@ struct RepositoryReference { let full_name: String }
     var forkNames: [String: String] = [:]
     var failCheck = false
     var switchDuringCheck = false
+    var suspendCheck = false
+    var pendingCheck: CheckedContinuation<Void, Never>?
     var checks = 0
     func existingFork(_ name: String, forceRefresh: Bool = false) async throws -> String? {
         checks += 1
-        await Task.yield()
+        if suspendCheck {
+            await withCheckedContinuation { pendingCheck = $0 }
+        } else {
+            await Task.yield()
+        }
         if switchDuringCheck { AccountStore.generation = UUID() }
         if failCheck { throw CancellationError() }
         return forkNames[name.lowercased()]
@@ -133,9 +139,21 @@ struct RepositoryReference { let full_name: String }
         state.prepare("other/repo", api: api)
         let current = state.target!
         state.target = nil // the confirmation dialog dismisses before its task runs
-        async let first: Void = state.confirm(current, api: api)
-        async let duplicate: Void = state.confirm(current, api: api)
-        _ = await (first, duplicate)
+        api.suspendCheck = true
+        let first = Task { await state.confirm(current, api: api) }
+        for _ in 0..<1_000 {
+            if api.pendingCheck != nil { break }
+            await Task.yield()
+        }
+        precondition(api.pendingCheck != nil && state.busy && api.calls.isEmpty)
+        // Keep the first request suspended while the second confirmation arrives.
+        // Task.yield alone does not guarantee that two async-let calls overlap.
+        api.suspendCheck = false
+        await state.confirm(current, api: api)
+        precondition(api.calls.isEmpty && state.busy)
+        api.pendingCheck?.resume()
+        api.pendingCheck = nil
+        await first.value
         precondition(api.calls == ["other/repo"] && !state.busy)
         // The dialog may outlive a successful lookup; a failed revalidation cannot write.
         api.failCheck = true

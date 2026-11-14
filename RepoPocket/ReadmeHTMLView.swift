@@ -9,6 +9,7 @@ struct ReadmeHTMLView: UIViewRepresentable {
     var scrolling = false
     @Binding var height: CGFloat
     var onFailure: (String) -> Void = { _ in }
+    var onReady: () -> Void = {}
     let openLink: (URL) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -57,6 +58,7 @@ struct ReadmeHTMLView: UIViewRepresentable {
         var parent: ReadmeHTMLView
         var identity: String?
         init(_ parent: ReadmeHTMLView) { self.parent = parent }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { parent.onReady() }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error) }
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error) }
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

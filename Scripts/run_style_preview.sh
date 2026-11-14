@@ -11,6 +11,7 @@ cleanup_preview() {
     kill -INT "$RECORDING_PID" 2>/dev/null || true
     wait "$RECORDING_PID" || true
   fi
+  xcrun simctl spawn "$DEVICE" log show --last 15m --style compact --predicate 'process == "RepoPocket" OR eventMessage CONTAINS "com.wm0104.RepoPocket"' > app-preview.log 2>&1 || true
   xcrun simctl shutdown "$DEVICE" 2>/dev/null || true
   xcrun simctl delete "$DEVICE" 2>/dev/null || true
 }
@@ -18,6 +19,10 @@ trap cleanup_preview EXIT
 xcrun simctl boot "$DEVICE"
 xcrun simctl bootstatus "$DEVICE" -b
 xcrun simctl status_bar "$DEVICE" override --time 9:41 --batteryState charged --batteryLevel 100
+# Let Xcode embed Simulator entitlements before signing. An unsigned simulator
+# cannot exercise CredentialStore (errSecMissingEntitlement / -34018).
+xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing > style-test-build.log 2>&1 || { tail -100 style-test-build.log; exit 1; }
+codesign --verify preview-build/Build/Products/Debug-iphonesimulator/RepoPocket.app
 xcrun simctl install "$DEVICE" preview-build/Build/Products/Debug-iphonesimulator/RepoPocket.app
 APP_CONTAINER=$(xcrun simctl get_app_container "$DEVICE" com.wm0104.RepoPocket data)
 PREVIEW_ROOT="$APP_CONTAINER/Documents/本地提交预览"
@@ -33,6 +38,7 @@ git -C "$PREVIEW_ROOT" add --all
 git -C "$PREVIEW_ROOT" commit -m '新增 Python 输出'
 printf '%s\n' '# Python 示例' 'print("after")' 'print("working")' > "$PREVIEW_ROOT/示例.py"
 mkdir -p "$PREVIEW_ROOT/debs"
+mkdir -p "$PREVIEW_ROOT/目标/子目录"
 for number in $(seq -w 1 44); do
   printf '!<arch>\nDEB fixture %s\n' "$number" > "$PREVIEW_ROOT/debs/package-$number.deb"
 done
@@ -86,10 +92,9 @@ xcrun simctl terminate "$DEVICE" com.wm0104.RepoPocket
 xcrun simctl io "$DEVICE" recordVideo --codec=h264 screenshots/local-git-interactions.mp4 > local-git-recording.log 2>&1 &
 RECORDING_PID=$!
 TEST_STATUS=0
-xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -only-testing:RepoPocketStyleUITests test > style-tests.log 2>&1 || { tail -100 style-tests.log; TEST_STATUS=1; }
+xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -only-testing:RepoPocketStyleUITests test-without-building > style-tests.log 2>&1 || { tail -100 style-tests.log; TEST_STATUS=1; }
 kill -INT "$RECORDING_PID" 2>/dev/null || true
 wait "$RECORDING_PID" || true
 RECORDING_PID=""
-xcrun simctl spawn "$DEVICE" log show --last 15m --style compact --predicate 'process == "RepoPocket"' > app-preview.log 2>&1 || true
 python3 Scripts/export_style_attachments.py style-tests.xcresult screenshots || TEST_STATUS=1
 exit "$TEST_STATUS"

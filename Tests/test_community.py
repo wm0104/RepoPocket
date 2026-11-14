@@ -38,7 +38,7 @@ enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error
    calls.append((path, query)); return payload
  }
 }
-'''+models+'\n'+(ROOT/'RepoPocket/RepositoryInput.swift').read_text()+'\n'+(ROOT/'RepoPocket/DesktopModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/RepositorySearchRules.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityAPI.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityPaging.swift').read_text()+'\n'+oauth+r'''
+'''+models+'\n'+(ROOT/'RepoPocket/RepositoryInput.swift').read_text()+'\n'+(ROOT/'RepoPocket/DesktopModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/RepositorySearchRules.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/HomeCommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityAPI.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityPaging.swift').read_text()+'\n'+oauth+r'''
 struct Row: Identifiable { let id: Int }
 enum SampleError: Error { case offline }
 final class OAuthFixtureProtocol: URLProtocol {
@@ -69,6 +69,36 @@ final class OAuthFixtureProtocol: URLProtocol {
  @MainActor static func main() async throws {
    let decoder = JSONDecoder()
    let api = GitHub()
+   api.payload = Data(#"[{"id":8,"login":"example-user","avatar_url":null}]"#.utf8)
+   for kind in UserConnectionKind.allCases {
+     let people = try await api.userConnections("fixture-owner", kind:kind, page:2)
+     precondition(people.count == 1 && people[0].user.login == "example-user" && people[0].user.id == 8)
+     precondition(api.calls.last!.0 == "/users/fixture%2Downer/" + kind.rawValue)
+     precondition(api.calls.last!.1.contains { $0.name == "page" && $0.value == "2" })
+     precondition(api.calls.last!.1.contains { $0.name == "per_page" && $0.value == "30" })
+   }
+   let calls = api.calls.count
+   for invalid in ["", "../user", "user/name", "name?x=1", String(repeating:"a", count:40)] {
+     do { _ = try await api.userConnections(invalid,kind:.followers,page:1); preconditionFailure() } catch {}
+   }
+   for page in [0,11] {
+     do { _ = try await api.userConnections("valid",kind:.following,page:page); preconditionFailure() } catch {}
+   }
+   api.isCurrentSession = false
+   do { _ = try await api.userConnections("valid",kind:.followers,page:1); preconditionFailure() } catch is CancellationError {}
+   precondition(api.calls.count == calls)
+   api.isCurrentSession = true
+   api.payload = Data("[]".utf8)
+   let noPeople = try await api.userConnections("valid",kind:.following,page:1)
+   precondition(noPeople.isEmpty)
+   api.payload = Data(#"{"items":[{"id":5,"number":4,"title":"Question","state":"open","html_url":"https://github.com/o/r/issues/4"}],"incomplete_results":false}"#.utf8)
+   let mine = try await api.personalIssues("alice",filter:.mentioned,page:2)
+   precondition(mine.count == 1 && PersonalIssueRules.repository(mine[0]) == "o/r")
+   precondition(api.calls.last!.0 == "/search/issues")
+   precondition(api.calls.last!.1.contains { $0.name == "q" && $0.value == "is:issue mentions:alice" })
+   precondition(api.calls.last!.1.contains { $0.name == "sort" && $0.value == "updated" })
+   api.payload = Data(#"{"items":[],"incomplete_results":true}"#.utf8)
+   do { _ = try await api.personalIssues("alice",filter:.created,page:1); preconditionFailure() } catch {}
    let minimal = Data(#"{"id":1,"number":2,"title":"例子","state":"open","html_url":"https://github.com/o/r/issues/2"}"#.utf8)
    let issue = try decoder.decode(CollaborationItem.self, from: minimal)
    precondition(issue.user == nil && issue.body == nil && issue.pull_request == nil)

@@ -163,6 +163,18 @@ final class GitHub: ObservableObject {
     private var forkCheckIDs: [String: UUID] = [:]
     private var forkCheckedAt: [String: Date] = [:]
     lazy var stars = RepositoryStarStore(api: self)
+    lazy var issueDeletions = IssueDeletionState()
+    var issueDeletionSession: IssueDeletionSession { .init(accountID: accountID, generation: accountGeneration) }
+    func issueDeletionGraphQL(_ query: String, variables: [String: Any]) async throws -> Data {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let bytes = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
+        let r = try request(url("/graphql"), method: "POST", body: bytes)
+        let response = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        try check(response.0, response.1, operation: "议题权限与删除")
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard response.0.count <= 1_048_576 else { throw AppError(text: "议题响应过大，请重试。") }
+        return response.0
+    }
     @Published private(set) var starRevision = 0
     func requireStarSession() throws {
         try ensureActiveAccount()
@@ -246,8 +258,8 @@ final class GitHub: ObservableObject {
         if parentWaiters.isEmpty { parentActive -= 1 }
         else { parentWaiters.removeFirst().resume() }
     }
-    init() {
-        let config = URLSessionConfiguration.ephemeral
+    init(configuration: URLSessionConfiguration = .ephemeral) {
+        let config = configuration.copy() as! URLSessionConfiguration
         config.timeoutIntervalForRequest = 120
         config.timeoutIntervalForResource = 3600
         config.httpShouldSetCookies = false

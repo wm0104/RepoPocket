@@ -7,13 +7,18 @@ struct StylePreviewGallery: View {
     @State private var expanded = false
     @State private var readmeHeight: CGFloat = 320
     @State private var readmeOpened = false
+    @State private var readmeReady = false
     private var account: Bool { ProcessInfo.processInfo.arguments.contains("-account-preview") }
     private var swipe: Bool { ProcessInfo.processInfo.arguments.contains("-swipe-style-preview") }
     private var workflow: Bool { ProcessInfo.processInfo.arguments.contains("-workflow-style-preview") }
     private var readme: Bool { ProcessInfo.processInfo.arguments.contains("-readme-style-preview") }
     private let sample = "# RepoPocket\n\n适用于 iOS 16 的 GitHub 客户端。\n\n- 原生代码浏览\n- Issue 与 PR\n- Actions 与发行版\n\n" + String(repeating: "支持在 App 内浏览与管理仓库。\n\n", count: 30)
     var body: some View {
-        if ProcessInfo.processInfo.arguments.contains("-local-git-style-preview") {
+        if ProcessInfo.processInfo.arguments.contains("-account-session-style-preview") {
+            AccountSessionStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-user-connections-style-preview") {
+            UserConnectionsStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-local-git-style-preview") {
             LocalGitStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-source-style-preview") {
             SourceStylePreview()
@@ -38,7 +43,7 @@ struct StylePreviewGallery: View {
                     }
                 } else if readme {
                     Section("README.rst · 固定样式数据") {
-                        ReadmeHTMLView(html: Self.readmeFixture, baseURL: URL(string: "https://github.com/wm0104/RepoPocket/blob/main/README.rst"), height: $readmeHeight) { _ in readmeOpened = true }
+                        ReadmeHTMLView(html: Self.readmeFixture, baseURL: URL(string: "https://github.com/wm0104/RepoPocket/blob/main/README.rst"), height: $readmeHeight, onReady: { readmeReady = true }) { _ in readmeOpened = true }
                             .frame(height: max(320, readmeHeight)).softGroupedRow(top: true, bottom: true)
                     }
                 } else if workflow {
@@ -94,6 +99,9 @@ struct StylePreviewGallery: View {
                 }
             }.onAppear { if ProcessInfo.processInfo.arguments.contains("-expanded-style-preview") { expanded = true } }.navigationTitle(account ? "账号管理" : "RepoPocket").adaptiveWorkspaceLayout()
             .toolbar {
+                if readme && readmeReady {
+                    ToolbarItem(placement: .navigationBarLeading) { Text("页面就绪").accessibilityIdentifier("readme-document-ready") }
+                }
                 if readme && readmeOpened {
                     ToolbarItem(placement: .navigationBarTrailing) { Text("链接已处理").accessibilityIdentifier("readme-link-opened") }
                 }

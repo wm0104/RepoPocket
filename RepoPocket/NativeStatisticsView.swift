@@ -99,22 +99,37 @@ struct NativeRepositoryStatisticsView: View {
 struct NativeActivityChartView: View {
     @ObservedObject var api: GitHub
     let login: String
-    @StateObject private var store = CommunityPageStore<CommunityEvent>()
-    private var points: [NativeHistogramPoint] {
-        Dictionary(grouping: store.items, by: { ChinaDate.month($0.created_at) }).map { NativeHistogramPoint(id: $0.key, count: $0.value.count) }.sorted { $0.id < $1.id }
-    }
+    @StateObject private var store = ActivityCalendarStore()
+    @State private var selected: String?
+    @State private var anchor = Date()
+    @State private var appeared = false
+    private var days: [ActivityDay] { ActivityCalendar.days(events: store.items, exhausted: store.exhausted, now: anchor) }
     var body: some View {
         List {
-            Section("最近公开活动") {
+            Section("最近30天 · 公开活动") {
                 SoftGroupRows {
-                    SoftGroupRow("chart") { NativeHistogram(points: points) }
-                    SoftGroupRow("scope") { Text("统计已加载的 GitHub 公开活动，不冒充全年贡献日历；活动 API 的时间和数量范围有限。").font(.caption).foregroundStyle(.secondary) }
+                    SoftGroupRow("count") { Text("已加载 \(store.items.count) 条公开活动").font(.headline) }
+                    if let range = store.recordRange { SoftGroupRow("range") { Text("已加载记录日期：" + range).font(.caption).foregroundStyle(.secondary) } }
+                    SoftGroupRow("calendar") { ActivityCalendarView(days: days, selected: $selected) }
+                    SoftGroupRow("scope") { Text("仅统计已加载的公开活动，不等同于全年贡献日历。虚线表示未完整覆盖的日期；当天记录可能延迟。点击日期查看活动。").font(.caption).foregroundStyle(.secondary) }
                 }
             }
-            CommunityPageFooter(store: store, next: { load() })
-        }.navigationTitle("活动图表").task { if !store.loaded { load() } }.onDisappear { store.cancel() }
+            if let selected, let day = days.first(where: { $0.id == selected }) { ActivityDayEvents(api: api, day: day) }
+            Section {
+                SoftGroupRows {
+                    if store.busy { SoftGroupRow("loading") { ProgressView("加载活动…") } }
+                    if !store.error.isEmpty { SoftGroupRow("error") { Text(store.error).font(.caption) } }
+                    if !store.exhausted && !store.limited {
+                        SoftGroupRow("more") { Button(store.error.isEmpty ? "继续加载活动" : "重试") { store.load(api: api, login: login) }.disabled(store.busy) }
+                    }
+                    if store.limited { SoftGroupRow("limit") { Text("已达到本次读取上限（最多300条），未覆盖日期保留为未加载。").font(.caption).foregroundStyle(.secondary) } }
+                }
+            }
+        }.navigationTitle("活动图表").adaptiveWorkspaceLayout()
+        .toolbar { Button("刷新") { anchor = Date(); store.load(refresh: true, api: api, login: login) } }
+        .task { guard !appeared else { return }; appeared = true; store.load(api: api, login: login) }
+        .onDisappear { if store.busy { appeared = false }; store.cancel() }
     }
-    private func load() { store.load(api: api) { try await api.communityEvents(login, page: $0) } }
 }
 
 struct NativeDeveloper: Identifiable { let user: User; var id: String { user.login } }

@@ -10,6 +10,7 @@ struct LocalProjectEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var fingerprint = ""
+    @State private var deletion: LocalGitDeletionTarget?
     @State private var error = ""
     @State private var busy = false
     @State private var attempted = false
@@ -23,8 +24,11 @@ struct LocalProjectEditor: View {
                 if deleting {
                     Form { Section {
                         Text(path).font(.caption).softGroupedRow(top: true)
-                        Text("只删除这个文件。远端不会立即变化，之后仍需勾选删除记录并提交、推送。").softGroupedRow()
-                        Button("确认删除此文件", role: .destructive) { save() }.disabled(busy || fingerprint.isEmpty).softGroupedRow(bottom: true)
+                        Text(deletion?.directory == true ? "仅删除此文件夹及其中内容。远端不会立即变化，之后仍需勾选删除记录并提交、推送。" : "只删除这个文件。远端不会立即变化，之后仍需勾选删除记录并提交、推送。").softGroupedRow()
+                        if let deletion {
+                            Text("\(deletion.files) 个文件 · " + ByteCountFormatter.string(fromByteCount: deletion.bytes, countStyle: .file)).font(.caption).softGroupedRow()
+                        }
+                        Button(deletion?.directory == true ? "确认删除此文件夹" : "确认删除此文件", role: .destructive) { save() }.disabled(busy || deletion == nil).softGroupedRow(bottom: true)
                     } }
                 } else if !fingerprint.isEmpty {
                     SourceCodeEditor(text: $text, filename: path, readOnly: !editing).disabled(busy)
@@ -32,9 +36,9 @@ struct LocalProjectEditor: View {
                 if busy { ProgressView() }
                 if !error.isEmpty { Text(error).foregroundStyle(.red).font(.caption) }
                 if fingerprint.isEmpty && !busy && !error.isEmpty { Button("重试读取") { Task { await open() } } }
-            }.navigationTitle(deleting ? "删除文件" : (path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
+            }.navigationTitle(deleting ? (deletion?.directory == true ? "删除文件夹" : "删除文件") : (path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) }
                 if !deleting { ToolbarItem(placement: .confirmationAction) {
                     Button(editing ? "保存" : "编辑") { if editing { save() } else { editing = true } }
                         .disabled(busy || fingerprint.isEmpty || (editing && text == originalText))
@@ -42,14 +46,17 @@ struct LocalProjectEditor: View {
             }
             .task { guard !attempted else { return }; attempted = true; await open() }
             .onDisappear { task?.cancel() }
+            .interactiveDismissDisabled(busy)
         }
     }
     private func open() async {
-        busy = true; defer { busy = false }
+        busy = true; error = ""; deletion = nil; defer { busy = false }
         do {
             if deleting {
-                fingerprint = try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
-                    try LocalGitFileAccess.fileFingerprint(root: root, path: path)
+                deletion = try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
+                    try LocalGitDeletion.prepare(root: root, path: path) {
+                        guard generation == AccountStore.generation else { throw CancellationError() }
+                    }
                 }
             } else {
                 let document = try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
@@ -61,13 +68,18 @@ struct LocalProjectEditor: View {
     }
     private func save() {
         guard !busy else { return }; busy = true; error = ""
-        let value = text, expected = fingerprint
+        let value = text, expected = fingerprint, pendingDeletion = deletion
         task = Task { @MainActor in
             defer { busy = false }
             do {
                 try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
                     guard generation == AccountStore.generation else { throw CancellationError() }
-                    if deleting { try LocalGitFileAccess.delete(root: root, path: path, expected: expected) }
+                    if deleting {
+                        guard let deletion = pendingDeletion else { throw LocalGitError(text: "请重新读取后确认删除。") }
+                        try LocalGitDeletion.delete(root: root, target: deletion) {
+                            guard generation == AccountStore.generation else { throw CancellationError() }
+                        }
+                    }
                     else { try LocalGitFileAccess.write(root: root, path: path, text: value, expected: expected) }
                 }
                 changed(); dismiss()
@@ -90,7 +102,6 @@ struct LocalProjectFilesView: View {
     @State private var opened: LocalProjectFile?
     @State private var loaded = false
     @State private var error = ""
-    @State private var pendingFolderDelete: LocalFileEntry?
     @State private var openDirectory: String?
     var body: some View {
         List {
@@ -111,21 +122,21 @@ struct LocalProjectFilesView: View {
                             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                         }.contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .contextMenu { Button("删除此文件夹", role: .destructive) { pendingFolderDelete = entry } }
+                    .buttonStyle(.plain).disabled(importer.busy)
+                    .contextMenu { Button("删除此文件夹", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) }.disabled(importer.busy) }
                 } else {
                     HStack {
                         Button { opened = LocalProjectFile(path: entry.path) } label: { LocalGitFileLabel(name: entry.name, size: entry.size) }
-                            .buttonStyle(.borderless)
+                            .buttonStyle(.borderless).disabled(importer.busy)
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                         Menu {
                             if entry.name.lowercased().hasSuffix(".deb") {
                                 Button("编辑包信息") { opened = LocalProjectFile(path: entry.path) }
                             }
                             Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) }
-                        } label: { Image(systemName: "ellipsis").padding(8) }.accessibilityLabel("更多操作：" + entry.name)
+                        } label: { Image(systemName: "ellipsis").padding(8) }.disabled(importer.busy).accessibilityLabel("更多操作：" + entry.name)
                     }
-                        .contextMenu { Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) } }
+                        .contextMenu { Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) }.disabled(importer.busy) }
                 }
               }
             }
@@ -146,12 +157,6 @@ struct LocalProjectFilesView: View {
                 LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: path, imported: imported, changed: changed)
             }
         }
-        .confirmationDialog("删除文件夹「\(pendingFolderDelete?.name ?? "")」？", isPresented: Binding(get: { pendingFolderDelete != nil }, set: { if !$0 { pendingFolderDelete = nil } }), titleVisibility: .visible) {
-            Button("删除文件夹及内容", role: .destructive) { deleteFolder() }
-            Button("取消", role: .cancel) { pendingFolderDelete = nil }
-        } message: {
-            Text("文件夹内的所有文件都会被删除，此操作不可恢复。")
-        }
         .onDisappear { importer.cancel() }
         .sheet(item: $opened, onDismiss: { Task { await load() } }) { file in
             if !file.deleting && file.path.lowercased().hasSuffix(".deb") {
@@ -159,21 +164,6 @@ struct LocalProjectFilesView: View {
             } else {
                 LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
             }
-        }
-    }
-    private func deleteFolder() {
-        guard let entry = pendingFolderDelete else { return }
-        pendingFolderDelete = nil
-        error = ""
-        let target = entry.path
-        Task { @MainActor in
-            do {
-                try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
-                    try LocalGitFileAccess.deleteDirectory(root: root, path: target)
-                }
-                changed()
-                await load()
-            } catch { self.error = error.localizedDescription }
         }
     }
     private func load() async {

@@ -52,7 +52,14 @@ struct CollaborationListView: View {
     @StateObject private var store = CommunityPageStore<CollaborationItem>()
     @State private var state = "open"
     @State private var composing = false
-    private var visible: [CollaborationItem] { store.items.filter { kind == .pulls || $0.pull_request == nil } }
+    @ObservedObject private var deletions: IssueDeletionState
+    @State private var deletionTarget: IssueDeletionConfirmation?
+    private var visible: [CollaborationItem] {
+        deletions.visible(store.items, kind: kind).filter { kind == .pulls || $0.pull_request == nil }
+    }
+    init(api: GitHub, repo: String, kind: CollaborationKind) {
+        self.api = api; self.repo = repo; self.kind = kind; deletions = api.issueDeletions
+    }
     var body: some View {
         List {
             Section {
@@ -72,6 +79,8 @@ struct CollaborationListView: View {
                         if let date = item.updated_at { Text(ChinaDate.dateTime(date)).font(.caption2).foregroundStyle(.secondary) }
                     }.padding(.vertical, 4)
                 }
+                .issueDeletionMenu(api: api, state: deletions, subject: kind == .issues ? IssueDeletionSubject(item, repo: repo) : nil, target: $deletionTarget)
+                .accessibilityIdentifier("repository-issue-\(item.number)")
                 }
             }
             if store.loaded && visible.isEmpty && store.error.isEmpty { SoftGroupRow("empty") { Text("当前页没有符合条件的 \(kind.title)" + (store.more ? "，可继续加载。" : "。")) } }
@@ -87,9 +96,17 @@ struct CollaborationListView: View {
         .onChange(of: state) { _ in load(reset: true) }
         .task { if !store.loaded { load() } }
         .onDisappear { store.cancel() }
+        .issueDeletionPresenter(api: api, state: deletions, target: $deletionTarget)
+        .onChange(of: store.items.map(\.id)) { _ in loadPermissions() }
+        .task { loadPermissions() }
+    }
+    private func loadPermissions() {
+        guard kind == .issues else { return }
+        deletions.load(visible.compactMap { IssueDeletionSubject($0, repo: repo) }, api: api)
     }
     private func load(reset: Bool = false) {
         let requested = state
+        if reset { deletions.resetPermissions() }
         store.load(reset: reset, api: api) { try await api.collaborationItems(repo, kind: kind, state: requested, page: $0) }
     }
 }
@@ -143,7 +160,7 @@ struct CollaborationDetailView: View {
                         SoftGroupRow("inline") { NavigationLink("行内评论") { DiscussionView(api: api, repo: repo, number: number, stream: .inline) } }
                         SoftGroupRow("files") { NavigationLink("变更文件与差异") { PullFilesView(api: api, repo: repo, number: number) } }
                     }
-                    SoftGroupRow("reply") { Button("回复评论") { composing = true }.disabled(busy) }
+                    SoftGroupRow("reply") { Button("发表评论") { composing = true }.disabled(busy) }
                     if item.merged != true && (mayManage || item.user?.login.caseInsensitiveCompare(api.login) == .orderedSame) {
                         SoftGroupRow("change-state") { Button(item.state == "open" ? "关闭" : "重新打开") {
                             mutationTitle = item.state == "open" ? "确认关闭？" : "确认重新打开？"
@@ -198,24 +215,49 @@ struct DiscussionView: View {
     let number: Int
     let stream: DiscussionStream
     @StateObject private var store = CommunityPageStore<CollaborationComment>()
+    @State private var attempted = false
+    @State private var composerTarget: DiscussionComposerTarget?
     var body: some View {
         List {
             ForEach(store.items) { comment in
                 Section {
                     SoftGroupRows {
-                    SoftGroupRow("user") { HStack { GitHubAvatar(url: comment.user?.avatar_url, size: 28); Text(comment.user?.login ?? "已删除用户").font(.headline) } }
+                    SoftGroupRow("user") {
+                        HStack(spacing: 12) {
+                            GitHubAvatar(url: comment.user?.avatar_url, size: 36)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(comment.user?.login ?? "已删除用户").font(.headline)
+                                if let date = comment.created_at { Text(ChinaDate.dateTime(date)).font(.caption).foregroundStyle(.secondary) }
+                            }
+                        }
+                    }
                     if let state = comment.state { SoftGroupRow("state") { Text(state).font(.caption).foregroundStyle(.secondary) } }
-                    if let date = comment.created_at { SoftGroupRow("date") { Text(ChinaDate.dateTime(date)).font(.caption2).foregroundStyle(.secondary) } }
                     if let path = comment.path { SoftGroupRow("path") { Text(path + (comment.line.map { ":\($0)" } ?? "")).font(.caption).textSelection(.enabled) } }
                     SoftGroupRow("body") { CommunityMarkdown(text: comment.body.flatMap { $0.isEmpty ? nil : $0 } ?? "无文字内容", baseURL: CommunityRules.webURL(comment.html_url) ?? CommunityRules.repositoryURL(repo), api: api) }
+                    if stream == .conversation {
+                        SoftGroupRow("reply") {
+                            Button { composerTarget = .reply(CommentReplyContext(comment)) }
+                            label: { Label("回复", systemImage: "arrowshape.turn.up.left") }
+                            .accessibilityLabel("回复 " + (comment.user?.login ?? "已删除用户"))
+                            .accessibilityIdentifier("reply-comment-\(comment.id)")
+                        }
+                    }
                     }
                 }
             }
             if store.loaded && store.items.isEmpty { Text("暂无记录").softGroupedRow(top: true, bottom: true) }
             CommunityPageFooter(store: store, next: { load() })
         }.navigationTitle(stream.title).adaptiveWorkspaceLayout()
-        .toolbar { Button("刷新") { load(reset: true) }.disabled(store.busy) }
-        .task { if !store.loaded { load() } }.onDisappear { store.cancel() }
+        .toolbar {
+            if stream == .conversation { Button("发表评论") { composerTarget = .comment } }
+            Button("刷新") { load(reset: true) }.disabled(store.busy)
+        }
+        .sheet(item: $composerTarget) { target in
+            CollaborationComposer(api: api, repo: repo, number: number, replyContext: target.replyContext) { load(reset: true) }
+                .appSheetCornerRadius()
+        }
+        .task { guard !attempted else { return }; attempted = true; load() }
+        .onDisappear { if store.busy { attempted = false }; store.cancel() }
     }
     private func load(reset: Bool = false) {
         store.load(reset: reset, api: api) { try await api.collaborationComments(repo, number: number, stream: stream, page: $0) }

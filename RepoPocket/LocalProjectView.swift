@@ -17,7 +17,6 @@ struct LocalProjectView: View {
     @State private var pendingCommit = false
     @State private var syncing: String?
     @State private var note = ""
-    @State private var pendingChangeDelete: String?
     @AppStorage("localGit.authorName") private var authorName = ""
     @AppStorage("localGit.authorEmail") private var authorEmail = ""
     @State private var commitMessage = ""
@@ -74,10 +73,6 @@ struct LocalProjectView: View {
                 }
             }
         }.listStyle(.insetGrouped).navigationTitle(project.name).adaptiveWorkspaceLayout()
-        .confirmationDialog("删除文件「\((pendingChangeDelete ?? "") as NSString).lastPathComponent」？", isPresented: Binding(get: { pendingChangeDelete != nil }, set: { if !$0 { pendingChangeDelete = nil } }), titleVisibility: .visible) {
-            Button("删除文件", role: .destructive) { deletePendingChange() }
-            Button("取消", role: .cancel) { pendingChangeDelete = nil }
-        } message: { Text("只删除本地工作区里的这个文件，不会影响远端；此操作不可恢复。") }
         .task { await check() }
         .refreshable { await check(force: true) }
         .toolbar { Menu {
@@ -91,6 +86,7 @@ struct LocalProjectView: View {
             NavigationStack {
                 LocalGitDirectoryPicker(project: project, internalRoot: store.internalRoot, directory: "") { picked in
                     importTarget = picked
+                    choosingImportTarget = false
                 }
                 .toolbar { Button("关闭") { choosingImportTarget = false } }
             }.appSheetCornerRadius()
@@ -105,6 +101,7 @@ struct LocalProjectView: View {
                                  path:path,head:state.snapshot?.status.head ?? "")
             case .commit: commitForm
             case .deb(let path): LocalProjectDebEditor(api: api, project: project, internalRoot: store.internalRoot, path: path) { imported([path]) }
+            case .delete(let path): LocalProjectEditor(project: project, internalRoot: store.internalRoot, path: path, deleting: true) { imported([path]) }
             }
         }
     }
@@ -209,24 +206,11 @@ struct LocalProjectView: View {
         .padding(.leading, CGFloat(min(row.depth, 5)) * 16)
         .contextMenu {
             if !row.folder, let file = row.files.first, file.kind != "deleted" {
-                Button("删除文件", role: .destructive) { pendingChangeDelete = file.path }
+                Button("删除文件", role: .destructive) { sheet = .delete(file.path) }.disabled(busy || !valid)
             }
         }
     }
 
-    private func deletePendingChange() {
-        guard let path = pendingChangeDelete else { return }
-        pendingChangeDelete = nil
-        Task { @MainActor in
-            do {
-                try await LocalGitEngine.shared.file(project: project, internalRoot: store.internalRoot, generation: generation) { root in
-                    let url = try LocalGitFileAccess.path(root: root, relative: path)
-                    try FileManager.default.removeItem(at: url)
-                }
-                await check(force: true)
-            } catch { note = error.localizedDescription }
-        }
-    }
     private func actionsSection(_ snapshot: LocalGitSnapshot) -> some View {
         Section {
             SoftGroupRows {

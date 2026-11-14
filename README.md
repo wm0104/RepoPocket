@@ -1,7 +1,7 @@
 # RepoPocket
 
 ![累计下载次数](https://img.shields.io/github/downloads/wm0104/RepoPocket/total?label=Downloads&color=007AFF&cacheSeconds=300&v=2)
-![最新版本](https://img.shields.io/github/v/release/wm0104/RepoPocket?label=Release&color=007AFF)
+[![最新版本](https://img.shields.io/github/v/release/wm0104/RepoPocket?label=Release&color=007AFF&cacheSeconds=300&v=20261018)](https://github.com/wm0104/RepoPocket/releases/latest)
 
 [下载 RepoPocket](https://github.com/wm0104/RepoPocket/releases/latest) · [TrollFools LSP 修改版插件源](https://github.com/wm0104/trollfools-repo)
 
@@ -14,10 +14,11 @@
 下面是 iOS 16.3 上实际遇到的 Safari 网页显示情况：
 
 <table>
-  <tr><th>GitHub 首页</th><th>仓库与代码页面</th></tr>
+  <tr><th>GitHub 首页</th><th>仓库与代码页面</th><th>个人主页与贡献记录</th></tr>
   <tr>
     <td><img src="docs/images/safari-github-home-ios16.png" width="260" alt="iOS 16 Safari 打开 GitHub 首页时布局重叠、内容持续加载"></td>
     <td><img src="docs/images/safari-github-repository-ios16.png" width="260" alt="iOS 16 Safari 打开 GitHub 仓库时按钮重叠、代码列表显示异常"></td>
+    <td><img src="docs/images/safari-github-profile-ios16.png" width="260" alt="iOS 16.3 Safari 打开 GitHub 个人主页时贡献记录挤压、文字异常换行"></td>
   </tr>
 </table>
 
@@ -42,6 +43,23 @@
   </tr>
 </table>
 
+### Git 功能预览
+
+添加本地项目或克隆 GitHub 仓库，选择分支，在手机上管理项目文件与本地提交。
+
+<table>
+  <tr>
+    <th>添加项目 / 克隆仓库</th>
+    <th>选择仓库分支</th>
+    <th>本地变更与提交</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/app-git-clone.png" width="260" alt="RepoPocket 添加本地项目，选择仓库、分支和克隆位置"></td>
+    <td><img src="docs/images/app-git-branches.png" width="260" alt="RepoPocket 选择 GitHub 仓库分支"></td>
+    <td><img src="docs/images/app-git-project.png" width="260" alt="RepoPocket 本地 Git 项目，展示变更选择、文件导入、本地提交、拉取和推送"></td>
+  </tr>
+</table>
+
 ## 主要功能
 
 📂 **浏览仓库与代码**<br>
@@ -55,6 +73,9 @@
 
 ✏️ **编辑与提交文件**<br>
 在具备权限的仓库中编辑文本、上传或删除文件，并提交到指定分支。
+
+🌿 **管理本地 Git 项目**<br>
+关联已有项目或克隆 GitHub 仓库，浏览和编辑文件、导入文件与文件夹、查看变更和差异；选择文件创建本地提交，再单独推送，支持仅快进拉取和查看本地提交历史。
 
 ⭐ **收藏与复刻仓库**<br>
 为喜欢的项目添加星标，将仓库复刻到自己的账号，查看复刻来源和状态。

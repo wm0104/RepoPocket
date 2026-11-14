@@ -10,6 +10,74 @@ FILES = ['LocalGitModels.swift', 'LocalGitFileAccess.swift', 'LocalGitRegistry.s
 
 
 class LocalGitStoreTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('swiftc'), 'Swift deletion fixture runs on macOS')
+    def test_confirmed_deletion_preserves_external_edits_and_unselected_files(self):
+        source = r'''
+import Foundation
+@main struct Fixture {
+ static func main() throws {
+  let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+  defer { try? FileManager.default.removeItem(at: root) }
+  let keep = root.appendingPathComponent("keep.bin")
+  try Data([1,2,3]).write(to: keep)
+  let file = root.appendingPathComponent("selected.deb")
+  try Data([0,255,3]).write(to: file)
+  let original = try LocalGitDeletion.prepare(root: root, path: "selected.deb")
+  try Data([0,255,4]).write(to: file)
+  do { try LocalGitDeletion.delete(root: root, target: original); preconditionFailure("Deleted an external edit") } catch {}
+  precondition((try? Data(contentsOf: file)) == Data([0,255,4]))
+  let replaced = try LocalGitDeletion.prepare(root: root, path: "selected.deb")
+  let newFile = root.appendingPathComponent("new.tmp")
+  try Data([0,255,4]).write(to: newFile)
+  try FileManager.default.removeItem(at: file)
+  try FileManager.default.moveItem(at: newFile, to: file)
+  do { try LocalGitDeletion.delete(root: root, target: replaced); preconditionFailure("Deleted a replacement inode") } catch {}
+  let becameDirectory = try LocalGitDeletion.prepare(root: root, path: "selected.deb")
+  try FileManager.default.removeItem(at: file)
+  try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+  let unrelated = file.appendingPathComponent("unrelated.txt")
+  try Data("keep replacement".utf8).write(to: unrelated)
+  do { try LocalGitDeletion.delete(root: root, target: becameDirectory); preconditionFailure("Recursively deleted a replacement folder") } catch {}
+  precondition((try? String(contentsOf: unrelated)) == "keep replacement")
+  try FileManager.default.removeItem(at: file)
+  try Data([0,255,4]).write(to: file)
+  let folder = root.appendingPathComponent("folder/sub")
+  try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+  let child = folder.appendingPathComponent("file.py")
+  try Data("before".utf8).write(to: child)
+  let chosen = try LocalGitDeletion.prepare(root: root, path: "folder")
+  try Data("after".utf8).write(to: child)
+  do { try LocalGitDeletion.delete(root: root, target: chosen); preconditionFailure("Deleted a changed descendant") } catch {}
+  precondition((try? String(contentsOf: child)) == "after")
+  let latest = try LocalGitDeletion.prepare(root: root, path: "folder")
+  try LocalGitDeletion.delete(root: root, target: latest)
+  precondition(!FileManager.default.fileExists(atPath: root.appendingPathComponent("folder").path))
+  let exact = try LocalGitDeletion.prepare(root: root, path: "selected.deb")
+  do { try LocalGitDeletion.delete(root: root, target: exact) { throw CancellationError() }; preconditionFailure("Deleted after cancellation") } catch {}
+  precondition(FileManager.default.fileExists(atPath: file.path))
+  try LocalGitDeletion.delete(root: root, target: exact)
+  precondition(!FileManager.default.fileExists(atPath: file.path))
+  precondition((try? Data(contentsOf: keep)) == Data([1,2,3]))
+  for path in ["", ".", "..", ".git", "../outside"] {
+    do { _ = try LocalGitDeletion.prepare(root: root, path: path); preconditionFailure("Prepared unsafe delete") } catch {}
+  }
+  let link = root.appendingPathComponent("linked")
+  try FileManager.default.createSymbolicLink(at: link, withDestinationURL: keep)
+  do { _ = try LocalGitDeletion.prepare(root: root, path: "linked"); preconditionFailure("Followed symlink") } catch {}
+  print("PASS stale files, replaced identities, changed descendants, exact deletion and retained siblings")
+ }
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / 'Fixture.swift'
+            fixture.write_text(source, encoding='utf-8')
+            subprocess.run(['swiftc', '-parse-as-library', str(ROOT/'RepoPocket/ChinaDate.swift'),
+                            str(ROOT/'RepoPocket/LocalGitModels.swift'), str(ROOT/'RepoPocket/LocalGitFileAccess.swift'),
+                            str(ROOT/'RepoPocket/LocalGitDeletion.swift'), str(fixture), '-o', str(root/'check')], check=True)
+            subprocess.run([str(root/'check')], check=True)
+
     def test_production_services_exist(self):
         for name in FILES:
             self.assertTrue((ROOT / 'RepoPocket' / name).exists(), 'Missing local Git service: ' + name)

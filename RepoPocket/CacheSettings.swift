@@ -19,10 +19,10 @@ struct CacheSettingsSection: View {
             Button("清除缓存", role: .destructive) {
                 guard !blocked else { return }
                 clearing = true
-                let before = Self.usedBytes()
                 Task { @MainActor in
                     defer { clearing = false }
                     do {
+                        let before = await Task.detached(priority: .utility) { CacheUsage.bytes() }.value
                         guard try await AvatarPipeline.shared.clearIfIdle() else { throw AppError(text: "头像正在加载，请稍后重试。") }
                         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
                         try CacheRules.clear(root: root, busy: checker.checking || checker.downloading || downloads.operations > 0) { try FileManager.default.removeItem(at: $0) }
@@ -47,13 +47,5 @@ struct CacheSettingsSection: View {
             message = ""
             noticeTask = nil
         }
-    }
-    /// Bytes held by the two dedicated cache folders plus the shared URL cache.
-    private static func usedBytes() -> Int64 {
-        let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let folders = ["RepoPocketCache", "RepoPocketAvatars"].map { root.appendingPathComponent($0, isDirectory: true) }
-        var total = folders.reduce(Int64(0)) { $0 + CacheRules.directorySize($1) }
-        total += Int64(URLCache.shared.currentDiskUsage)
-        return max(0, total)
     }
 }
