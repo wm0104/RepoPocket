@@ -69,7 +69,7 @@ struct CollaborationListView: View {
                         Text(item.title).font(.headline)
                         Text("#\(item.number) · \(item.user?.login ?? "未知作者") · \(item.draft == true ? "草稿" : item.state)")
                             .font(.caption).foregroundStyle(.secondary)
-                        if let date = item.updated_at { Text(date).font(.caption2).foregroundStyle(.secondary) }
+                        if let date = item.updated_at { Text(ChinaDate.dateTime(date)).font(.caption2).foregroundStyle(.secondary) }
                     }.padding(.vertical, 4)
                 }
                 }
@@ -205,7 +205,7 @@ struct DiscussionView: View {
                     SoftGroupRows {
                     SoftGroupRow("user") { HStack { GitHubAvatar(url: comment.user?.avatar_url, size: 28); Text(comment.user?.login ?? "已删除用户").font(.headline) } }
                     if let state = comment.state { SoftGroupRow("state") { Text(state).font(.caption).foregroundStyle(.secondary) } }
-                    if let date = comment.created_at { SoftGroupRow("date") { Text(date).font(.caption2).foregroundStyle(.secondary) } }
+                    if let date = comment.created_at { SoftGroupRow("date") { Text(ChinaDate.dateTime(date)).font(.caption2).foregroundStyle(.secondary) } }
                     if let path = comment.path { SoftGroupRow("path") { Text(path + (comment.line.map { ":\($0)" } ?? "")).font(.caption).textSelection(.enabled) } }
                     SoftGroupRow("body") { CommunityMarkdown(text: comment.body.flatMap { $0.isEmpty ? nil : $0 } ?? "无文字内容", baseURL: CommunityRules.webURL(comment.html_url) ?? CommunityRules.repositoryURL(repo), api: api) }
                     }

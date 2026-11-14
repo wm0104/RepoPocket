@@ -24,10 +24,10 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertNotIn('gh release', self.source)
         self.assertNotIn('softprops/action-gh-release', self.source)
         self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "4"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.7"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.8"', self.source)
         project = (REPO_ROOT / 'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.0.7"', project)
-        self.assertIn('CURRENT_PROJECT_VERSION: "1.0.7"', project)
+        self.assertIn('MARKETING_VERSION: "1.0.8"', project)
+        self.assertIn('CURRENT_PROJECT_VERSION: "1.0.8"', project)
 
     def test_release_version_is_readable_by_installed_1_0_5(self):
         import re

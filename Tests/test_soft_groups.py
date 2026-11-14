@@ -338,6 +338,16 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
             old_start = old_github.index(signature)
             old_end = old_github.index(next_signature, old_start)
             current = current[:current_start] + old_github[old_start:old_end] + current[current_end:]
+        # Signed-out update checks use the public releases endpoint; the
+        # anonymous path is covered by test_app_update.py.
+        current = current.replace(
+            '    /// The public releases endpoint works signed out; a token only raises the rate limit.\n'
+            '    var canCheckOfficialUpdate: Bool { isCurrentSession }\n', '')
+        release_start = current.index('    func officialAppUpdateData(')
+        release_end = current.index('    func ', release_start + 20)
+        old_release_start = old_github.index('    func officialAppUpdateData(')
+        old_release_end = old_github.index('    func ', old_release_start + 20)
+        current = current[:release_start] + old_github[old_release_start:old_release_end] + current[release_end:]
         current = current.replace('session.data(for: r, delegate: GitHubAPIRedirectPolicy())',
                                   'session.data(for: r, delegate: OfficialUpdateRedirectPolicy())')
     if file == 'WorkspaceSelectionUI.swift':
@@ -471,6 +481,15 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'try await DownloadStore.shared.persist(' in body
             assert 'self.notice =' in body
             assert 'SharedFile' not in body and 'self.saved' not in body
+            continue
+        if file == 'ReleaseManagementUI.swift' and signature == 'private func performDelete()':
+            # Deletion confirms once; the destructive guard keeps the fixed
+            # repo/session identity checks and drops the typed confirmation.
+            body = current.get(signature, '')
+            assert 'target.repo == state.repo' in body
+            assert 'target.generation == AccountStore.generation' in body
+            assert 'confirmation' not in body and 'secondDelete' not in body
+            assert 'deleteManagedRelease' in body
             continue
         if file == 'UploadView.swift' and signature == 'private func select(_ result: Result<[URL], Error>) async':
             # TrollFools plugins are capped before and after preparation, while

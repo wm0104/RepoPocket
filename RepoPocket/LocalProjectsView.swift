@@ -22,7 +22,7 @@ struct LocalProjectsView: View {
                 if !store.error.isEmpty { Text(store.error).foregroundStyle(.red).softGroupedRow(top: true, bottom: true) }
                 Section { Text("打开项目后下拉可检查变化。外部编辑后请下拉刷新；提交和推送分别操作。").font(.caption).foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
             }.listStyle(.insetGrouped).navigationTitle("本地 Git").adaptiveWorkspaceLayout()
-            .sheet(isPresented: $importing) { LocalProjectImportView(api: api, store: store) }
+            .sheet(isPresented: $importing) { LocalProjectImportView(api: api, store: store).appSheetCornerRadius() }
             .confirmationDialog("移除项目关联？", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
                 Button("移除关联，保留文件和历史", role: .destructive) {
                     guard let project = removing else { return }; removing = nil

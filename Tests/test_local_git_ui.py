@@ -122,7 +122,7 @@ import Foundation
             file = Path(directory)/'Fixture.swift'
             file.write_text(fixture, encoding='utf-8')
             output = str(Path(directory)/'check')
-            subprocess.run(['swiftc','-parse-as-library',str(ROOT/'RepoPocket/LocalGitModels.swift'),str(ROOT/'RepoPocket/LocalProjectState.swift'),str(file),'-o',output],check=True)
+            subprocess.run(['swiftc','-parse-as-library',str(ROOT/'RepoPocket/ChinaDate.swift'),str(ROOT/'RepoPocket/LocalGitModels.swift'),str(ROOT/'RepoPocket/LocalProjectState.swift'),str(file),'-o',output],check=True)
             subprocess.run([output],check=True)
 
 

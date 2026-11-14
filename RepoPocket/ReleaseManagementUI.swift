@@ -119,7 +119,7 @@ struct ReleaseListView: View {
                     NavigationLink { ReleaseManagementDestination(api: state.api, repo: state.repo, id: row.id) } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(row.title).lineLimit(2)
-                            Text(row.tag_name + " · " + String(row.date.prefix(10))).font(.caption)
+                            Text(row.tag_name + " · " + ChinaDate.day(row.date)).font(.caption)
                             if row.draft { Text("草稿").font(.caption) }
                             if row.prerelease { Text("预发行").font(.caption) }
                             if state.latestID == row.id && !row.draft && !row.prerelease { Text("最新发行版").font(.caption) }
@@ -154,7 +154,7 @@ struct ReleaseListView: View {
         .task { if state.rows.isEmpty { state.list(reset: true) } }
         .onDisappear { state.cancel() }
         .sheet(isPresented: $creating, onDismiss: { state.list(reset: true) }) {
-            ReleaseEditorView(api: state.api, repo: state.repo, original: nil)
+            ReleaseEditorView(api: state.api, repo: state.repo, original: nil).appSheetCornerRadius()
         }
     }
 }
@@ -177,8 +177,6 @@ struct ReleaseDetailView: View {
     @State private var inboxSelection: [URL] = []
     @State private var uploading: URL?
     @State private var deleteTarget: ReleaseDeleteTarget?
-    @State private var secondDelete = false
-    @State private var confirmation = ""
     @State private var copied = false
     init(api: GitHub, repo: String, id: Int) {
         self.id = id; _state = StateObject(wrappedValue: ReleaseScreenState(api: api, repo: repo))
@@ -187,7 +185,7 @@ struct ReleaseDetailView: View {
         List {
             if let r = state.release {
                 Section {
-                    Text(r.title).softGroupedRow(top: true); Text(r.tag_name + " · " + String(r.date.prefix(10))).font(.caption).softGroupedRow()
+                    Text(r.title).softGroupedRow(top: true); Text(r.tag_name + " · " + ChinaDate.day(r.date)).font(.caption).softGroupedRow()
                     Text(r.draft ? "草稿" : (r.prerelease ? "预发行" : "已发布")).softGroupedRow()
                     VStack(alignment: .leading, spacing: 0) {
                         DisclosureGroup("发布说明", isExpanded: $expanded) {
@@ -268,7 +266,7 @@ struct ReleaseDetailView: View {
         .task { if state.release == nil { state.detail(id) } }
         .onDisappear { state.cancel() }
         .sheet(isPresented: $editing, onDismiss: { state.detail(id) }) {
-            if let r = state.release { ReleaseEditorView(api: state.api, repo: state.repo, original: r) }
+            if let r = state.release { ReleaseEditorView(api: state.api, repo: state.repo, original: r).appSheetCornerRadius() }
         }
         .sheet(isPresented: $pickingInbox, onDismiss: {
             uploading = inboxSelection.first; inboxSelection = []
@@ -287,31 +285,24 @@ struct ReleaseDetailView: View {
         } message: {
             Text("目标：\(state.repo) #\(id)\n附件：\(uploading?.lastPathComponent ?? "")\n单附件小于2 GiB；同名不覆盖。已公开发行版会立即受到影响。请保持前台。")
         }
-        .alert("第一次确认删除", isPresented: Binding(get: { deleteTarget != nil && !secondDelete }, set: { _ in })) {
+        .confirmationDialog(deleteTitle, isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } }), titleVisibility: .visible) {
+            Button("删除", role: .destructive) { performDelete() }
             Button("取消", role: .cancel) { deleteTarget = nil }
-            Button("继续", role: .destructive) { confirmation = ""; secondDelete = true }
         } message: { Text(deleteDescription) }
-        .sheet(isPresented: $secondDelete, onDismiss: { deleteTarget = nil }) {
-            NavigationStack {
-                Form {
-                    Text(deleteDescription).softGroupedRow(top: true)
-                    Text("第二次确认：输入 delete 确认删除。固定仓库/发行版/附件 ID，切换账号后禁止执行。删除发行版不会删除 git 标签。").softGroupedRow()
-                    TextField("输入 delete 确认删除", text: $confirmation).textInputAutocapitalization(.never).softGroupedRow()
-                    Button("永久删除", role: .destructive) { performDelete() }.disabled(confirmation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "delete").softGroupedRow(bottom: true)
-                }.navigationTitle("最终确认").toolbar { Button("取消") { secondDelete = false } }
-            }
-        }
+    }
+    private var deleteTitle: String {
+        deleteTarget?.asset == nil ? "确认删除整个发行版？" : "确认删除这个附件？"
     }
     private var deleteDescription: String {
         guard let target = deleteTarget else { return "" }
-        return "\(target.repo) · Release #\(target.release.id) · \(target.release.tag_name)\n" + (target.asset.map { "附件 #\($0.id) · \($0.name)" } ?? "整个发行版及附件；不删 git 标签")
+        return "\(target.repo) · Release #\(target.release.id) · \(target.release.tag_name)\n" + (target.asset.map { "附件 #\($0.id) · \($0.name)" } ?? "整个发行版及附件；不删 git 标签") + "\n此操作不可恢复。"
     }
     private func prepareDelete(_ r: ManagedRelease, asset: Asset?) {
         deleteTarget = ReleaseDeleteTarget(repo: state.repo, generation: state.generation, release: r, asset: asset)
     }
     private func performDelete() {
-        guard let target = deleteTarget, confirmation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "delete", target.repo == state.repo, target.generation == AccountStore.generation else { secondDelete = false; return }
-        secondDelete = false
+        guard let target = deleteTarget, target.repo == state.repo, target.generation == AccountStore.generation else { deleteTarget = nil; return }
+        deleteTarget = nil
         state.run {
             try await state.api.deleteManagedRelease(target.repo, original: target.release, asset: target.asset)
             try state.check()

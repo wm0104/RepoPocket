@@ -71,7 +71,7 @@ print("TrollStore URL encoding, rejection and RC update eligibility passed")
             main = pathlib.Path(temp) / 'main.swift'
             binary = pathlib.Path(temp) / 'test'
             main.write_text(harness)
-            sources = [ROOT / 'RepoPocket' / name for name in ['TrollStoreInstallRules.swift', 'AppUpdateRules.swift', 'AppUpdateSessionRules.swift']]
+            sources = [ROOT / 'RepoPocket' / name for name in ['TrollStoreInstallRules.swift', 'ChinaDate.swift', 'AppUpdateRules.swift', 'AppUpdateSessionRules.swift']]
             subprocess.run(['swiftc', *map(str, sources), str(main), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 

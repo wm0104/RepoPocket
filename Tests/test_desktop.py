@@ -6,13 +6,13 @@ source = Path(REPO_ROOT, 'RepoPocket/DesktopModels.swift').read_text() + r'''
 for name in ["main", "feature/mobile", "中文分支", "release-0.7"] { precondition(DesktopRules.validBranch(name)) }
 for name in ["", "HEAD", "@", "a..b", "a b", "a\\b", "/a", "a/", ".a", "a.lock", "a/.b", "a//b", "a@{b", "a?b", "a:", "a[", "a*", "a~", "a^", "-bad", "a\n"] { precondition(!DesktopRules.validBranch(name)) }
 let shanghai = TimeZone(identifier:"Asia/Shanghai")!
-precondition(CommitDatePresentation.local("2026-10-15T14:41:46Z",timeZone:shanghai) == "2026-10-15 22:41")
-precondition(CommitDatePresentation.local("2026-10-15T14:41:46.123Z",timeZone:shanghai) == "2026-10-15 22:41")
-precondition(CommitDatePresentation.local("2026-10-15T22:41:46+08:00",timeZone:TimeZone(secondsFromGMT:0)!) == "2026-10-15 14:41")
-precondition(CommitDatePresentation.local("2026-10-15T23:41:46Z",timeZone:shanghai) == "2026-10-16 07:41")
+precondition(CommitDatePresentation.local("2026-10-15T14:41:46Z",timeZone:shanghai) == "2026-10-15 下午 10:41")
+precondition(CommitDatePresentation.local("2026-10-15T14:41:46.123Z",timeZone:shanghai) == "2026-10-15 下午 10:41")
+precondition(CommitDatePresentation.local("2026-10-15T22:41:46+08:00",timeZone:TimeZone(secondsFromGMT:0)!) == "2026-10-15 下午 2:41")
+precondition(CommitDatePresentation.local("2026-10-15T23:41:46Z",timeZone:shanghai) == "2026-10-16 上午 7:41")
 let newYork = TimeZone(identifier:"America/New_York")!
-precondition(CommitDatePresentation.local("2026-07-15T14:41:46Z",timeZone:newYork) == "2026-07-15 10:41")
-precondition(CommitDatePresentation.local("2026-01-15T14:41:46Z",timeZone:newYork) == "2026-01-15 09:41")
+precondition(CommitDatePresentation.local("2026-07-15T14:41:46Z",timeZone:newYork) == "2026-07-15 上午 10:41")
+precondition(CommitDatePresentation.local("2026-01-15T14:41:46Z",timeZone:newYork) == "2026-01-15 上午 9:41")
 precondition(CommitDatePresentation.local("invalid",timeZone:shanghai) == "时间未知")
 let raw = #"{"sha":"abc","commit":{"message":"Title\n\nBody","author":{"name":"Test","date":"2026-10-10T00:00:00Z"}},"stats":{"total":3,"additions":2,"deletions":1},"files":[{"filename":"目录/new.txt","previous_filename":"old.txt","status":"renamed","additions":2,"deletions":1,"patch":"@@ -1 +1 @@\n-old\n+new"},{"filename":"file.deb","status":"modified","additions":0,"deletions":0}]}"#
 let commit = try JSONDecoder().decode(DesktopCommit.self, from: Data(raw.utf8))

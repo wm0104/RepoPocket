@@ -58,7 +58,7 @@ struct CommunityEventsView: View {
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack { GitHubAvatar(url: event.actor.avatar_url, size: 24); Text(event.actor.login + " " + event.summary) }
                                     Text(event.repo.name).font(.headline)
-                                    if let date = event.created_at { Text(date).font(.caption).foregroundStyle(.secondary) }
+                                    if let date = event.created_at { Text(ChinaDate.dateTime(date)).font(.caption).foregroundStyle(.secondary) }
                                 }
                             }
                         }

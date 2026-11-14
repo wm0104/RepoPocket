@@ -148,8 +148,8 @@ struct WorkflowStepRow: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack { Text("持续时间"); Spacer(); WorkflowElapsedText(start: step.started_at, end: step.completed_at, status: step.status) }
-                    if let start = WorkflowTime.date(step.started_at) { LabeledContent("开始", value: start.formatted(date: .abbreviated, time: .standard)) }
-                    if let end = WorkflowTime.date(step.completed_at) { LabeledContent("结束", value: end.formatted(date: .abbreviated, time: .standard)) }
+                    if let start = WorkflowTime.date(step.started_at) { LabeledContent("开始", value: ChinaDate.dateTime(start)) }
+                    if let end = WorkflowTime.date(step.completed_at) { LabeledContent("结束", value: ChinaDate.dateTime(end)) }
                     if let output { output }
                 }.font(.caption)
             }

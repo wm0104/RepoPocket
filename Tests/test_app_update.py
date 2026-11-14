@@ -27,10 +27,13 @@ class UpdateTests(unittest.TestCase):
         update = api.split('func officialAppUpdateData()', 1)[1].split('func descriptionContext', 1)[0]
         self.assertEqual(update.count('try ensureActiveAccount()'), 2)
         self.assertIn('CredentialStore.read(account: accountID)', api)
-        self.assertIn('guard canCheckAppUpdate else', update)
-        self.assertIn('var r = try request(endpoint)', update)
-        self.assertNotIn('URLRequest(url: endpoint)', update)
-        self.assertIn('guard api.canCheckAppUpdate else', feature)
+        self.assertIn('guard canCheckOfficialUpdate else', update)
+        # Signed-out checks build the request directly and attach the token only when present.
+        self.assertIn('URLRequest(url: endpoint)', update)
+        self.assertNotIn('var r = try request(endpoint)', update)
+        self.assertIn('let authenticated = !token.isEmpty', update)
+        self.assertIn('if authenticated { r.setValue("Bearer \\(token)"', update)
+        self.assertIn('guard api.canCheckOfficialUpdate else', feature)
         self.assertIn('session.data(for: r, delegate: OfficialUpdateRedirectPolicy())', update)
         self.assertIn('https://api.github.com/repos/wm0104/RepoPocket/releases/latest', update)
         self.assertNotIn('forHTTPHeaderField: "Authorization"', feature.split('func download()', 1)[1])
@@ -40,7 +43,7 @@ class UpdateTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift compiler is available in macOS Actions')
     def test_production_version_and_asset_rules(self):
         api = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
-        source = 'import Foundation\n' + api[api.index('struct AppError:'):api.index('struct GitHubAPIError:')] + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules.replace('import Foundation', '') + r'''
+        source = 'import Foundation\n' + api[api.index('struct AppError:'):api.index('struct GitHubAPIError:')] + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules.replace('import Foundation', '') + Path(REPO_ROOT, 'RepoPocket/ChinaDate.swift').read_text().replace('import Foundation', '') + r'''
 precondition(AppVersion("1.0.5")! < AppVersion("1.0.5.1")!)
 precondition(AppVersion("1.0.5.2")! < AppVersion("1.0.5.10")!)
 precondition(AppVersion("1.0.5.99")! < AppVersion("1.0.6")!)

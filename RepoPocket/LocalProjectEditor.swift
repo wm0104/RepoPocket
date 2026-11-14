@@ -90,26 +90,40 @@ struct LocalProjectFilesView: View {
     @State private var opened: LocalProjectFile?
     @State private var loaded = false
     @State private var error = ""
+    @State private var pendingFolderDelete: LocalFileEntry?
+    @State private var openDirectory: String?
     var body: some View {
         List {
           SoftGroupRows {
-            SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(importer.busy) }
-            SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(importer.busy) }
+            if !directory.isEmpty {
+                SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(importer.busy) }
+                SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(importer.busy) }
+            }
             if importer.busy { SoftGroupRow("import-busy") { ProgressView("导入中…") } }
             if !importer.message.isEmpty { SoftGroupRow("import-message") { Text(importer.message).font(.caption).foregroundStyle(.secondary) } }
             for entry in entries {
               SoftGroupRow("entry:" + entry.id) {
                 if entry.directory {
-                    NavigationLink { AnyView(LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: entry.path, imported: imported, changed: changed)) } label: { Label(entry.name, systemImage: "folder") }
+                    Button { openDirectory = entry.path } label: {
+                        HStack {
+                            Label(entry.name, systemImage: "folder")
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { Button("删除此文件夹", role: .destructive) { pendingFolderDelete = entry } }
                 } else {
                     HStack {
                         Button { opened = LocalProjectFile(path: entry.path) } label: { LocalGitFileLabel(name: entry.name, size: entry.size) }
                             .buttonStyle(.borderless)
                         Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-                        if entry.name.lowercased().hasSuffix(".deb") {
-                            Menu { Button("编辑包信息") { opened = LocalProjectFile(path: entry.path) } }
-                                label: { Image(systemName: "ellipsis").padding(8) }.accessibilityLabel("更多操作：" + entry.name)
-                        }
+                        Menu {
+                            if entry.name.lowercased().hasSuffix(".deb") {
+                                Button("编辑包信息") { opened = LocalProjectFile(path: entry.path) }
+                            }
+                            Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) }
+                        } label: { Image(systemName: "ellipsis").padding(8) }.accessibilityLabel("更多操作：" + entry.name)
                     }
                         .contextMenu { Button("删除此文件", role: .destructive) { opened = LocalProjectFile(path: entry.path, deleting: true) } }
                 }
@@ -127,6 +141,17 @@ struct LocalProjectFilesView: View {
             if let imported { imported(paths) } else { changed() }
             Task { await load() }
         })
+        .navigationDestination(isPresented: Binding(get: { openDirectory != nil }, set: { if !$0 { openDirectory = nil } })) {
+            if let path = openDirectory {
+                LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: path, imported: imported, changed: changed)
+            }
+        }
+        .confirmationDialog("删除文件夹「\(pendingFolderDelete?.name ?? "")」？", isPresented: Binding(get: { pendingFolderDelete != nil }, set: { if !$0 { pendingFolderDelete = nil } }), titleVisibility: .visible) {
+            Button("删除文件夹及内容", role: .destructive) { deleteFolder() }
+            Button("取消", role: .cancel) { pendingFolderDelete = nil }
+        } message: {
+            Text("文件夹内的所有文件都会被删除，此操作不可恢复。")
+        }
         .onDisappear { importer.cancel() }
         .sheet(item: $opened, onDismiss: { Task { await load() } }) { file in
             if !file.deleting && file.path.lowercased().hasSuffix(".deb") {
@@ -134,6 +159,21 @@ struct LocalProjectFilesView: View {
             } else {
                 LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
             }
+        }
+    }
+    private func deleteFolder() {
+        guard let entry = pendingFolderDelete else { return }
+        pendingFolderDelete = nil
+        error = ""
+        let target = entry.path
+        Task { @MainActor in
+            do {
+                try await LocalGitEngine.shared.file(project: project, internalRoot: internalRoot, generation: generation) { root in
+                    try LocalGitFileAccess.deleteDirectory(root: root, path: target)
+                }
+                changed()
+                await load()
+            } catch { self.error = error.localizedDescription }
         }
     }
     private func load() async {

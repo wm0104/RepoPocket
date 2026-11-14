@@ -40,7 +40,7 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertIn('复制下载链接', ui)
         self.assertIn('UIPasteboard.general.url = link', ui)
         self.assertIn('asset.browser_download_url, repo: state.repo', ui)
-        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'ForEach(state.rows)', 'ForEach(state.assets)', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', 'confirmation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "delete"', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'DownloadStore.shared.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup', 'if expanded', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
+        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'ForEach(state.rows)', 'ForEach(state.assets)', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', '确认删除这个附件？', '确认删除整个发行版？', '此操作不可恢复。', 'Button("删除", role: .destructive) { performDelete() }', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'DownloadStore.shared.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup', 'if expanded', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
             self.assertIn(token,ui)
         self.assertNotIn('AsyncImage',ui)
         transfers=(ROOT/'RepoPocket/ReleaseTransfers.swift').read_text()
@@ -61,8 +61,8 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertNotIn('.task', rows)
         self.assertIn('guard targetReady, !attachments.isEmpty', ui)
         self.assertIn('attachments.isEmpty || !targetReady', ui)
-        self.assertIn('输入 delete 确认删除', ui)
-        self.assertIn('第一次确认删除', ui)
+        self.assertIn('确认删除这个附件？', ui)
+        self.assertIn('确认删除整个发行版？', ui)
         self.assertIn('target.generation == AccountStore.generation', ui)
         for text in ['delete', ' DELETE ', '\nDeLeTe\t']:
             self.assertEqual(text.strip().lower(), 'delete')
@@ -120,7 +120,7 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertIn('} footer: {', ui)
         self.assertIn('var draft = false', models)
         self.assertIn('ReleaseManagementRules.more', ui)
-        self.assertIn('第二次确认', ui)
+        self.assertIn('此操作不可恢复。', ui)
         self.assertIn('已公开发行版会立即受到影响', ui)
 
     def test_official_marker_and_tag_write_contracts(self):
