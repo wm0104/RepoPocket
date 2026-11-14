@@ -105,14 +105,4 @@ RepoPocket 源于个人使用需求，借助 AI 辅助编写、调试和完善�
 
 兼容目标：iOS 15 或更高版本，本轮重点覆盖 iOS 15～17 的 API 兼容路径。**最低部署版本和构建通过不代表各系统真机功能均已验收**；目前主要真机使用环境仍是 iOS 16。
 
-手动构建工作流提供同一应用的四种封装（同一 Bundle ID，不支持并存）：
-
-| 文件 | 安装方式 |
-|---|---|
-| `RepoPocket.ipa` / `RepoPocket.tipa` | 相同内容的 TrollStore 安装包，不是普通侧载版 |
-| `RepoPocket_版本_iphoneos-arm64e.deb` | roothide 越狱环境，由对应包管理器重定位 |
-| `RepoPocket_版本_iphoneos-arm64.deb` | 标准 rootless 越狱环境，安装到 `/var/jb/Applications` |
-
-系统兼容性与安装工具支持范围不同：TrollStore 官方支持至 16.6.1、16.7 RC（20H18）及 17.0 等特定版本，**不支持普通 16.7.x 和 17.0.1+**。两种 deb 必须匹配实际 bootstrap，不能只按设备 CPU 选包。切换 TrollStore/deb 安装方式前先备份；容器、钥匙串、共享扩展和数据迁移须实际验证，不承诺自动保留或无损迁移。详见 [打包说明](docs/PACKAGING.md)。
-
 **少一点反复刷新，多一点顺手浏览。**
