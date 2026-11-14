@@ -14,7 +14,7 @@ class ContentLinkMenuTests(unittest.TestCase):
     def test_browser_rows_offer_copy_links_without_write_permission(self):
         app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
         browser = app.split('struct BrowserView:', 1)[1].split('struct FileView:', 1)[0]
-        rows = browser.split('@ViewBuilder private var directoryRows:', 1)[1].split('var body: some View {', 1)[0]
+        rows = browser.split('@SoftGroupRowsBuilder private var directoryRows:', 1)[1].split('var body: some View {', 1)[0]
         folder = rows.split('if e.type == "dir"', 1)[1].split('} else if e.type == "file"', 1)[0]
         files = rows.split('} else if e.type == "file"', 1)[1]
         self.assertEqual(folder.count('.contextMenu {'), 1)
@@ -33,7 +33,12 @@ class ContentLinkMenuTests(unittest.TestCase):
         self.assertIn('.repositoryCopyNotice(copyFeedback)', browser)
         self.assertNotIn('raw.githubusercontent.com', browser)
         self.assertNotIn('github.com/', browser)
-        self.assertIn('CopyRepositoryLinkButton(repository: repo, feedback: copyFeedback)', browser)
+        self.assertIn('title: "复制仓库链接"', browser)
+        self.assertIn('enabled: RepositoryLinkRules.canonicalURL(repo) != nil', browser)
+        self.assertIn('perform: { copyFeedback.copy(repo) }', browser)
+        copy_action = browser.split('copyLink: NativeMenuItem(', 1)[1].split('switchBranch:', 1)[0]
+        self.assertNotIn('canWrite', copy_action)
+        self.assertNotIn('permissions', copy_action)
 
     def test_copy_feedback_accepts_only_rule_urls_on_trusted_hosts(self):
         ui = (ROOT/'RepoPocket/RepositoryCopyUI.swift').read_text()

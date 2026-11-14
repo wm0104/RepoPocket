@@ -4,7 +4,7 @@ import SwiftUI
 /// Network-free replay of shared row boundaries in List and Form hosts.
 struct SoftGroupLifecycleStylePreview: View {
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             List {
                 ForEach(["仓库", "本地 Git", "设置"], id: \.self) { name in
                     NavigationLink(name) { SoftGroupLifecyclePage(name: name) }

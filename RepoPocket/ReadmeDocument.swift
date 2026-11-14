@@ -1,6 +1,6 @@
 import Foundation
 
-struct ReadmeDocument {
+struct ReadmeDocument: Codable {
     let entry: Entry
     let source: String?
     let html: String?
@@ -134,9 +134,9 @@ enum ReadmeDocumentRules {
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; media-src https: data:; style-src 'unsafe-inline'; script-src 'none'; frame-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
         <style>
         :root { color-scheme: light dark; } * { box-sizing: border-box; }
-        html, body { margin: 0; padding: 0; background: transparent; }
+        html, body { margin: 0; padding: 0; background: transparent; -webkit-text-size-adjust: 100%; }
         #repopocket-readme { display: flow-root; padding: 16px; min-width: 0; max-width: 100%; }
-        body { font: -apple-system-body; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; color: #1f2328; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; color: #1f2328; }
         h1 { font-size: 1.85em; } h2 { font-size: 1.45em; } h3 { font-size: 1.2em; }
         h1, h2 { border-bottom: 1px solid #d1d9e0; padding-bottom: .25em; }
         p, ul, ol, pre, blockquote, table { margin: 0 0 1em; } ul, ol { padding-left: 1.6em; }
@@ -158,17 +158,28 @@ enum ReadmeDocumentRules {
 }
 
 extension GitHub {
+    func cachedReadmeDocument(_ repo: String, branch: String) -> (value: ReadmeDocument, savedAt: Date)? {
+        cachedContent(ReadmeDocument.self, key: "readme:" + repo.lowercased() + "\n" + branch)
+    }
     func repositoryReadmeDocument(_ repo: String, branch: String) async throws -> ReadmeDocument {
         let entry = try await repositoryReadme(repo, branch: branch)
         let source = (entry.size ?? 0) <= ReadmeDocumentRules.sourceByteLimit ? try? ReadmeDocumentRules.source(entry) : nil
         do {
             let html = try await communityReadmeHTML(repo, branch: branch)
-            return ReadmeDocument(entry: entry, source: source, html: html)
+            let document = ReadmeDocument(entry: entry, source: source, html: html)
+            cacheReadme(document, repo: repo, branch: branch)
+            return document
         } catch {
             try Task.checkCancellation()
             guard isCurrentSession, !RefreshFailure.isCancellation(error) else { throw CancellationError() }
             guard source != nil else { throw error }
-            return ReadmeDocument(entry: entry, source: source, html: nil)
+            let document = ReadmeDocument(entry: entry, source: source, html: nil)
+            cacheReadme(document, repo: repo, branch: branch)
+            return document
         }
+    }
+    private func cacheReadme(_ document: ReadmeDocument, repo: String, branch: String) {
+        guard isCurrentSession, let data = try? JSONEncoder().encode(document) else { return }
+        ContentSnapshotCache.shared.save(data, accountID: accountID, key: "readme:" + repo.lowercased() + "\n" + branch)
     }
 }

@@ -31,8 +31,9 @@ struct SoftGroupShape: Shape {
 
 extension View {
     /// Keep the 1.0.4 shape; paint one inset line without native leading fragments.
-    func softGroupedRow(top: Bool = false, bottom: Bool = false, animateBackground: Bool = false, separatorInset: CGFloat = 20) -> some View {
-        listRowSeparator(.hidden)
+    func softGroupedRow(top: Bool = false, bottom: Bool = false, animateBackground: Bool = false, separatorInset: CGFloat = 20, spacingBefore: CGFloat = 0) -> some View {
+        padding(.top, spacingBefore)
+            .listRowSeparator(.hidden)
             .listRowBackground(
                 // As in 1.0.4, decoration belongs to this row's layout subtree.
                 // Never install a cover on the enclosing list: self-sizing rows
@@ -45,6 +46,7 @@ extension View {
                                 .padding(.leading, separatorInset).allowsHitTesting(false)
                         }
                     }
+                    .padding(.top, spacingBefore)
                     .clipShape(Rectangle())
                     .transaction { transaction in
                         if !animateBackground {
@@ -68,6 +70,7 @@ struct SoftGroupRow: Identifiable {
 }
 @resultBuilder enum SoftGroupRowsBuilder {
     static func buildExpression(_ row: SoftGroupRow) -> [SoftGroupRow] { [row] }
+    static func buildExpression(_ rows: [SoftGroupRow]) -> [SoftGroupRow] { rows }
     static func buildBlock(_ groups: [SoftGroupRow]...) -> [SoftGroupRow] { groups.flatMap { $0 } }
     static func buildOptional(_ rows: [SoftGroupRow]?) -> [SoftGroupRow] { rows ?? [] }
     static func buildEither(first: [SoftGroupRow]) -> [SoftGroupRow] { first }
@@ -77,14 +80,20 @@ struct SoftGroupRow: Identifiable {
 struct SoftGroupRows: View {
     private let rows: [SoftGroupRow]
     private let animateBackground: Bool
-    init(animateBackground: Bool = false, @SoftGroupRowsBuilder rows: () -> [SoftGroupRow]) {
+    private let top: Bool
+    private let bottom: Bool
+    private let spacingBefore: CGFloat
+    init(top: Bool = true, bottom: Bool = true, animateBackground: Bool = false, spacingBefore: CGFloat = 0, @SoftGroupRowsBuilder rows: () -> [SoftGroupRow]) {
+        self.top = top; self.bottom = bottom
+        self.spacingBefore = spacingBefore
         self.animateBackground = animateBackground
         self.rows = rows()
     }
     var body: some View {
         ForEach(rows) { row in
-            row.content.softGroupedRow(top: row.id == rows.first?.id, bottom: row.id == rows.last?.id,
-                                      animateBackground: animateBackground, separatorInset: row.separatorInset)
+            row.content.softGroupedRow(top: top && row.id == rows.first?.id, bottom: bottom && row.id == rows.last?.id,
+                                      animateBackground: animateBackground, separatorInset: row.separatorInset,
+                                      spacingBefore: row.id == rows.first?.id ? spacingBefore : 0)
         }
     }
 }

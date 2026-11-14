@@ -14,7 +14,14 @@ struct WorkflowDispatchTarget: Identifiable {
     let repo: String
     let workflow: DispatchWorkflow
     let ref: String
-    var runTitle: String = ""
+    let inputs: [String: String]
+    let schemaSHA: String
+    let schemaEpoch: UUID
+    var inputsSummary: String {
+        guard !inputs.isEmpty else { return "inputs：{}（不发送额外参数）" }
+        let bytes = try? JSONSerialization.data(withJSONObject: inputs, options: [.sortedKeys, .prettyPrinted])
+        return "inputs：\n" + (bytes.flatMap { String(data: $0, encoding: .utf8) } ?? "{}")
+    }
     let session: WorkflowDispatchSession
 }
 enum WorkflowDispatchRules {
@@ -27,7 +34,7 @@ enum WorkflowDispatchRules {
         case 401: help = "登录凭据已失效，请重新登录当前账号。"
         case 403: help = permissionHelp + "也请检查 Actions 策略和 API 限流。"
         case 404: help = "仓库、工作流或分支不可访问，请刷新列表并检查私有仓库授权。" + permissionHelp
-        case 422: help = "GitHub 拒绝启动：工作流可能未声明 workflow_dispatch、所选分支不支持手动运行、缺少必填 inputs，或该工作流没有声明 run_title 输入（删掉运行名称再试）。本界面仅使用默认输入，不支持填写额外参数；请到 GitHub 配置或运行。"
+        case 422: help = "GitHub 拒绝启动：请检查 workflow_dispatch 声明、所选 ref、必填 inputs、参数类型和选项。请关闭页面并重新加载工作流配置；不会自动重发。"
         default: help = dispatch ? "未收到 GitHub 的 204 接受确认，结果未知。请先刷新所选分支的 Actions 核实，勿盲目重试。" : "无法加载列表，请稍后手动刷新。"
         }
         throw AppError(text: "HTTP \(status)：\(help)\n\(reason)")
@@ -45,9 +52,46 @@ enum WorkflowDispatchRules {
     @Published private(set) var attempted = false
     @Published private(set) var result = ""
     @Published private(set) var error = ""
-    @Published var workflowID: Int?
-    @Published var ref = ""
-    @Published var runTitle = ""
+    @Published var workflowID: Int? { didSet { if oldValue != workflowID { invalidateSchema() } } }
+    @Published var ref = "" { didSet { if oldValue != ref { invalidateSchema() } } }
+    @Published var inputValues: [String: String] = [:]
+    @Published private(set) var definition: WorkflowInputDefinition?
+    @Published private(set) var loadingSchema = false
+    @Published private(set) var schemaError = ""
+    private(set) var schemaEpoch = UUID()
+    private var schemaTask: Task<WorkflowInputDefinition, Error>?
+
+    var validationError: String {
+        guard let definition else { return "请先选择工作流及分支，并成功读取参数配置。" }
+        do { _ = try definition.schema.values(inputValues, environments: definition.environments); return "" }
+        catch { return error.localizedDescription }
+    }
+    var schemaReady: Bool { definition != nil && !loadingSchema && schemaError.isEmpty && validationError.isEmpty }
+    func invalidateSchema() {
+        schemaTask?.cancel(); schemaTask = nil; schemaEpoch = UUID(); confirmation = nil
+        definition = nil; inputValues = [:]; schemaError = ""; loadingSchema = false
+    }
+    func loadSchema(_ repo: String, api: GitHub) async {
+        if attempted { return }
+        invalidateSchema()
+        guard bind(repo, api: api) else { return }
+        guard let workflow = workflows.first(where: { $0.id == workflowID && $0.state == "active" }),
+              branches.contains(where: { $0.name == ref }) else { return }
+        let epoch = schemaEpoch, selectedRef = ref
+        loadingSchema = true
+        let task = Task { try await api.workflowInputDefinition(repo, workflow: workflow, ref: selectedRef) }
+        schemaTask = task
+        defer { if schemaEpoch == epoch { loadingSchema = false; schemaTask = nil } }
+        do {
+            let value = try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
+            guard bind(repo, api: api), schemaEpoch == epoch, !Task.isCancelled else { return }
+            definition = value
+            inputValues = Dictionary(uniqueKeysWithValues: value.schema.inputs.compactMap { input in input.defaultValue.map { (input.id, $0) } })
+        } catch {
+            guard bind(repo, api: api), schemaEpoch == epoch, !Task.isCancelled else { return }
+            schemaError = error.localizedDescription
+        }
+    }
     private var workflowPage = 1
     private var branchPage = 1
     private var session: WorkflowDispatchSession?
@@ -85,11 +129,12 @@ enum WorkflowDispatchRules {
         } catch { if bind(repo, api: api), !Task.isCancelled { self.error = error.localizedDescription } }
     }
     func target(_ repo: String, api: GitHub) -> WorkflowDispatchTarget? {
-        guard bind(repo, api: api), !busy, !attempted,
+        guard bind(repo, api: api), !busy, !attempted, schemaReady, let definition,
               let workflow = workflows.first(where: { $0.id == workflowID && $0.state == "active" }),
-              branches.contains(where: { $0.name == ref }) else { return nil }
+              branches.contains(where: { $0.name == ref }),
+              let inputs = try? definition.schema.values(inputValues, environments: definition.environments) else { return nil }
         let target = WorkflowDispatchTarget(repo: repo, workflow: workflow, ref: ref,
-                                             runTitle: String(runTitle.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120)),
+                                             inputs: inputs, schemaSHA: definition.sha, schemaEpoch: schemaEpoch,
                                              session: api.workflowDispatchSession)
         confirmation = target.id
         return target
@@ -97,7 +142,8 @@ enum WorkflowDispatchRules {
     func submit(_ target: WorkflowDispatchTarget, api: GitHub, accepted: (String) -> Void) async {
         guard bind(target.repo, api: api), target.session == session, confirmation == target.id,
               !busy, !attempted, workflowID == target.workflow.id, ref == target.ref,
-              runTitle.trimmingCharacters(in: .whitespacesAndNewlines) == target.runTitle else { return }
+              schemaEpoch == target.schemaEpoch, schemaReady, let definition,
+              (try? definition.schema.values(inputValues, environments: definition.environments)) == target.inputs else { return }
         // Consume confirmation before the first suspension; never auto-retry an uncertain POST.
         confirmation = nil; busy = true; attempted = true; error = ""; result = ""
         defer { busy = false }

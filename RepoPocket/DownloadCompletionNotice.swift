@@ -25,7 +25,7 @@ extension View {
 struct DownloadCompletionStylePreview: View {
     @State private var saved: URL?
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             List {
                 Button("模拟 ZIP 保存完成") {
                     saved = URL(fileURLWithPath: "/private/var/mobile/Containers/Shared/AppGroup/fixture/RepoPocket/my-python.zip")

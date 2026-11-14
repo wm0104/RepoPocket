@@ -1,0 +1,35 @@
+# Controlled synchronization workflow fixture; never a GitHub Actions entrypoint.
+name: Sync upstream
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: Upstream branch or tag
+        type: string
+        required: true
+        default: main
+      strategy:
+        description: Synchronization strategy
+        type: choice
+        options: [merge, rebase]
+        default: merge
+      dry_run:
+        type: boolean
+        default: true
+permissions: {contents: write}
+env: &shared {CI: true, MODE: 'sync: preview'}
+jobs:
+  sync:
+    env: *shared
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: {target: [main, test]}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect upstream
+        env: {UPSTREAM_REF: '${{ inputs.upstream_ref }}'}
+        run: |
+          printf '%s\n' "$UPSTREAM_REF"
+          if [ '${{ inputs.dry_run }}' = true ]; then
+            echo 'This is a fixture, no command is executed by tests'
+          fi

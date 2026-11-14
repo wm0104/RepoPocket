@@ -102,21 +102,39 @@ struct ForkRepositoryMenuButton: View {
     @ObservedObject var state: RepositoryForkMenuState
     var refreshID = 0
     var body: some View {
+        RepositoryForkActionHost(repository: repository, api: api, state: state, refreshID: refreshID) { action in
+            if let action {
+                Button { action.perform() } label: { Label(action.title, systemImage: "tuningfork") }
+                    .disabled(!action.enabled)
+            }
+        }
+    }
+}
+
+struct RepositoryForkActionHost<Content: View>: View {
+    let repository: String
+    @ObservedObject var api: GitHub
+    @ObservedObject var state: RepositoryForkMenuState
+    var refreshID = 0
+    @ViewBuilder var content: (NativeMenuItem?) -> Content
+    var body: some View {
         if let name = try? RepositoryInput.parse(repository),
            !RepositoryGroupRules.isOwned(name, login: api.login) {
             let key = name.lowercased()
             let existing = api.forkNames[key] != nil
             let checking = state.checking.contains(key)
             let failed = state.failed.contains(key)
-            Button {
-                if failed { Task { await state.check(name, api: api) } }
-                else { state.prepare(name, api: api) }
-            } label: {
-                Label(existing ? "已复刻" : (checking ? "正在查询复刻" : (failed ? "重试查询复刻" : "复刻到我的仓库")), systemImage: "tuningfork")
-            }
-            .disabled(existing || checking || (!failed && !state.checked.contains(key)) || state.busy || !api.isCurrentSession || api.login.isEmpty ||
-                      CredentialStore.read(account: api.accountID).isEmpty)
+            content(NativeMenuItem(id: "fork", title: existing ? "已复刻" : (checking ? "正在查询复刻" : (failed ? "重试查询复刻" : "复刻到我的仓库")), symbol: "tuningfork",
+                enabled: !(existing || checking || (!failed && !state.checked.contains(key)) || state.busy || !api.isCurrentSession || api.login.isEmpty ||
+                           CredentialStore.read(account: api.accountID).isEmpty), perform: {
+                    guard api.isCurrentSession, !state.busy, !api.login.isEmpty,
+                          !CredentialStore.read(account: api.accountID).isEmpty else { return }
+                    if state.failed.contains(key) { Task { await state.check(name, api: api) } }
+                    else { state.prepare(name, api: api) }
+                }))
             .task(id: name + "\n" + String(refreshID)) { await state.check(name, api: api) }
+        } else {
+            content(nil)
         }
     }
 }

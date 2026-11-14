@@ -38,20 +38,50 @@ jobs:
       - uses: actions/checkout@v4
       - name: Select Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+      - name: Prepare Debian archive test tools
+        run: command -v dpkg-deb >/dev/null || brew install dpkg
       - uses: actions/cache@v4
         with:
           path: NativeBuild
-          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh') }}
+          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh', 'Scripts/patch_native_git.py') }}
       - name: Prepare native Git libraries
         run: |
           bash Scripts/build_native_git.sh macosx
           bash Scripts/build_native_git.sh iphoneos
+      - name: Test compact modules, theme selection and full README
+        run: python3 Tests/test_reading_density_refresh.py
+      - name: Test persistent account-isolated content snapshots
+        run: python3 Tests/test_content_snapshots.py
+      - name: Test workflow refresh and visible running lifecycle
+        run: python3 Tests/test_workflow_refresh_lifecycle.py
+      - name: Test path-specific commit metadata and starred update time
+        run: python3 Tests/test_path_commit_metadata.py
+      - name: Test remote history plans and expected-head publication
+        run: python3 Tests/test_remote_history_cleanup.py
+      - name: Test PR merge, squash and rebase selection
+        run: python3 Tests/test_pr_merge_methods.py
+      - name: Test durable repository favorites and official Star lists
+        run: python3 Tests/test_repository_collections.py
+      - name: Test pinned native Git parser patch
+        run: python3 Tests/test_native_git_patch.py
       - name: Test native local Git backend
         run: python3 Tests/test_local_git_native.py
+      - name: Test Filza foreground refresh and explicit remote association
+        run: python3 Tests/test_local_git_external_refresh.py
       - name: Test original-folder persistence and editing
         run: python3 Tests/test_local_git_store.py
+      - name: Test explicit TrollStore project paths and directory identity
+        run: python3 Tests/test_local_git_path_import.py
       - name: Test local project page lifecycle
         run: python3 Tests/test_local_git_ui.py
+      - name: Test local history recovery and unpublished safety models
+        run: python3 Tests/test_local_git_history_model.py
+      - name: Test guarded production local history operations
+        run: python3 Tests/test_local_git_workspace.py
+      - name: Test persistent merge conflict resolution and abort safety
+        run: python3 Tests/test_local_git_conflict.py
+      - name: Test independent staging and staged commit safety
+        run: python3 Tests/test_local_git_stage.py
       - name: Test exact local history count and bounded pagination
         run: python3 Tests/test_local_history_pagination.py
       - name: Test local branch rename without remote changes
@@ -64,8 +94,68 @@ jobs:
         run: python3 Tests/test_local_file_presentation.py
       - name: Test language-aware code and automatic text reading
         run: python3 Tests/test_source_code.py
+      - name: Test Fila-style literal search, replacement and highlights
+        run: python3 Tests/test_source_text_search.py
+      - name: Test shared code and patch content zoom
+        run: python3 Tests/test_content_zoom.py
+      - name: Test full workflow logs and read-only line decorations
+        run: python3 Tests/test_workflow_log_presentation.py
+      - name: Test compact settings and native menu actions
+        run: python3 Tests/test_settings_layout.py
+      - name: Test continuous page groups and pagination
+        run: python3 Tests/test_compact_page_groups.py
+      - name: Test continuous search and inbox groups
+        run: python3 Tests/test_compact_search_inbox_groups.py
+      - name: Test continuous upload and destination groups
+        run: python3 Tests/test_compact_upload_groups.py
+      - name: Test continuous local project and history groups
+        run: python3 Tests/test_compact_local_history_groups.py
+      - name: Test continuous workflow and release groups
+        run: python3 Tests/test_compact_workflow_release_groups.py
+      - name: Test continuous social and activity groups
+        run: python3 Tests/test_compact_social_activity_groups.py
+      - name: Test continuous local Git groups
+        run: python3 Tests/test_compact_git_groups.py
+      - name: Test continuous account groups
+        run: python3 Tests/test_compact_account_groups.py
+      - name: Test continuous local project main groups
+        run: python3 Tests/test_compact_local_main_groups.py
+      - name: Test continuous metadata and statistics groups
+        run: python3 Tests/test_compact_metadata_stats_groups.py
+      - name: Test continuous home groups
+        run: python3 Tests/test_compact_home_groups.py
+      - name: Test continuous operation groups
+        run: python3 Tests/test_compact_operation_groups.py
+      - name: Test continuous community groups
+        run: python3 Tests/test_compact_community_groups.py
+      - name: Test inherited upload destinations and overwrite confirmation
+        run: python3 Tests/test_upload_destination.py
+      - name: Test strict repository upload size and aggregate boundaries
+        run: python3 Tests/test_repository_upload_limits.py
       - name: Test mobile editor, directory search and exact pushed builds
         run: python3 Tests/test_mobile_editor.py
+      - name: Test four-package workflow and deployment consistency
+        run: python3 Tests/test_four_packages_workflow.py
+      - name: Test integrated upload release and external file routes
+        run: python3 Tests/test_flow_integration.py
+      - name: Test iOS 15 compatibility and context-specific menu routes
+        run: python3 Tests/test_ios15_compatibility.py
+      - name: Test Debian package layouts, signatures and rejection cases
+        run: python3 Tests/test_packages.py
+      - name: Test shared editor save locks and guarded persistence
+        run: python3 Tests/test_shared_editor_lifecycle.py
+      - name: Test UIKit nested menus and current action state
+        run: python3 Tests/test_native_action_menu.py
+      - name: Test failed-job rerun requests and confirmation lifetime
+        run: python3 Tests/test_workflow_rerun.py
+      - name: Test workflow filter row layout and toolbar confirmation
+        run: python3 Tests/test_workflow_filter_layout.py
+      - name: Test workspace and local project disclosure boundaries
+        run: python3 Tests/test_global_ui_workspace.py
+      - name: Test release management deduplication and deb disclosures
+        run: python3 Tests/test_global_ui_release.py
+      - name: Test browsing settings and statistics compact routes
+        run: python3 Tests/test_global_ui_browsing.py
       - name: Test recursive local project file search
         run: python3 Tests/test_local_project_search.py
 
@@ -79,8 +169,14 @@ jobs:
         run: python3 Tests/test_remote_branch_merge.py
       - name: Test separate local and remote merge entries
         run: python3 Tests/test_branch_merge_entry.py
+      - name: Test release target readiness lifecycle and account isolation
+        run: python3 Tests/test_release_target_lifecycle.py
+      - name: Test release editor scroll, inbox and screenshot fixtures
+        run: python3 Tests/test_release_editor_lifecycle.py
       - name: Test workflow dispatch requests and confirmation lifecycle
         run: python3 Tests/test_workflow_dispatch.py
+      - name: Test workflow YAML schemas defaults and typed input transport
+        run: python3 Tests/test_workflow_inputs.py
       - name: Test upstream activity baselines and branch selection
         run: python3 Tests/test_upstream_watch.py
       - name: Test bounded README image recovery
@@ -212,7 +308,7 @@ jobs:
       - name: Compile iOS app
         run: |
           set -o pipefail
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS="${{ inputs.fork_people_only && 'FORK_PEOPLE_ONLY' || '' }}" build | tee build.log
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) ${{ inputs.fork_people_only && 'FORK_PEOPLE_ONLY' || '' }}' build | tee build.log
       - name: Ad-hoc sign and package IPA
         if: ${{ !inputs.validate_only }}
         run: |
@@ -223,16 +319,17 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.1.8"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.2.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "15.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.1.8"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.2.0"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.1.8"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.1.8"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.2.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.2.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$EXT/Info.plist")" = "15.0"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
           codesign --display --entitlements :- "$EXT"
@@ -249,6 +346,16 @@ jobs:
           codesign --verify --deep --strict verify/Payload/RepoPocket.app
           shasum -a 256 RepoPocket.ipa > RepoPocket.ipa.sha256
           shasum -a 256 -c RepoPocket.ipa.sha256
+          cp RepoPocket.ipa RepoPocket.tipa
+          cmp RepoPocket.ipa RepoPocket.tipa
+          cd ..
+          bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor roothide --sign-mode preserve
+          bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor rootless --sign-mode preserve
+          cd dist
+          test -s RepoPocket_1.2.0_iphoneos-arm64e.deb
+          test -s RepoPocket_1.2.0_iphoneos-arm64.deb
+          shasum -a 256 RepoPocket.ipa RepoPocket.tipa RepoPocket_1.2.0_iphoneos-arm64e.deb RepoPocket_1.2.0_iphoneos-arm64.deb > SHA256SUMS
+          shasum -a 256 -c SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.validate_only }}
         with:
@@ -256,6 +363,12 @@ jobs:
           path: |
             dist/RepoPocket.ipa
             dist/RepoPocket.ipa.sha256
+            dist/RepoPocket.tipa
+            dist/RepoPocket_1.2.0_iphoneos-arm64e.deb
+            dist/RepoPocket_1.2.0_iphoneos-arm64.deb
+            dist/*.deb.sha256
+            dist/*.deb.verification.json
+            dist/SHA256SUMS
           retention-days: 30
       - name: Package optional update probe
         if: ${{ inputs.build_update_probe && !inputs.validate_only }}

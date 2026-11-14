@@ -1,5 +1,71 @@
 import SwiftUI
 
+struct LocalProjectRemoteView: View {
+    @ObservedObject var api: GitHub
+    let project: LocalGitProject
+    let metadata: URL
+    let internalRoot: URL
+    let status: LocalGitStatus
+    let generation: UUID
+    let isValid: () -> Bool
+    let saved: () -> Void
+    @State private var remote = ""
+    @State private var confirming = false
+    @State private var busy = false
+    @State private var failure = ""
+    @State private var task: Task<Void, Never>?
+    private var target: String? { try? LocalGitRules.remote(remote) }
+
+    var body: some View {
+        Form {
+            Section {
+                SoftGroupRows {
+                    SoftGroupRow("account") { AppLabeledContent("账号", value: api.login) }
+                    SoftGroupRow("repository") {
+                        NavigationLink("选择 GitHub 仓库") {
+                            LocalGitRepositoryPicker(api: api) { remote = $0.full_name }
+                        }
+                    }
+                    SoftGroupRow("address") {
+                        TextField("owner/repository 或 GitHub HTTPS 地址", text: $remote)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    }
+                    SoftGroupRow("branch") { AppLabeledContent("关联同名远端分支", value: status.branch) }
+                    SoftGroupRow("help") {
+                        Text("只添加 origin 和当前分支的跟踪配置，不修改文件、提交历史，也不会自动拉取或推送。远端历史不一致时仍会停止同步。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    SoftGroupRow("save") {
+                        Button("确认关联…") { confirming = true }.disabled(target == nil || !isValid())
+                    }
+                    if busy { SoftGroupRow("busy") { ProgressView("保存关联…") } }
+                    if !failure.isEmpty { SoftGroupRow("failure") { Text(failure).font(.caption).foregroundStyle(.red) } }
+                }
+            }.disabled(busy)
+        }.navigationTitle("关联远端仓库").adaptiveWorkspaceLayout()
+        .confirmationDialog("关联此 GitHub 仓库？", isPresented: $confirming, titleVisibility: .visible) {
+            Button("确认关联") { save() }
+            Button("取消", role: .cancel) {}
+        } message: { Text("账号：\(api.login)\n\(target ?? "")\n分支：\(status.branch)\n不会推送任何文件。") }
+        .onDisappear { task?.cancel() }
+    }
+
+    private func save() {
+        guard !busy, isValid(), generation == AccountStore.generation, api.isCurrentSession, let target else { return }
+        busy = true; failure = ""
+        task = Task { @MainActor in
+            defer { busy = false }
+            do {
+                let _: LocalGitReply = try await LocalGitEngine.shared.run("configureRemote", project: project, metadata: metadata,
+                    internalRoot: internalRoot, arguments: ["remote": target, "expectedHead": status.head, "expectedRef": status.reference], generation: generation)
+                try Task.checkCancellation()
+                guard isValid(), api.isCurrentSession, generation == AccountStore.generation else { return }
+                saved()
+            } catch { if !RefreshFailure.isCancellation(error) { failure = error.localizedDescription } }
+        }
+    }
+}
+
 struct LocalGitRepositoryPicker: View {
     @ObservedObject var api: GitHub
     let select: (Repository) -> Void
@@ -30,10 +96,13 @@ struct LocalGitRepositoryPicker: View {
                     if matches.isEmpty && !busy && failure.isEmpty {
                         SoftGroupRow("empty") { Text(query.isEmpty ? "暂无可访问仓库" : "没有匹配的仓库") }
                     }
+                    if busy { SoftGroupRow("loading") { ProgressView("正在读取仓库…") } }
+                    if !failure.isEmpty {
+                        SoftGroupRow("failure") { Text(failure).font(.caption) }
+                        SoftGroupRow("retry") { Button("重试") { Task { await load() } } }
+                    }
                 }
             }
-            if busy { ProgressView("正在读取仓库…").softGroupedRow(top: true, bottom: true) }
-            if !failure.isEmpty { Section { Text(failure).font(.caption).softGroupedRow(top: true); Button("重试") { Task { await load() } }.softGroupedRow(bottom: true) } }
         }.navigationTitle("选择仓库").adaptiveWorkspaceLayout().searchable(text: $query, prompt: "仓库名称")
         .task { guard !attempted else { return }; attempted = true; await load() }
         .refreshable { await load() }

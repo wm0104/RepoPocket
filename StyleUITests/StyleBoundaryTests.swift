@@ -2,6 +2,92 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testWorkflowFilterCornersSurviveDispatchAndRefresh() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-workflow-selection-style-preview", "-workflow-filter-corners-preview"]
+        app.launch()
+        let branch = app.switches["workflow-filter-branch"]
+        let failed = app.switches["workflow-filter-failed"]
+        XCTAssertTrue(branch.waitForExistence(timeout: 20))
+        func assertWorkflowGroup() {
+            let refresh = app.buttons["刷新"]
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)], timeout: 10), .completed)
+            for _ in 0..<4 {
+                let cell = app.cells.containing(.any, identifier: "workflow-filter-branch").firstMatch
+                if branch.isHittable && cell.frame.minY >= app.navigationBars.firstMatch.frame.maxY { break }
+                app.swipeDown()
+            }
+            assertGroupCorners(app, identifier: "workflow-filter-branch", top: true, bottom: false)
+            assertGroupCorners(app, identifier: "workflow-filter-failed", top: false, bottom: false)
+            let firstRun = app.buttons["workflow-run-1"]
+            XCTAssertTrue(firstRun.waitForExistence(timeout: 10))
+            let filterCell = app.cells.containing(.any, identifier: "workflow-filter-failed").firstMatch
+            let runCell = app.cells.containing(.any, identifier: "workflow-run-1").firstMatch
+            let gap = runCell.frame.minY - filterCell.frame.maxY
+            let roundingError = max(runCell.frame.minY.ulp, filterCell.frame.maxY.ulp) * 8
+            XCTAssertGreaterThanOrEqual(gap, -roundingError)
+            XCTAssertLessThanOrEqual(gap, 2, "Filters and runs must remain one continuous group")
+            let lastID = (failed.value as? String) == "1" ? 2 : ((branch.value as? String) == "1" ? 3 : 4)
+            let lastRun = app.buttons["workflow-run-\(lastID)"]
+            XCTAssertTrue(lastRun.waitForExistence(timeout: 10))
+            let freshness = app.descendants(matching: .any)["content-freshness"].firstMatch
+            let lastRunCell = app.cells.containing(.any, identifier: "workflow-run-\(lastID)").firstMatch
+            let lastCell = app.cells.containing(.any, identifier: "content-freshness").firstMatch
+            let top = app.navigationBars.firstMatch.frame.maxY
+            let bottom = (app.tabBars.allElementsBoundByIndex + app.toolbars.allElementsBoundByIndex)
+                .filter { $0.exists && !$0.frame.isEmpty && $0.frame.minY > top }
+                .map { $0.frame.minY }.min() ?? app.frame.maxY
+            // Hittable can mean only the row's top is visible; both corner samples must be on screen.
+            for _ in 0..<8 {
+                if freshness.exists && lastRun.isHittable && lastRunCell.frame.minY >= top && lastCell.frame.maxY <= bottom { break }
+                if lastRunCell.frame.minY < top { app.swipeDown() } else { app.swipeUp() }
+            }
+            XCTAssertTrue(freshness.waitForExistence(timeout: 10))
+            XCTAssertGreaterThanOrEqual(lastRunCell.frame.minY, top)
+            XCTAssertGreaterThanOrEqual(lastCell.frame.minY, top)
+            XCTAssertLessThanOrEqual(lastCell.frame.maxY, bottom)
+            XCTAssertLessThanOrEqual(abs(lastCell.frame.minY - lastRunCell.frame.maxY), 2, "The update status must continue the final run without an empty row")
+            assertGroupCorners(app, identifier: "workflow-run-\(lastID)", top: false, bottom: false)
+            assertGroupCorners(app, identifier: "content-freshness", top: false, bottom: true)
+            for _ in 0..<4 {
+                let cell = app.cells.containing(.any, identifier: "workflow-filter-branch").firstMatch
+                if branch.isHittable && cell.frame.minY >= app.navigationBars.firstMatch.frame.maxY { break }
+                app.swipeDown()
+            }
+        }
+        assertWorkflowGroup()
+        let open = app.buttons["workflow-dispatch-open"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10)); open.tap()
+        let picker = app.buttons["workflow-dispatch-workflow"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10)); picker.tap()
+        app.buttons["Build IPA · .github/workflows/build.yml"].tap()
+        app.buttons["workflow-dispatch-branch"].tap()
+        app.buttons["main"].tap()
+        let run = app.buttons["workflow-dispatch-confirm"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: run)], timeout: 10), .completed)
+        run.tap()
+        let start = app.buttons["启动"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5)); start.tap()
+        let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "GitHub 已接受启动请求")).firstMatch
+        reveal(result, in: app)
+        XCTAssertTrue(result.waitForExistence(timeout: 15), app.debugDescription)
+        app.buttons["关闭"].tap()
+        XCTAssertTrue(branch.waitForExistence(timeout: 10))
+        let first = app.cells.containing(.any, identifier: "workflow-filter-branch").firstMatch
+        XCTAssertTrue(first.staticTexts["main"].exists, "The dispatched branch must stay inside the toggle's native cell")
+        for cycle in 0..<3 {
+            assertWorkflowGroup()
+            keepScreenshot(app, name: "workflow-filter-dispatch-\(cycle)")
+            setSwitch(app, label: "workflow-filter-failed", enabled: (failed.value as? String) != "1")
+            let refresh = app.buttons["刷新"]
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)], timeout: 10), .completed)
+            refresh.tap()
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)], timeout: 10), .completed)
+            assertWorkflowGroup()
+        }
+    }
+
     func testLocalMergePreviewUsesCurrentBranchAndDoesNotPush() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -13,7 +99,9 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(source.waitForExistence(timeout: 15)); source.tap()
         let preview = app.buttons["localgit.merge-preview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 10)); preview.tap()
+        XCTAssertTrue(app.staticTexts["source → target"].waitForExistence(timeout: 20))
         let changedFile = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "merge.txt")).firstMatch
+        reveal(changedFile, in: app)
         XCTAssertTrue(changedFile.waitForExistence(timeout: 20), "The native merge preview must show the source change")
         keepScreenshot(app, name: "local-branch-merge-preview")
         XCTAssertFalse(app.buttons["推送本地提交"].exists, "Preview does not open the push flow")
@@ -84,8 +172,16 @@ final class StyleBoundaryTests: XCTestCase {
     private func assertGroupCorners(_ app: XCUIApplication, identifier: String, top: Bool, bottom: Bool) {
         let cell = app.descendants(matching: .cell).containing(.any, identifier: identifier).firstMatch
         XCTAssertTrue(cell.exists, identifier)
-        let frame = cell.frame
+        var previous = CGRect.zero, stableSamples = 0
+        let stable = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let value = cell.frame
+            stableSamples = !value.isEmpty && value == previous ? stableSamples + 1 : 0
+            previous = value
+            return stableSamples >= 2
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [stable], timeout: 10), .completed)
         guard let image = app.screenshot().image.cgImage else { return XCTFail("Missing screenshot") }
+        let frame = cell.frame
         let scale = CGFloat(image.width) / app.frame.width
         func pixel(_ x: CGFloat, _ y: CGFloat) -> [Int] {
             guard let crop = image.cropping(to: CGRect(x: x * scale, y: y * scale, width: 1, height: 1)) else { return [] }
@@ -102,17 +198,19 @@ final class StyleBoundaryTests: XCTestCase {
         let left = (0..<80).first { pixel(CGFloat($0), frame.midY).allSatisfy { $0 > 250 } }
         let right = (0..<80).first { pixel(app.frame.width - 1 - CGFloat($0), frame.midY).allSatisfy { $0 > 250 } }
         guard let left, let right else { return XCTFail("No visible row fill: \(identifier), \(frame)") }
-        for y in [top ? frame.minY + 3 : nil, bottom ? frame.maxY - 4 : nil].compactMap({ $0 }) {
+        let fill = pixel(CGFloat(left) + 3, frame.midY)
+        for (y, rounded) in [(frame.minY + 3, top), (frame.maxY - 4, bottom)] {
+            let expected = rounded ? background : fill
             for x in [CGFloat(left) + 3, app.frame.width - CGFloat(right) - 4] {
                 let corner = pixel(x, y)
                 XCTAssertEqual(corner.count, 3)
-                XCTAssertLessThanOrEqual(zip(corner, background).map { abs($0 - $1) }.max() ?? 255, 8,
-                    "Square corner after refresh/back: \(identifier), \(frame), corner=\(corner), background=\(background)")
+                XCTAssertLessThanOrEqual(zip(corner, expected).map { abs($0 - $1) }.max() ?? 255, 8,
+                    "Incorrect group boundary after refresh/back: \(identifier), \(frame), rounded=\(rounded), corner=\(corner), expected=\(expected)")
             }
         }
     }
 
-    func testWorkflowLastCardToLoadMoreUsesCompactGap() {
+    func testWorkflowLastCardToLoadMoreUsesCompactGap() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-workflow-selection-style-preview", "-workflow-pagination-preview"]
@@ -122,13 +220,32 @@ final class StyleBoundaryTests: XCTestCase {
             if next.exists && next.isHittable { break }
             app.swipeUp()
         }
-        reveal(next, in: app)
-        let last = app.descendants(matching: .cell).containing(.any, identifier: "workflow-run-30").firstMatch
-        let footer = app.descendants(matching: .cell).containing(.button, identifier: "加载更多").firstMatch
-        XCTAssertTrue(last.exists && footer.exists)
-        XCTAssertGreaterThanOrEqual(footer.frame.minY - last.frame.maxY, 0)
-        XCTAssertLessThanOrEqual(footer.frame.minY - last.frame.maxY, 16)
+        waitReady(next, in: app)
+        // Freeze one hierarchy: separate live queries can resolve recycled list-cell frames.
+        let layout = try app.collectionViews.firstMatch.snapshot()
+        var pending: [XCUIElementSnapshot] = [layout], rows: [XCUIElementSnapshot] = []
+        while let snapshot = pending.popLast() {
+            if snapshot.elementType == .cell { rows.append(snapshot) }
+            pending.append(contentsOf: snapshot.children)
+        }
+        func contains(_ snapshot: XCUIElementSnapshot, _ identifier: String) -> Bool {
+            snapshot.identifier == identifier || (snapshot.elementType == .button && snapshot.label == identifier)
+                || snapshot.children.contains { contains($0, identifier) }
+        }
+        let lastRows = rows.filter { contains($0, "workflow-run-30") }
+        let footerRows = rows.filter { contains($0, "加载更多") }
+        XCTAssertEqual(lastRows.count, 1); XCTAssertEqual(footerRows.count, 1)
+        let last = try XCTUnwrap(lastRows.first), footer = try XCTUnwrap(footerRows.first)
+        XCTAssertTrue(layout.frame.intersects(last.frame), "Measure the visible last row, not an offscreen recycled cell")
+        let geometry = XCTAttachment(string: "viewport=\(layout.frame)|last=\(last.frame)|footer=\(footer.frame)")
+        geometry.name = "workflow-pagination-fixed-snapshot"; geometry.lifetime = .keepAlways
+        add(geometry)
         keepScreenshot(app, name: "workflow-pagination-compact-gap")
+        let gap = footer.frame.minY - last.frame.maxY
+        // AX frame subtraction can put touching edges a few floating-point ULPs below zero.
+        let roundingError = max(footer.frame.minY.ulp, last.frame.maxY.ulp) * 8
+        XCTAssertGreaterThanOrEqual(gap, -roundingError)
+        XCTAssertLessThanOrEqual(gap, 16)
     }
     func testUpstreamWatchLinkInputKeepsFormResponsiveAndBranchSelectionExplicit() {
         continueAfterFailure = false
@@ -486,6 +603,16 @@ final class StyleBoundaryTests: XCTestCase {
         app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-upstream-sync-style-preview"]; app.launch()
         let more = app.buttons["repository-more"]
         XCTAssertTrue(more.waitForExistence(timeout: 20))
+        let visibleRows = app.cells.allElementsBoundByIndex.filter { $0.isHittable && $0.frame.height > 0 }
+            .sorted { $0.frame.minY < $1.frame.minY }
+        XCTAssertGreaterThanOrEqual(visibleRows.count, 3)
+        for (first, next) in zip(visibleRows, visibleRows.dropFirst()) {
+            let gap = next.frame.minY - first.frame.maxY
+            let roundingError = max(first.frame.maxY.ulp, next.frame.minY.ulp) * 8
+            XCTAssertGreaterThanOrEqual(gap, -roundingError)
+            XCTAssertLessThanOrEqual(gap, 2, "Related repository overview rows must not be separate cards")
+        }
+        keepScreenshot(app, name: "repository-overview-continuous-rows")
         let tools = app.buttons["repository-more-tools"], owner = app.buttons["repository-more-owner"]
         XCTAssertEqual(more.value as? String, "已折叠")
         XCTAssertFalse(tools.exists); XCTAssertFalse(owner.exists)
@@ -585,7 +712,7 @@ final class StyleBoundaryTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-local-git-style-preview"]; app.launch()
         let manage = app.buttons["localgit.branches"]
-        XCTAssertTrue(manage.waitForExistence(timeout: 40)); reveal(manage, in: app); manage.tap()
+        XCTAssertTrue(manage.waitForExistence(timeout: 40)); tapReady(manage, in: app)
         let create = app.buttons["从当前 HEAD 新建并切换"]
         XCTAssertTrue(create.waitForExistence(timeout: 15)); create.tap()
         let alert = app.alerts["从当前 HEAD 新建并切换"]
@@ -610,10 +737,13 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertFalse(app.buttons["导入文件"].exists)
         XCTAssertFalse(app.buttons["导入文件夹"].exists)
         keepScreenshot(app, name: "local-project-compact")
-        openProjectActions(app)
-        XCTAssertTrue(app.buttons["导入位置：根目录"].exists)
+        openProjectRootAddMenu(app)
+        XCTAssertTrue(app.buttons["新建文件"].exists)
+        XCTAssertTrue(app.buttons["新建文件夹"].exists)
         XCTAssertTrue(app.buttons["导入文件"].exists)
         XCTAssertTrue(app.buttons["导入文件夹"].exists)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).tap()
+        openProjectActions(app)
         app.buttons["项目信息"].tap()
         XCTAssertTrue(app.navigationBars["项目信息"].waitForExistence(timeout: 5))
         keepScreenshot(app, name: "local-project-information")
@@ -624,16 +754,28 @@ final class StyleBoundaryTests: XCTestCase {
     private func openProjectActions(_ app: XCUIApplication) {
         let menu = app.buttons["localgit.project-actions"]
         XCTAssertTrue(menu.waitForExistence(timeout: 40))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: menu)], timeout: 15), .completed)
         menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(app.buttons["项目信息"].waitForExistence(timeout: 5))
+    }
+
+    private func openProjectRootAddMenu(_ app: XCUIApplication) {
+        openProjectActions(app)
+        app.buttons["添加到根目录"].tap()
+        XCTAssertTrue(app.buttons["新建文件"].waitForExistence(timeout: 5))
+    }
+
+    private func openProjectFiles(_ app: XCUIApplication) {
+        let browse = app.buttons["浏览与编辑项目文件"]
+        XCTAssertTrue(browse.waitForExistence(timeout: 40)); tapReady(browse, in: app)
+        XCTAssertTrue(app.navigationBars["项目文件"].waitForExistence(timeout: 15))
     }
 
     func testProjectFilesUseLongPressDeletionAndKeepPreview() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-local-git-style-preview"]; app.launch()
-        let browse = app.buttons["浏览与编辑项目文件"]
-        XCTAssertTrue(browse.waitForExistence(timeout: 40)); reveal(browse, in: app); browse.tap()
+        openProjectFiles(app)
         let file = app.buttons["local-project-file-示例.py"]
         XCTAssertTrue(file.waitForExistence(timeout: 15))
         XCTAssertFalse(app.buttons["更多操作：示例.py"].exists)
@@ -644,10 +786,16 @@ final class StyleBoundaryTests: XCTestCase {
         let remove = app.buttons["删除此文件"]
         XCTAssertTrue(remove.waitForExistence(timeout: 5)); remove.tap()
         XCTAssertTrue(app.buttons["确认删除此文件"].waitForExistence(timeout: 15))
+        let deletion = app.navigationBars["删除文件"]
+        let close = deletion.buttons["关闭"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: close)], timeout: 15), .completed)
         keepScreenshot(app, name: "local-project-files-long-press")
-        app.buttons["关闭"].tap()
+        close.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: deletion)], timeout: 10), .completed)
         XCTAssertTrue(file.waitForExistence(timeout: 10), "Cancelling must keep the project file")
-        app.buttons["debs"].tap()
+        let folder = app.buttons["debs"]
+        reveal(folder, in: app); folder.tap()
+        XCTAssertTrue(app.navigationBars["debs"].waitForExistence(timeout: 10))
         let deb = app.buttons["local-project-file-debs/package-01.deb"]
         XCTAssertTrue(deb.waitForExistence(timeout: 10)); deb.tap()
         XCTAssertTrue(app.textFields["Version"].waitForExistence(timeout: 15), "Tapping DEB still opens the established editor")
@@ -656,11 +804,9 @@ final class StyleBoundaryTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-local-git-style-preview"]; app.launch()
-        let browse = app.buttons["浏览与编辑项目文件"]
-        XCTAssertTrue(browse.waitForExistence(timeout: 40)); reveal(browse, in: app); browse.tap()
+        openProjectFiles(app)
         keepScreenshot(app, name: "mobile-editor-create-menu")
-        // The toolbar Menu's AX wrapper has no hit point; use its visible button center.
-        app.buttons["新建文件或文件夹"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.buttons["localgit.add"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(app.buttons["新建文件"].waitForExistence(timeout: 5)); app.buttons["新建文件"].tap()
         let name = "mobile-editor-" + String(UUID().uuidString.prefix(8)) + ".swift"
         let field = app.alerts.textFields["名称"]
@@ -699,8 +845,7 @@ final class StyleBoundaryTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-local-git-style-preview"]; app.launch()
-        let browse = app.buttons["浏览与编辑项目文件"]
-        XCTAssertTrue(browse.waitForExistence(timeout: 40)); reveal(browse, in: app); browse.tap()
+        openProjectFiles(app)
         let file = app.buttons["local-project-file-示例.py"]
         XCTAssertTrue(file.waitForExistence(timeout: 10))
         for _ in 0..<3 {
@@ -918,6 +1063,10 @@ final class StyleBoundaryTests: XCTestCase {
         ] {
             let link = app.buttons[entry]
             XCTAssertTrue(link.waitForExistence(timeout: 20)); link.tap()
+            if entry == "home-collection-starred" {
+                let all = app.buttons["star-list-all"]
+                XCTAssertTrue(all.waitForExistence(timeout: 15)); all.tap()
+            }
             let search = app.buttons["list-search-button"]
             XCTAssertTrue(search.waitForExistence(timeout: 15)); search.tap()
             let field = app.textFields["list-search-field"]
@@ -926,6 +1075,7 @@ final class StyleBoundaryTests: XCTestCase {
             search.tap()
             XCTAssertFalse(app.textFields["list-search-field"].exists)
             if title == "我的仓库" { keepScreenshot(app, name: "home-owned-destination") }
+            if entry == "home-collection-starred" { app.navigationBars.buttons["已加星标"].tap() }
             app.navigationBars.buttons["RepoPocket"].tap()
         }
         keepScreenshot(app, name: "home-grouped-navigation")
@@ -1064,21 +1214,27 @@ final class StyleBoundaryTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-local-git-style-preview"]
         app.launch()
-        let choose = app.buttons["导入位置：根目录"]
-        XCTAssertTrue(app.buttons["localgit.folder.debs"].waitForExistence(timeout: 40))
-        openProjectActions(app); choose.tap()
+        openProjectFiles(app)
         for name in ["目标", "子目录"] {
             let matches = app.buttons.matching(identifier: name)
             let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in matches.allElementsBoundByIndex.contains { $0.isHittable } }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
             matches.allElementsBoundByIndex.first(where: { $0.isHittable })!.tap()
         }
-        app.buttons["选择此文件夹"].tap()
-        XCTAssertTrue(app.buttons["localgit.project-actions"].waitForExistence(timeout: 10))
-        openProjectActions(app)
-        let selected = app.buttons["导入位置：目标/子目录"]
-        XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"), object: selected)], timeout: 10) == .completed,
-                      "Choosing a nested import destination must dismiss the picker and update the menu")
+        let destination = app.staticTexts["添加目标：目标/子目录"]
+        XCTAssertTrue(destination.waitForExistence(timeout: 10))
+        let add = app.buttons["localgit.add"]
+        XCTAssertEqual(add.label, "添加到目标/子目录")
+        add.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["导入文件"].waitForExistence(timeout: 5)); app.buttons["导入文件"].tap()
+        let cancel = app.buttons["取消导入"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 30), "Open the actual Files browser for the visible nested directory")
+        cancel.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: cancel)], timeout: 10), .completed)
+        XCTAssertTrue(app.navigationBars["子目录"].waitForExistence(timeout: 10))
+        XCTAssertTrue(destination.exists, "Cancelling import must keep the visible nested destination")
+        XCTAssertEqual(add.label, "添加到目标/子目录")
         keepScreenshot(app, name: "local-import-destination")
     }
     func testLocalDEBUsesExistingEditorAndSavesToProject() {
@@ -1137,7 +1293,7 @@ final class StyleBoundaryTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-local-git-style-preview", "-folder-import-style-preview"]
         app.launch()
-        openProjectActions(app)
+        openProjectRootAddMenu(app)
         let add = app.buttons["导入文件夹"]
         XCTAssertTrue(add.waitForExistence(timeout: 40)); add.tap()
         let search = app.searchFields.firstMatch
@@ -1178,15 +1334,15 @@ final class StyleBoundaryTests: XCTestCase {
         let folder = app.buttons["localgit.folder.debs"]
         XCTAssertTrue(folder.waitForExistence(timeout: 40), "Changes must show the containing folder")
         XCTAssertFalse(app.staticTexts["package-01.deb"].exists, "Collapsed folders must not flatten their files")
-        app.buttons["全选"].tap()
-        XCTAssertTrue(app.staticTexts["已选 45"].exists)
+        tapReady(app.buttons["全选"], in: app)
+        XCTAssertTrue(app.staticTexts["已选 45"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["全选"].exists, "Bulk selection must use one toggling button")
-        app.buttons["取消全选"].tap()
-        XCTAssertTrue(app.staticTexts["已选 0"].exists)
-        folder.tap()
+        tapReady(app.buttons["取消全选"], in: app)
+        XCTAssertTrue(app.staticTexts["已选 0"].waitForExistence(timeout: 5))
+        tapReady(folder, in: app)
         XCTAssertTrue(app.staticTexts["package-01.deb"].waitForExistence(timeout: 5))
-        app.buttons["debs 全选"].tap()
-        XCTAssertTrue(app.staticTexts["已选 44"].exists)
+        tapReady(app.buttons["debs 全选"], in: app)
+        XCTAssertTrue(app.staticTexts["已选 44"].waitForExistence(timeout: 5))
         keepScreenshot(app, name: "local-folder-selection")
     }
 
@@ -1195,7 +1351,7 @@ final class StyleBoundaryTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-local-git-style-preview"]
         app.launch()
-        openProjectActions(app)
+        openProjectRootAddMenu(app)
         XCTAssertTrue(app.buttons["导入文件"].waitForExistence(timeout: 40))
         XCTAssertTrue(app.buttons["导入文件夹"].exists)
         app.buttons["导入文件"].tap()
@@ -1207,7 +1363,7 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: filesSearch)], timeout: 15) == .completed)
         keepScreenshot(app, name: "local-import-picker")
         app.buttons["取消导入"].tap()
-        openProjectActions(app)
+        openProjectRootAddMenu(app)
         XCTAssertTrue(app.buttons["导入文件夹"].exists)
     }
 
@@ -1233,16 +1389,19 @@ final class StyleBoundaryTests: XCTestCase {
         app.launch()
         app.buttons["打开提交差异"].tap()
         XCTAssertTrue(app.staticTexts["仅显示本次提交的变化"].waitForExistence(timeout: 10))
+        let parsedLine = app.scrollViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "NSLayoutConstraint.activate")).firstMatch
+        XCTAssertTrue(parsedLine.waitForExistence(timeout: 20), "Wait for parsed patch rows, not only the synchronous heading")
         var report = sourceReport(app)
-        XCTAssertEqual(Int(report["offset"] ?? "-999"), 0)
+        XCTAssertEqual(report["offset"], "0")
         app.scrollViews.firstMatch.swipeLeft()
         report = sourceReport(app)
         XCTAssertGreaterThan(Int(report["offset"] ?? "0") ?? 0, 0)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["打开提交差异"].tap()
         XCTAssertTrue(app.staticTexts["仅显示本次提交的变化"].waitForExistence(timeout: 10))
+        XCTAssertTrue(parsedLine.waitForExistence(timeout: 20))
         report = sourceReport(app)
-        XCTAssertEqual(Int(report["offset"] ?? "-999"), 0, "Reopening a real commit file must start from its leading edge")
+        XCTAssertEqual(report["offset"], "0", "Reopening a real commit file must start from its leading edge")
         keepScreenshot(app, name: "recorded-patch-leading")
     }
 
@@ -1258,8 +1417,16 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(text.waitForExistence(timeout: 10))
         XCTAssertTrue((text.value as? String ?? "").contains("中文构建失败详情"))
         XCTAssertFalse(app.staticTexts["完整输出见任务日志"].exists)
+        let full = app.buttons["workflow-step-full-log-63"]
+        let task = app.buttons["workflow-job-log"]
+        reveal(task, in: app)
+        let fullRow = app.cells.containing(.button, identifier: "workflow-step-full-log-63").firstMatch
+        let taskRow = app.cells.containing(.button, identifier: "workflow-job-log").firstMatch
+        XCTAssertTrue(fullRow.exists && taskRow.exists)
+        XCTAssertLessThanOrEqual(abs(taskRow.frame.minY - fullRow.frame.maxY), 1,
+                                 "No detached card gap between related log actions")
         keepScreenshot(app, name: "workflow-step-output")
-        app.buttons["全屏查看此步骤日志"].tap()
+        full.tap()
         XCTAssertTrue(app.textViews["代码正文"].waitForExistence(timeout: 10))
         XCTAssertTrue((app.textViews["代码正文"].value as? String ?? "").contains("完整步骤输出已在 App 内显示"))
     }
@@ -1356,6 +1523,12 @@ final class StyleBoundaryTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-repository-file-search-preview"]; app.launch()
+        let summary = app.cells.containing(.any, identifier: "repository-code-summary").firstMatch
+        let firstFile = app.cells.containing(.any, identifier: "repository-entry-Sources").firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 15))
+        XCTAssertTrue(firstFile.waitForExistence(timeout: 15))
+        XCTAssertLessThanOrEqual(abs(firstFile.frame.minY - summary.frame.maxY), 1,
+                                 "Repository summary and code rows must form one continuous group")
         let searchButton = app.buttons["搜索文件和文件夹"]
         XCTAssertTrue(searchButton.waitForExistence(timeout: 15)); searchButton.tap()
         let search = app.searchFields.firstMatch
@@ -1380,16 +1553,28 @@ final class StyleBoundaryTests: XCTestCase {
         app.launchArguments = ["-style-preview", "-source-style-preview"]; app.launch()
         let code = app.textViews["代码正文"]
         XCTAssertTrue(code.waitForExistence(timeout: 10))
-        let original = code.value as? String
+        guard let original = code.value as? String else { XCTFail("Missing the original read-only document"); return }
         app.buttons["搜索当前文件"].tap()
         dismissKeyboardIntroduction(app)
         keepScreenshot(app, name: "source-native-find-start")
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 5), "Native find must be visible inside the phone viewport")
-        XCTAssertTrue(app.buttons["完成"].waitForExistence(timeout: 5), "Native find controls must follow the declared Chinese app language")
+        let search = app.textFields["查找"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5), "The UIKit find field must be visible inside the phone viewport")
+        XCTAssertTrue(app.buttons["关闭查找"].waitForExistence(timeout: 5))
         XCTAssertTrue(search.isHittable); search.tap(); search.typeText("TAIL_MARKER")
+        XCTAssertTrue(app.frame.contains(search.frame))
+        XCTAssertFalse(app.textFields["替换为"].exists)
+        XCTAssertFalse(app.buttons["替换"].exists)
+        XCTAssertFalse(app.buttons["替换全部"].exists)
+        app.buttons["下一处"].tap()
+        let match = (original as NSString).range(of: "TAIL_MARKER")
+        XCTAssertNotEqual(match.location, NSNotFound)
+        let report = sourceReport(app)
+        XCTAssertEqual(report["selection"], "\(match.location):\(match.length)", "Find must navigate the real code selection")
         XCTAssertEqual(code.value as? String, original, "Read-only search must not mutate the document")
         keepScreenshot(app, name: "source-native-file-search")
+        app.buttons["关闭查找"].tap()
+        XCTAssertFalse(search.exists)
+        XCTAssertEqual(code.value as? String, original)
     }
 
     func testSourcePreviewAndEditorHorizontalScrolling() {
@@ -1453,9 +1638,16 @@ final class StyleBoundaryTests: XCTestCase {
         let control = app.switches[label]
         let expected = enabled ? "1" : "0"
         if control.value as? String != expected {
-            // SwiftUI exposes the label row as a switch too. Tap the native
-            // thumb instead of the row center, which can be noninteractive.
-            control.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+            waitReady(control, in: app)
+            // SwiftUI exposes both the row and a separate native switch.
+            // Prefer the native control inside this row over a relative edge tap.
+            let frame = control.frame
+            let native = app.switches.allElementsBoundByIndex.first {
+                guard $0.identifier.isEmpty, $0.label.isEmpty else { return false }
+                let candidate = $0.frame
+                return frame.contains(CGPoint(x: candidate.midX, y: candidate.midY))
+            }
+            (native ?? control).tap()
         }
         XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: control)], timeout: 5) == .completed, "The actual switch must change state")
     }
@@ -1547,6 +1739,21 @@ final class StyleBoundaryTests: XCTestCase {
         keepScreenshot(app, name: "local-history-after-folding")
     }
 
+    private func tapReady(_ element: XCUIElement, in app: XCUIApplication) {
+        waitReady(element, in: app)
+        element.tap()
+    }
+    private func waitReady(_ element: XCUIElement, in app: XCUIApplication) {
+        reveal(element, in: app)
+        var previous = CGRect.zero, stableSamples = 0
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let frame = element.frame
+            stableSamples = element.isEnabled && element.isHittable && !frame.isEmpty && frame == previous ? stableSamples + 1 : 0
+            previous = frame
+            return stableSamples >= 2
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
+    }
     private func reveal(_ element: XCUIElement, in app: XCUIApplication, scroll: XCUIElement? = nil) {
         for _ in 0..<8 {
             if element.exists && element.isHittable { return }

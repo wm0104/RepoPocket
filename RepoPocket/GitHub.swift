@@ -62,7 +62,7 @@ enum CredentialStore {
     static func clear(account: String = AccountStore.activeID) { SecItemDelete(query(account) as CFDictionary) }
 }
 
-struct User: Decodable {
+struct User: Codable {
     let id: Int?
     let login: String
     let avatar_url: String?
@@ -76,12 +76,12 @@ struct RepoAccess: Decodable {
     let full_name: String
     let permissions: Permissions?
 }
-struct RepositoryReference: Decodable {
+struct RepositoryReference: Codable {
     let full_name: String
     let html_url: String?
     let default_branch: String?
 }
-struct Repository: Decodable, Identifiable {
+struct Repository: Codable, Identifiable {
     let id: Int
     let full_name: String
     let name: String
@@ -98,10 +98,10 @@ struct Repository: Decodable, Identifiable {
     let fork: Bool?
     let parent: RepositoryReference?
     let source: RepositoryReference?
-    struct Permissions: Decodable { let admin: Bool?; let push: Bool? }
+    struct Permissions: Codable { let admin: Bool?; let push: Bool? }
     let permissions: Permissions?
 }
-struct Entry: Decodable, Identifiable {
+struct Entry: Codable, Identifiable {
     var id: String { path }
     let name: String
     let path: String
@@ -128,8 +128,6 @@ struct Asset: Decodable, Identifiable {
     let browser_download_url: String
 }
 struct GitHubMessage: Decodable { let message: String }
-
-struct TrollPublishResult { let commitSHA: String; let path: String }
 
 final class TransferProgress: NSObject, URLSessionTaskDelegate {
     let update: (Double) -> Void
@@ -166,6 +164,8 @@ final class GitHub: ObservableObject {
     private var forkCheckIDs: [String: UUID] = [:]
     private var forkCheckedAt: [String: Date] = [:]
     lazy var stars = RepositoryStarStore(api: self)
+    lazy var favorites = RepositoryFavoritesState(accountID: accountID) { [weak self] in self?.isCurrentSession == true }
+    var starLists: GitHubStarLists { .init(send: { try await self.starListGraphQL($0, variables: $1) }, isCurrent: { self.isCurrentSession }) }
     lazy var follows = UserFollowStore(api: self)
     lazy var issueDeletions = IssueDeletionState()
     var issueDeletionSession: IssueDeletionSession { .init(accountID: accountID, generation: accountGeneration) }
@@ -183,6 +183,17 @@ final class GitHub: ObservableObject {
     func requireStarSession() throws {
         try ensureActiveAccount()
         guard !CredentialStore.read(account: accountID).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError(text: "请登录账号") }
+    }
+    func starListGraphQL(_ query: String, variables: [String: Any]) async throws -> Data {
+        try requireStarSession(); try Task.checkCancellation()
+        let bytes = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
+        var r = try request(url("/graphql"), method: "POST", body: bytes)
+        r.timeoutInterval = 30
+        let (data, response) = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        try requireStarSession(); try Task.checkCancellation()
+        try check(data, response, operation: "Star分类")
+        guard data.count <= 2_097_152 else { throw AppError(text: "分类响应过大，请缩小范围后重试。") }
+        return data
     }
     func starRequest(_ name: String, method: String) async throws -> Bool {
         try requireStarSession()
@@ -215,9 +226,15 @@ final class GitHub: ObservableObject {
     var canCheckAppUpdate: Bool { isCurrentSession && !CredentialStore.read(account: accountID).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     /// The public releases endpoint works signed out; a token only raises the rate limit.
     var canCheckOfficialUpdate: Bool { isCurrentSession }
-    func cachedCollection(_ section: RepositoryHomeSection) -> [Repository]? { collectionCache[section] }
+    func cachedCollection(_ section: RepositoryHomeSection) -> [Repository]? {
+        guard isCurrentSession else { return nil }
+        return collectionCache[section] ?? cachedContent([Repository].self, key: "collection:" + section.rawValue)?.value
+    }
     func cacheCollection(_ repositories: [Repository], section: RepositoryHomeSection) {
         collectionCache[section] = repositories
+        if isCurrentSession, let data = try? JSONEncoder().encode(repositories) {
+            ContentSnapshotCache.shared.save(data, accountID: accountID, key: "collection:" + section.rawValue)
+        }
         if section == .starred { stars.seed(repositories) }
     }
     func forkParent(for repository: Repository) async -> RepositoryReference? {
@@ -463,6 +480,13 @@ final class GitHub: ObservableObject {
         let r = try request(url(path, query: query), method: method, body: body)
         let (d, response) = try await session.data(for: r)
         try check(d, response, operation: operation(path, method: method))
+        try ensureActiveAccount(); try Task.checkCancellation()
+        if method == "GET", path.hasPrefix("/repos/") {
+            let parts = path.split(separator: "/")
+            if parts.count == 3 || parts.dropFirst(3).first == "contents" || path.hasSuffix("/actions/runs") || path.hasSuffix("/releases/latest") {
+                ContentSnapshotCache.shared.save(d, accountID: accountID, key: ContentSnapshotCache.key(path, query: query))
+            }
+        }
         return d
     }
     private func decoded<T: Decodable>(_ type: T.Type, _ path: String, method: String = "GET",
@@ -470,7 +494,7 @@ final class GitHub: ObservableObject {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(type, from: await data(path, method: method, object: object, query: query))
     }
-    private func uploadGitBlobFile(_ file: URL, path: String, maximumBytes: Int64, expectedSize: Int64? = nil) async throws -> GitObject {
+    private func uploadGitBlobFile(_ file: URL, path: String, maximumBytes: Int64, expectedSize: Int64? = nil, expectedSHA256: String? = nil) async throws -> GitObject {
         try ensureActiveAccount()
         let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
         guard attributes[.type] as? FileAttributeType == .typeRegular,
@@ -489,12 +513,14 @@ final class GitHub: ObservableObject {
             defer { try? input.close(); try? output.close() }
             try output.write(contentsOf: Data("{\"content\":\"".utf8))
             var carry = Data()
+            var hash = SHA256()
             var totalBytes: Int64 = 0
             while let chunk = try input.read(upToCount: 192 * 1024), !chunk.isEmpty {
                 try Task.checkCancellation()
                 let count = Int64(chunk.count)
                 guard totalBytes <= maximumBytes - count else { throw AppError(text: "文件超过上传大小限制。") }
                 totalBytes += count
+                if expectedSHA256 != nil { hash.update(data: chunk) }
                 carry.append(chunk)
                 let completeCount = (carry.count / 3) * 3
                 if completeCount > 0 {
@@ -504,6 +530,9 @@ final class GitHub: ObservableObject {
             }
             if !carry.isEmpty { try output.write(contentsOf: carry.base64EncodedData()) }
             guard totalBytes == sourceSize else { throw AppError(text: "文件在上传准备期间发生变化，请重新选择。") }
+            if let expectedSHA256 {
+                guard hash.finalize().map({ String(format: "%02x", $0) }).joined() == expectedSHA256 else { throw AppError(text: "扫描后文件内容已变化，请刷新；未上传该文件。") }
+            }
             try output.write(contentsOf: Data("\",\"encoding\":\"base64\"}".utf8))
             try output.synchronize()
         }
@@ -512,6 +541,7 @@ final class GitHub: ObservableObject {
         } onCancel: {
             writer.cancel()
         }
+        try Task.checkCancellation()
         try ensureActiveAccount()
         var uploadRequest = try request(url(path), method: "POST")
         uploadRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -658,6 +688,16 @@ final class GitHub: ObservableObject {
     func workspaceHead(_ repo: String, branch: String) async throws -> String {
         try await decoded(GitReference.self, Self.repoPath(repo) + "/git/ref/heads/" + Self.filePath(branch)).object.sha
     }
+    func uploadDestinationTree(_ repo: String, head: String) async throws -> (files: [String: String], directories: Set<String>) {
+        let endpoint = try Self.repoPath(repo)
+        let commit = try await decoded(GitCommitInfo.self, endpoint + "/git/commits/" + Self.component(head))
+        let tree = try await decoded(GitTreeInfo.self, endpoint + "/git/trees/" + Self.component(commit.tree.sha), query: [.init(name: "recursive", value: "1")])
+        guard !tree.truncated, tree.tree.count <= 20000,
+              tree.tree.allSatisfy({ $0.type == "tree" || ($0.type == "blob" && ["100644", "100755"].contains($0.mode)) }) else { throw AppError(text: "不安全或截断的远端树，未绑定上传目标") }
+        let files = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.sha) })
+        let directories = Set(tree.tree.filter { $0.type == "tree" }.map(\.path))
+        return (files, directories)
+    }
     func associateWorkspace(_ folder: URL, repo: String, branch: String, revision: String = "") async throws -> WorkspaceBinding {
         let repo = try RepositoryInput.parse(repo)
         let branch = try await resolvedBranch(repo, branch: branch.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -707,16 +747,36 @@ final class GitHub: ObservableObject {
     }
     func commitWorkspace(_ binding: WorkspaceBinding, writes: [WorkspaceWrite], message: String) async throws -> WorkspaceBinding {
         guard !writes.isEmpty, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError(text: "请选择变更并填写提交说明") }
+        try await requireWriteAccess(binding.repo)
         let endpoint = try Self.repoPath(binding.repo)
         guard try await workspaceHead(binding.repo, branch: binding.branch) == binding.head else { throw AppError(text: "远端分支已变化，拒绝提交。请先手动拉取更新；不会强制覆盖。") }
-        var entries: [[String: Any]] = []
-        var updated = binding
+        var totalBytes: Int64 = 0
         for write in writes {
             _ = try Self.filePath(write.path)
+            if let file = write.file {
+                let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
+                guard size == write.size else { throw AppError(text: "扫描后文件大小已变化，请刷新；未提交") }
+                totalBytes = try RepoQueue.addingUploadBytes(size, to: totalBytes)
+            } else if let bytes = write.bytes {
+                totalBytes = try RepoQueue.addingUploadBytes(Int64(bytes.count), to: totalBytes)
+            }
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("RepoPocket-Workspace-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var entries: [[String: Any]] = []
+        var updated = binding
+        for (index, write) in writes.enumerated() {
             let mode = binding.modes[write.path] ?? "100644"
-            if let bytes = write.bytes {
-                guard bytes.count <= 10 * 1024 * 1024 else { throw AppError(text: "文件超过 10 MiB，请使用 Release") }
-                let blob = try await decoded(GitObject.self, endpoint + "/git/blobs", method: "POST", object: ["content": bytes.base64EncodedString(), "encoding": "base64"])
+            var file = write.file
+            var size = write.size
+            if let bytes = write.bytes, file == nil {
+                let temporary = directory.appendingPathComponent(String(index))
+                try bytes.write(to: temporary)
+                file = temporary; size = Int64(bytes.count)
+            }
+            if let file {
+                let blob = try await uploadGitBlobFile(file, path: endpoint + "/git/blobs", maximumBytes: RepoQueue.maximumFileBytes, expectedSize: size, expectedSHA256: write.sha256)
                 entries += RepoQueue.treeEntries([(write.path, blob.sha, mode)])
                 updated.modes[write.path] = mode
             } else {
@@ -744,22 +804,31 @@ final class GitHub: ObservableObject {
         try RepoQueue.validate(items, head: head, files: files, directories: Set(tree.tree.filter { $0.type == "tree" }.map(\.path)))
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError(text: "请填写提交说明") }
         guard try await workspaceHead(repo, branch: branch) == head else { throw AppError(text: "远端分支已变化，请重新加载后再提交。") }
-        var entries: [[String: Any]] = []
+        var preparedItems: [(PendingRepoItem, URL?, Int64)] = []
+        var cleanup: [URL] = []
+        defer { for directory in cleanup { try? FileManager.default.removeItem(at: directory) } }
         var totalBytes: Int64 = 0
-        let modes = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.mode) })
+        // Prepare every file and preflight the actual aggregate before uploading any blob.
         for item in items {
+            if let file = item.local {
+                let originalSize = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
+                _ = try RepoQueue.addingUploadBytes(originalSize, to: 0)
+                let prepared = try await Task.detached(priority: .utility) { try DebControlEditor.prepareForUpload(file) }.value
+                if prepared.file != file { cleanup.append(prepared.file.deletingLastPathComponent()) }
+                if let notice = prepared.notice { self.message = notice }
+                let size = (try FileManager.default.attributesOfItem(atPath: prepared.file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
+                totalBytes = try RepoQueue.addingUploadBytes(size, to: totalBytes)
+                preparedItems.append((item, prepared.file, size))
+            } else { preparedItems.append((item, nil, 0)) }
+        }
+        var entries: [[String: Any]] = []
+        let modes = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.mode) })
+        for (item, file, size) in preparedItems {
             guard let path = item.path else { throw AppError(text: "请选择每项的仓库目标。") }
             _ = try Self.filePath(path)
             let mode = modes[path] ?? "100644"
-            if let file = item.local {
-                let prepared = try await Task.detached(priority: .utility) { try DebControlEditor.prepareForUpload(file) }.value
-                defer { if prepared.file != file { try? FileManager.default.removeItem(at: prepared.file.deletingLastPathComponent()) } }
-                if let notice = prepared.notice { self.message = notice }
-                let size = (try FileManager.default.attributesOfItem(atPath: prepared.file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
-                guard size >= 0, size <= RepoQueue.maximumFileBytes else { throw AppError(text: path + " 超过上传 10 MiB，请使用 Release") }
-                guard totalBytes <= RepoQueue.maximumTotalUploadBytes - size else { throw AppError(text: "普通提交总大小不能超过 50 MiB，请使用 Release") }
-                totalBytes += size
-                let blob = try await uploadGitBlobFile(prepared.file, path: endpoint + "/git/blobs", maximumBytes: RepoQueue.maximumFileBytes, expectedSize: size)
+            if let file {
+                let blob = try await uploadGitBlobFile(file, path: endpoint + "/git/blobs", maximumBytes: RepoQueue.maximumFileBytes, expectedSize: size)
                 entries += RepoQueue.treeEntries([(path, blob.sha, mode)])
             } else {
                 entries += RepoQueue.treeEntries([(path, nil, mode)])
@@ -859,6 +928,11 @@ final class GitHub: ObservableObject {
         guard bytes.count <= 8 * 1024 * 1024 else { throw AppError(text: "响应过大，请在 GitHub 查看。") }
         return bytes
     }
+    func repositoryPathCommits(_ repo: String, head: String, paths: [String]) async throws -> [String: PathCommitMetadata] {
+        let (query, variables) = try PathCommitQuery.request(repo: repo, head: head, paths: paths)
+        let bytes = try await repositoryGraphQLRead(query, variables: variables, operation: "查询路径提交")
+        return try PathCommitQuery.decode(bytes, paths: paths)
+    }
     /// Server-side GFM rendering for file pages. Native HTML such as `<div align="center">` and
     /// `<img>` only survives GitHub's own renderer, so a read-only POST /markdown is preferred
     /// over the local MarkdownUI fallback. No extra permission is required.
@@ -928,17 +1002,35 @@ final class GitHub: ObservableObject {
         let change = try CommunityMutationRules.request(action, title: title, text: text)
         let path = try Self.repoPath(repo) + change.suffix
         if change.requiresPush { try await requireWriteAccess(repo) }
-        if case .deleteRun = action {
-            struct RunStatus: Decodable { let status: String }
-            let current = try JSONDecoder().decode(RunStatus.self, from: await communityRead(path))
-            guard current.status == "completed" else { throw AppError(text: "此运行尚未结束，请先取消，待结束后再删除。") }
+        if let operation = action.workflowRunOperation, let runID = action.workflowRunID {
+            struct RunStatus: Decodable { let status: String; let conclusion: String?; let created_at: String? }
+            let runPath = try Self.repoPath(repo) + "/actions/runs/\(runID)"
+            let current = try JSONDecoder().decode(RunStatus.self, from: await communityRead(runPath))
+            if let reason = operation.unavailability(status: current.status, conclusion: current.conclusion, createdAt: current.created_at) {
+                throw AppError(text: reason)
+            }
+            if case .deleteRun = action {
+                guard current.status == "completed" else { throw AppError(text: "此运行尚未结束，请先取消，待结束后再删除。") }
+            }
         }
         try ensureActiveAccount(); try Task.checkCancellation()
         let body = try JSONSerialization.data(withJSONObject: change.body)
         var r = try request(url(path), method: change.method, body: body)
         if case .deleteRun = action { r.httpBody = nil }
-        let response = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        if action.workflowRunOperation != nil { r.timeoutInterval = 30 }
+        let response: (Data, URLResponse)
+        do { response = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy()) }
+        catch {
+            if action.workflowRunOperation?.isRerun == true {
+                throw AppError(text: "重新运行请求结果未知，请刷新核实，勿直接重复提交。\n" + error.localizedDescription)
+            }
+            throw error
+        }
         try check(response.0, response.1, operation: "仓库协作操作")
+        if let operation = action.workflowRunOperation, operation.isRerun,
+           (response.1 as? HTTPURLResponse)?.statusCode != 201 {
+            throw AppError(text: "未收到 GitHub 的重新运行受理确认（201），请刷新核实，勿重复提交。")
+        }
         if case .cancelRun = action, (response.1 as? HTTPURLResponse)?.statusCode != 202 {
             throw AppError(text: "未收到 GitHub 的取消受理确认，请刷新运行状态核实。")
         }
@@ -995,11 +1087,11 @@ final class GitHub: ObservableObject {
     // Dispatch uses the account-bound session and refuses redirects, including reads.
     var workflowDispatchSession: WorkflowDispatchSession { .init(accountID: accountID, generation: accountGeneration) }
     private func workflowDispatchData(_ repo: String, suffix: String, page: Int? = nil,
-                              ref: String? = nil, inputs: [String: String] = [:]) async throws -> Data {
+                              query: [URLQueryItem] = [], ref: String? = nil, inputs: [String: String] = [:]) async throws -> Data {
         try ensureActiveAccount(); try Task.checkCancellation()
         let body = try ref.map { try JSONSerialization.data(withJSONObject: inputs.isEmpty ? (["ref": $0] as [String: Any]) : (["ref": $0, "inputs": inputs] as [String: Any])) }
-        let query: [URLQueryItem] = page.map { [.init(name: "per_page", value: "100"), .init(name: "page", value: String($0))] } ?? []
-        let r = try request(url(Self.repoPath(repo) + suffix, query: query), method: ref == nil ? "GET" : "POST", body: body)
+        let parameters: [URLQueryItem] = page.map { [.init(name: "per_page", value: "100"), .init(name: "page", value: String($0))] } ?? query
+        let r = try request(url(Self.repoPath(repo) + suffix, query: parameters), method: ref == nil ? "GET" : "POST", body: body)
         let result: (Data, URLResponse)
         do { result = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy()) }
         catch {
@@ -1019,6 +1111,16 @@ final class GitHub: ObservableObject {
         guard page > 0 else { throw AppError(text: "无效页码") }
         return try JSONDecoder().decode([DesktopBranch].self, from: await workflowDispatchData(repo, suffix: "/branches", page: page))
     }
+    // Narrow schema gateways retain the exact account-bound session and no-redirect policy.
+    func workflowInputsSource(_ repo: String, path: String, ref: String) async throws -> Data {
+        guard path.hasPrefix(".github/workflows/"), !ref.isEmpty else { throw AppError(text: "无效工作流文件或 ref") }
+        return try await workflowDispatchData(repo, suffix: "/contents/" + Self.filePath(path),
+            query: [.init(name: "ref", value: ref)])
+    }
+    func workflowInputsEnvironments(_ repo: String, page: Int) async throws -> Data {
+        guard page > 0 else { throw AppError(text: "无效页码") }
+        return try await workflowDispatchData(repo, suffix: "/environments", page: page)
+    }
     func dispatchWorkflow(_ target: WorkflowDispatchTarget) async throws {
         try ensureActiveAccount(); try Task.checkCancellation()
         guard target.session == workflowDispatchSession, target.workflow.id > 0, !target.ref.isEmpty else {
@@ -1028,16 +1130,19 @@ final class GitHub: ObservableObject {
         let access = try JSONDecoder().decode(Access.self, from: await workflowDispatchData(target.repo, suffix: ""))
         guard access.permissions?.push == true else { throw AppError(text: WorkflowDispatchRules.permissionHelp) }
         let workflow = try JSONDecoder().decode(DispatchWorkflow.self, from: await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)"))
-        guard workflow.id == target.workflow.id, workflow.state == "active" else {
+        guard workflow.id == target.workflow.id, workflow.state == "active", workflow.path == target.workflow.path else {
             throw AppError(text: "此工作流已停用或不再可用，请刷新工作流列表。")
         }
         let branch = try JSONDecoder().decode(DesktopBranch.self, from: await workflowDispatchData(target.repo, suffix: "/branches/" + Self.component(target.ref)))
         guard branch.name == target.ref else { throw AppError(text: "所选分支已变化，请重新加载分支列表。") }
+        let fresh = try await workflowInputDefinition(target.repo, workflow: workflow, ref: target.ref)
+        guard fresh.sha == target.schemaSHA,
+              try fresh.schema.values(target.inputs, environments: fresh.environments) == target.inputs else {
+            throw AppError(text: "工作流文件或参数已变化，请关闭后重新加载并确认；没有发送启动请求。")
+        }
         try ensureActiveAccount(); try Task.checkCancellation()
-        let title = target.runTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Only workflows that declare a matching input accept it; GitHub rejects others with 422.
         _ = try await workflowDispatchData(target.repo, suffix: "/actions/workflows/\(target.workflow.id)/dispatches",
-                                           ref: target.ref, inputs: title.isEmpty ? [:] : ["run_title": title])
+                                           ref: target.ref, inputs: target.inputs)
     }
     func searchUsers(_ query: String, page: Int) async throws -> UserSearchResponse {
         let endpoint = RepositorySearchRules.endpoint(kind: .users, query: query, page: page)
@@ -1078,13 +1183,29 @@ final class GitHub: ObservableObject {
         return try await decoded(Entry.self, endpoint, query: branch.isEmpty ? [] : [.init(name: "ref", value: branch)])
     }
     func commit(_ repo: String, path: String, bytes: Data, sha: String?, message: String, branch: String) async throws {
-        guard bytes.count <= 10 * 1024 * 1024 else { throw AppError(text: "本版普通提交限制为 10 MiB。大文件请使用“新建仓库并发布”。") }
+        _ = try RepoQueue.addingUploadBytes(Int64(bytes.count), to: 0)
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError(text: "请填写提交说明") }
-        var o: [String: Any] = ["message": message, "content": bytes.base64EncodedString()]
-        if let sha = sha { o["sha"] = sha }
-        if !branch.isEmpty { o["branch"] = branch }
-        _ = try await data(Self.repoPath(repo) + "/contents/" + Self.filePath(path), method: "PUT", object: o)
+        // Bounded text edits keep Contents semantics without depending on unrelated tree entries.
+        if bytes.count <= 1024 * 1024 {
+            var o: [String: Any] = ["message": message, "content": bytes.base64EncodedString()]
+            if let sha = sha { o["sha"] = sha }
+            if !branch.isEmpty { o["branch"] = branch }
+            _ = try await data(Self.repoPath(repo) + "/contents/" + Self.filePath(path), method: "PUT", object: o)
+            return
+        }
+        let repo = try RepositoryInput.parse(repo)
+        let branch = try await resolvedBranch(repo, branch: branch)
+        let head = try await workspaceHead(repo, branch: branch)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("RepoPocket-Commit-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent((path as NSString).lastPathComponent)
+        try bytes.write(to: file)
+        // sha is the expected file blob, not the branch HEAD; queue validation checks both.
+        let item = PendingRepoItem(local: file, size: Int64(bytes.count), path: path, sha: sha, head: head)
+        try await commitQueue(repo: repo, branch: branch, items: [item], message: message)
     }
+
     func delete(_ repo: String, entry: Entry, message: String, branch: String) async throws {
         var o: [String: Any] = ["message": message, "sha": entry.sha]
         if !branch.isEmpty { o["branch"] = branch }
@@ -1275,103 +1396,14 @@ final class GitHub: ObservableObject {
     func publish(_ repo: String, release: Release) async throws -> Release {
         try await decoded(Release.self, Self.repoPath(repo) + "/releases/\(release.id)", method: "PATCH", object: ["draft": false])
     }
-    func trollPublish(repo: String, branch: String, file: URL, pluginName: String, version: String = "1.0", description: String? = nil, bundleID: String? = nil, author: String? = nil) async throws -> TrollPublishResult {
-        let repo = try RepositoryInput.parse(repo)
-        let name = pluginName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filename = file.lastPathComponent
-        guard filename.lowercased().hasSuffix(".dylib"), !filename.contains("/") else { throw AppError(text: "请选择 .dylib 文件") }
-        guard !name.isEmpty else { throw AppError(text: "请填写插件名字") }
-        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
-        guard attributes[.type] as? FileAttributeType == .typeRegular,
-              let fileSize = attributes[.size] as? NSNumber else { throw AppError(text: "请选择有效的 dylib 文件") }
-        let size = fileSize.int64Value
-        guard size > 0 else { throw AppError(text: "dylib 不能为空") }
-        guard size <= RepoQueue.maximumTrollPluginBytes else { throw AppError(text: "TrollFools 插件不能超过 20 MiB") }
-        let resolved = try await resolvedBranch(repo, branch: branch)
-        let endpoint = try Self.repoPath(repo)
-        let head = try await workspaceHead(repo, branch: resolved)
-        let commit = try await decoded(GitCommitInfo.self, endpoint + "/git/commits/" + Self.component(head))
-        let tree = try await decoded(GitTreeInfo.self, endpoint + "/git/trees/" + Self.component(commit.tree.sha), query: [.init(name: "recursive", value: "1")])
-        let dylibPath = "downloads/" + filename
-        let indexPath = "trollpackages.json"
-        let existing = tree.tree.first { $0.type == "blob" && $0.path == indexPath }
-        var index: [String: Any] = ["repository_name": repo, "packages": []]
-        if let e = existing {
-            let raw = try await decoded(WorkspaceBlob.self, endpoint + "/git/blobs/" + Self.component(e.sha))
-            guard raw.encoding == "base64", let d = Data(base64Encoded: raw.content, options: .ignoreUnknownCharacters), let object = try JSONSerialization.jsonObject(with: d) as? [String: Any] else { throw AppError(text: "trollpackages.json 格式无效，未提交") }
-            index = object
-        }
-        guard var packages = index["packages"] as? [[String: Any]] else { throw AppError(text: "trollpackages.json 缺少 packages 数组，未提交") }
-        index["repository_name"] = index["repository_name"] as? String ?? repo
-        let ownerRepo = repo.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        guard ownerRepo.count == 2 else { throw AppError(text: "仓库格式应为：用户名/仓库名") }
-        let pagesBase = "https://\(Self.component(ownerRepo[0])).github.io/\(Self.component(ownerRepo[1]))/downloads/"
-        let dylibURL = pagesBase + Self.component(filename)
-        let normalizedVersion = version.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedVersion.isEmpty else { throw AppError(text: "请填写版本") }
-        var package: [String: Any] = ["name": name, "version": normalizedVersion, "description": (description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? description! : name), "dylib": dylibURL, "section": "插件", "size": Self.trollSize(Int(size))]
-        if let bundleID, !bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { package["bundle"] = bundleID }
-        if let author, !author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { package["author"] = author }
-        // Match by URL path, not host or string formatting, preserving other metadata and links.
-        let targetURLPath = URLComponents(string: dylibURL)?.percentEncodedPath
-        if let i = packages.firstIndex(where: { value in
-            guard let url = value["dylib"] as? String, let parsed = URL(string: url) else { return false }
-            return URLComponents(url: parsed, resolvingAgainstBaseURL: false)?.percentEncodedPath == targetURLPath && parsed.host?.caseInsensitiveCompare(ownerRepo[0] + ".github.io") == .orderedSame
-        }) {
-            package["section"] = packages[i]["section"] ?? "插件"
-            for (key, value) in package { packages[i][key] = value }
-        } else { packages.append(package) }
-        index["packages"] = packages
-        let json = try JSONSerialization.data(withJSONObject: index, options: [.prettyPrinted, .sortedKeys])
-        let dylibBlob = try await uploadGitBlobFile(file, path: endpoint + "/git/blobs", maximumBytes: RepoQueue.maximumTrollPluginBytes, expectedSize: size)
-        let indexBlob = try await decoded(GitObject.self, endpoint + "/git/blobs", method: "POST", object: ["content": json.base64EncodedString(), "encoding": "base64"])
-        let newTree = try await decoded(GitObject.self, endpoint + "/git/trees", method: "POST", object: ["base_tree": commit.tree.sha, "tree": [["path": dylibPath, "mode": "100644", "type": "blob", "sha": dylibBlob.sha], ["path": indexPath, "mode": "100644", "type": "blob", "sha": indexBlob.sha]]])
-        let newCommit = try await decoded(GitCommitInfo.self, endpoint + "/git/commits", method: "POST", object: ["message": "Publish TrollFools plugin: \(name)", "tree": newTree.sha, "parents": [head]])
-        guard try await workspaceHead(repo, branch: resolved) == head else { throw AppError(text: "远端分支已变化，未提交任何文件，请重试") }
-        _ = try await data(endpoint + "/git/refs/heads/" + Self.filePath(resolved), method: "PATCH", object: ["sha": newCommit.sha, "force": false])
-        return TrollPublishResult(commitSHA: newCommit.sha, path: dylibPath)
-    }
-    func metadataSnapshot(repo: String, branch: String, entry: Entry) async throws -> TrollMetadataSnapshot {
-        let repo = try RepositoryInput.parse(repo)
-        guard entry.path.lowercased().hasSuffix(".dylib") else { throw AppError(text: "只支持 dylib 元信息") }
-        let resolved = try await resolvedBranch(repo, branch: branch)
-        let head = try await workspaceHead(repo, branch: resolved)
-        let endpoint = try Self.repoPath(repo)
-        let commit = try await decoded(GitCommitInfo.self, endpoint + "/git/commits/" + Self.component(head))
-        let tree = try await decoded(GitTreeInfo.self, endpoint + "/git/trees/" + Self.component(commit.tree.sha), query: [.init(name: "recursive", value: "1")])
-        guard !tree.truncated, let file = tree.tree.first(where: { $0.path == entry.path && $0.type == "blob" && ["100644", "100755"].contains($0.mode) }), file.sha == entry.sha else { throw AppError(text: "文件已变化或树无效，请刷新") }
-        let existing = tree.tree.first { $0.path == "trollpackages.json" && $0.type == "blob" }
-        var index: [String: Any] = ["repository_name": repo, "packages": []]
-        var rawIndex = Data("{\"repository_name\":\"\(repo)\",\"packages\":[]}".utf8)
-        if let existing {
-            let raw = try await decoded(WorkspaceBlob.self, endpoint + "/git/blobs/" + Self.component(existing.sha))
-            guard raw.size <= 1024 * 1024, raw.encoding == "base64", let bytes = Data(base64Encoded: raw.content, options: .ignoreUnknownCharacters), let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { throw AppError(text: "索引格式无效或超过 1 MiB") }
-            rawIndex = bytes
-            index = object
-        }
-        _ = try TrollMetadata.package(index: index, repo: repo, branch: resolved, path: entry.path)
-        let binding = WorkspaceBinding(repo: repo, branch: resolved, head: head, tree: commit.tree.sha, modes: Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.mode) }), snapshot: LocalSnapshot())
-        return TrollMetadataSnapshot(binding: binding, index: index, rawIndex: rawIndex, indexSHA: existing?.sha, dylibSHA: file.sha, path: entry.path)
-    }
-    func saveMetadata(_ original: TrollMetadataSnapshot, fields: [String: String]) async throws {
-        guard try await workspaceHead(original.binding.repo, branch: original.binding.branch) == original.binding.head else { throw AppError(text: "远端已变化，请关闭并重新载入；未提交") }
-        let file = try await self.file(original.binding.repo, path: original.path, branch: original.binding.head)
-        guard file.sha == original.dylibSHA else { throw AppError(text: "插件 SHA 已变化") }
-        let bytes = try TrollMetadata.updating(raw: original.rawIndex, repo: original.binding.repo, branch: original.binding.branch, path: original.path, fields: fields)
-        _ = try await commitWorkspace(original.binding, writes: [WorkspaceWrite(path: "trollpackages.json", bytes: bytes)], message: "Update plugin metadata: " + (fields["name"] ?? original.path))
-    }
     func saveRemoteDeb(repo: String, branch: String, head: String, entry: Entry, output: URL, message: String) async throws {
         let size = (try FileManager.default.attributesOfItem(atPath: output.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
-        guard size <= 10 * 1024 * 1024 else { throw AppError(text: "新 deb 超过普通提交 10 MiB 限额，请保存文件使用 Release") }
+        _ = try RepoQueue.addingUploadBytes(size, to: 0)
         guard try await workspaceHead(repo, branch: branch) == head else { throw AppError(text: "远端 HEAD 已变化，请重新载入；未提交") }
         let current = try await file(repo, path: entry.path, branch: head)
         guard current.sha == entry.sha else { throw AppError(text: "原文件 SHA 已变化，请重新载入") }
         let item = PendingRepoItem(local: output, size: size, path: entry.path, sha: entry.sha, head: head)
         try await commitQueue(repo: repo, branch: branch, items: [item], message: message.isEmpty ? "Edit deb metadata" : message)
-    }
-    static func trollSize(_ count: Int) -> String {
-        if count >= 1024 * 1024 { return String(format: "%.2f MB", Double(count) / 1048576.0) }
-        return String(format: "%.1f KB", Double(count) / 1024.0)
     }
     func downloadFile(_ repo: String, entry: Entry, branch: String) async throws -> URL {
         let endpoint = try Self.repoPath(repo) + "/contents/" + Self.filePath(entry.path)
@@ -1739,5 +1771,97 @@ extension GitHub {
                                  permissions: http.value(forHTTPHeaderField: "X-Accepted-GitHub-Permissions"))
         }
         return UpstreamSyncRules.applyOutcome(status: http.statusCode, body: bytes)
+    }
+}
+
+extension GitHub {
+    func repositoryGraphQLRead(_ query: String, variables: [String: Any], operation: String) async throws -> Data {
+        guard query.hasPrefix("query") else { throw AppError(text: "只读GraphQL入口不接受写入。") }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let body = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
+        var r = try request(url("/graphql"), method: "POST", body: body)
+        r.timeoutInterval = 20
+        let (bytes, response) = try await session.data(for: r, delegate: GitHubAPIRedirectPolicy())
+        try check(bytes, response, operation: operation)
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard bytes.count <= 1_048_576 else { throw AppError(text: "GraphQL响应超过读取上限。") }
+        struct Envelope: Decodable {
+            struct Failure: Decodable { let message: String }
+            let errors: [Failure]?
+        }
+        if let error = try JSONDecoder().decode(Envelope.self, from: bytes).errors?.first { throw AppError(text: error.message) }
+        return bytes
+    }
+    func performPullRequestMerge(_ confirmation: PullRequestMergeConfirmation) async throws -> String? {
+        guard confirmation.accountID == accountID, confirmation.generation == AccountStore.generation,
+              confirmation.options.pull.number > 0, RemoteBranchMergeRules.sha(confirmation.options.pull.head.sha) else { throw AppError(text: "PR合并确认已失效。") }
+        try await requireWriteAccess(confirmation.repo)
+        if let reason = confirmation.options.reason(confirmation.method) { throw AppError(text: reason) }
+        var body: [String: Any] = ["sha": confirmation.options.pull.head.sha, "merge_method": confirmation.method.rawValue]
+        if confirmation.method != .rebase {
+            if !confirmation.title.isEmpty { body["commit_title"] = try RemoteBranchMergeRules.title(confirmation.title) }
+            guard confirmation.message.utf8.count <= 60_000 else { throw AppError(text: "提交说明超过60 KB。") }
+            if !confirmation.message.isEmpty { body["commit_message"] = confirmation.message }
+        }
+        // The official endpoint pins the source SHA; the target may advance and GitHub enforces its current rules.
+        var r = try request(url(Self.repoPath(confirmation.repo) + "/pulls/\(confirmation.options.pull.number)/merge"), method: "PUT", body: JSONSerialization.data(withJSONObject: body))
+        r.timeoutInterval = 30
+        let (bytes, response) = try await session.data(for: r, delegate: GitHubAPIRedirectPolicy())
+        try check(bytes, response, operation: confirmation.method.title)
+        try ensureActiveAccount()
+        guard bytes.count <= 1_048_576 else { throw AppError(text: "PR合并响应过大，请只读核实结果。") }
+        struct Result: Decodable { let merged: Bool; let sha: String?; let message: String? }
+        let result = try JSONDecoder().decode(Result.self, from: bytes)
+        guard result.merged else { throw AppError(text: result.message ?? "GitHub未确认合并成功，请只读核实。") }
+        return result.sha
+    }
+    func historyCreateCommit(_ repo: String, step: RemoteHistoryStep, parents: [String]) async throws -> String {
+        var body: [String: Any] = ["message": step.message, "tree": step.tree, "parents": parents]
+        if let author = step.author { body["author"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(author)) }
+        if let committer = step.committer { body["committer"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(committer)) }
+        let r = try request(url(Self.repoPath(repo) + "/git/commits"), method: "POST", body: JSONSerialization.data(withJSONObject: body))
+        let (bytes, response) = try await session.data(for: r, delegate: GitHubAPIRedirectPolicy())
+        try check(bytes, response, operation: "准备历史提交对象")
+        try ensureActiveAccount(); try Task.checkCancellation()
+        struct Created: Decodable { let sha: String }
+        let sha = try JSONDecoder().decode(Created.self, from: bytes).sha
+        guard RemoteBranchMergeRules.sha(sha) else { throw AppError(text: "未收到有效提交对象，分支尚未更新。") }
+        return sha
+    }
+    func historyUpdateRef(_ preview: RemoteHistoryPreview, newHead: String) async throws {
+        guard preview.snapshot.accountID == accountID, preview.snapshot.generation == AccountStore.generation,
+              RemoteBranchMergeRules.sha(newHead), newHead != String(repeating: "0", count: newHead.count),
+              DesktopRules.validBranch(preview.snapshot.branch) else { throw AppError(text: "历史确认已失效，未更新分支。") }
+        let mutation = "mutation($input: UpdateRefsInput!) { updateRefs(input: $input) { clientMutationId } }"
+        let input: [String: Any] = ["repositoryId": preview.snapshot.repositoryID, "refUpdates": [[
+            "name": "refs/heads/" + preview.snapshot.branch,
+            "beforeOid": preview.snapshot.head, "afterOid": newHead, "force": true
+        ]]]
+        var r = try request(url("/graphql"), method: "POST", body: JSONSerialization.data(withJSONObject: ["query": mutation, "variables": ["input": input]]))
+        r.timeoutInterval = 30
+        let (bytes, response) = try await session.data(for: r, delegate: GitHubAPIRedirectPolicy())
+        do { try check(bytes, response, operation: "整理当前分支历史") }
+        catch {
+            if let status = (response as? HTTPURLResponse)?.statusCode, [400, 401, 403, 404, 409, 422, 429].contains(status) {
+                throw RemoteHistoryRefRejection(message: error.localizedDescription)
+            }
+            throw error
+        }
+        try ensureActiveAccount()
+        struct Envelope: Decodable {
+            struct Failure: Decodable { let message: String; let type: String?; let path: [String]? }
+            let errors: [Failure]?
+        }
+        guard bytes.count <= 1_048_576 else { throw AppError(text: "历史更新结果过大，请只读核实当前HEAD。") }
+        let result = try JSONDecoder().decode(Envelope.self, from: bytes)
+        if let errors = result.errors, let error = errors.first {
+            let payload = (try JSONSerialization.jsonObject(with: bytes) as? [String: Any])?["data"] as? [String: Any]
+            let message = "GitHub未接受本次历史更新：" + error.message
+            if payload?["updateRefs"] is NSNull,
+               errors.allSatisfy({ $0.path == ["updateRefs"] && ["UNPROCESSABLE", "FORBIDDEN", "NOT_FOUND"].contains($0.type ?? "") }) {
+                throw RemoteHistoryRefRejection(message: message)
+            }
+            throw AppError(text: message)
+        }
     }
 }

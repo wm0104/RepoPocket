@@ -97,30 +97,12 @@ import SwiftUI
 struct UpstreamUpdatesSection: View {
     @ObservedObject var api: GitHub
     @ObservedObject var store: UpstreamUpdatesStore
+    var connected = false
     let add: () -> Void
     var body: some View {
-        Section("上游动态") {
-            SoftGroupRows {
-                for watch in store.watches {
-                    SoftGroupRow(watch.id) {
-                        NavigationLink {
-                            UpstreamUpdatesDetail(api: api, store: store, watch: watch)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(watch.repository)
-                                Text(watch.branch).font(.caption).foregroundStyle(.secondary)
-                                Text(summary(watch)).font(.caption)
-                            }
-                        }
-                        .contextMenu { Button("停止跟踪", role: .destructive) { store.remove(watch, api: api) }.disabled(store.loading) }
-                    }
-                }
-                if store.loading { SoftGroupRow("loading") { ProgressView("检查上游更新…") } }
-                if store.watches.isEmpty {
-                    SoftGroupRow("empty") { Text("跟踪已设置的上游，也可以添加指定仓库。首次检查只记录基线，之后显示新提交和新分支。").font(.caption).foregroundStyle(.secondary) }
-                }
-                SoftGroupRow("add") { Button("添加跟踪仓库", action: add).disabled(store.loading).accessibilityIdentifier("upstream-watch-add") }
-            }
+        Group {
+            if connected { content }
+            else { Section("上游动态") { content } }
         }
         .task { await store.refresh(api: api) }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("RepoPocket.upstreamForegroundCheck"))) { notification in
@@ -134,6 +116,30 @@ struct UpstreamUpdatesSection: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("RepoPocket.upstreamRefreshRequested"))) { notification in
             guard notification.object as? String == api.accountID else { return }
             Task { await store.refresh(api: api, force: true) }
+        }
+    }
+    private var content: some View {
+            SoftGroupRows(spacingBefore: connected ? 10 : 0) {
+            if connected { SoftGroupRow("heading") { Text("上游动态").font(.subheadline).foregroundStyle(.secondary) } }
+            for watch in store.watches {
+                SoftGroupRow(watch.id) {
+                    NavigationLink {
+                        UpstreamUpdatesDetail(api: api, store: store, watch: watch)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(watch.repository)
+                            Text(watch.branch).font(.caption).foregroundStyle(.secondary)
+                            Text(summary(watch)).font(.caption)
+                        }
+                    }
+                    .contextMenu { Button("停止跟踪", role: .destructive) { store.remove(watch, api: api) }.disabled(store.loading) }
+                }
+            }
+            if store.loading { SoftGroupRow("loading") { ProgressView("检查上游更新…") } }
+            if store.watches.isEmpty {
+                SoftGroupRow("empty") { Text("跟踪已设置的上游，也可以添加指定仓库。首次检查只记录基线，之后显示新提交和新分支。").font(.caption).foregroundStyle(.secondary) }
+            }
+            SoftGroupRow("add") { Button("添加跟踪仓库", action: add).disabled(store.loading).accessibilityIdentifier("upstream-watch-add") }
         }
     }
     private func summary(_ watch: UpstreamWatch) -> String {
@@ -171,7 +177,7 @@ struct UpstreamWatchAddView: View {
                         Button {
                             editingRepository = false
                             branchRepository = canonical
-                        } label: { LabeledContent("分支", value: branch.isEmpty ? "请选择" : branch) }
+                        } label: { AppLabeledContent("分支", value: branch.isEmpty ? "请选择" : branch) }
                             .disabled(canonical == nil)
                             .accessibilityIdentifier("upstream-watch-branch")
                     }
@@ -183,16 +189,14 @@ struct UpstreamWatchAddView: View {
                             .accessibilityIdentifier("upstream-watch-save")
                     }
                     if !failure.isEmpty { SoftGroupRow("error") { Text(failure).foregroundStyle(.secondary) } }
+                    SoftGroupRow("scope") { Text("只在打开 App 或下拉刷新时检查，不是后台实时推送；不会自动合并、创建分支或修改远端代码。").font(.caption).foregroundStyle(.secondary) }
                 }
-            }
-            Section {
-                Text("只在打开 App 或下拉刷新时检查，不是后台实时推送；不会自动合并、创建分支或修改远端代码。").font(.caption).softGroupedRow(top: true, bottom: true)
             }
         }.navigationTitle("跟踪仓库").adaptiveWorkspaceLayout()
             .toolbar { Button("关闭") { dismiss() }.accessibilityIdentifier("upstream-watch-close") }
             .sheet(isPresented: Binding(get: { branchRepository != nil }, set: { if !$0 { branchRepository = nil } })) {
                 if let selectedRepository = branchRepository {
-                    NavigationStack {
+                    AppNavigationStack {
                         LocalGitBranchPicker(api: api, repo: selectedRepository, current: branch) {
                             guard api.isCurrentSession, canonical == selectedRepository else { return }
                             branch = $0
@@ -218,12 +222,9 @@ private struct UpstreamUpdatesDetail: View {
                     SoftGroupRow("history") { NavigationLink("查看此分支提交") { HistoryView(api: api, repo: watch.repository, branch: watch.branch) } }
                     SoftGroupRow("sync") { NavigationLink("同步到我的仓库") { UpstreamWatchTargetView(api: api, source: watch) } }
                     SoftGroupRow("read") { Button("标为已读") { store.acknowledge(watch, api: api) }.disabled(update == nil || store.loading) }
-                }
-            }
-            Section("新增提交") {
-                SoftGroupRows {
+                    SoftGroupRow("commits-heading") { Text("新增提交").font(.subheadline).foregroundStyle(.secondary) }
                     for commit in (update?.comparison?.commits ?? []).suffix(30).reversed() {
-                        SoftGroupRow(commit.sha) {
+                        SoftGroupRow("commit:" + commit.sha) {
                             NavigationLink { CommitDetailView(api: api, repo: watch.repository, sha: commit.sha) } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(commit.commit.message.split(separator: "\n").first.map(String.init) ?? "无提交说明").lineLimit(2)
@@ -232,16 +233,13 @@ private struct UpstreamUpdatesDetail: View {
                             }
                         }
                     }
-                    if update?.changed != true { SoftGroupRow("none") { Text("没有未读的新提交").foregroundStyle(.secondary) } }
+                    if update?.changed != true { SoftGroupRow("no-commits") { Text("没有未读的新提交").foregroundStyle(.secondary) } }
                     else { SoftGroupRow("limit") { Text("显示最多 30 条提交；点击提交查看文件和代码差异，完整记录可在分支提交列表查看。").font(.caption).foregroundStyle(.secondary) } }
-                }
-            }
-            Section("新增分支") {
-                SoftGroupRows {
+                    SoftGroupRow("branches-heading") { Text("新增分支").font(.subheadline).foregroundStyle(.secondary) }
                     for branch in update?.newBranches ?? [] {
-                        SoftGroupRow(branch) { NavigationLink(branch) { UpstreamNewBranchView(api: api, store: store, repository: watch.repository, branch: branch) } }
+                        SoftGroupRow("branch:" + branch) { NavigationLink(branch) { UpstreamNewBranchView(api: api, store: store, repository: watch.repository, branch: branch) } }
                     }
-                    if update?.newBranches.isEmpty != false { SoftGroupRow("none") { Text("没有未读的新分支").foregroundStyle(.secondary) } }
+                    if update?.newBranches.isEmpty != false { SoftGroupRow("no-branches") { Text("没有未读的新分支").foregroundStyle(.secondary) } }
                 }
             }
         }.navigationTitle("上游更新").listStyle(.insetGrouped).adaptiveWorkspaceLayout()
@@ -261,12 +259,12 @@ private struct UpstreamWatchTargetView: View {
                     SoftGroupRow("repo") {
                         NavigationLink {
                             LocalGitRepositoryPicker(api: api) { repository = $0; branch = "" }
-                        } label: { LabeledContent("目标仓库", value: repository?.full_name ?? "请选择") }
+                        } label: { AppLabeledContent("目标仓库", value: repository?.full_name ?? "请选择") }
                     }
                     SoftGroupRow("branch") {
                         NavigationLink {
                             LocalGitBranchPicker(api: api, repo: repository?.full_name ?? "", current: branch) { branch = $0 }
-                        } label: { LabeledContent("目标分支", value: branch.isEmpty ? "请选择" : branch) }
+                        } label: { AppLabeledContent("目标分支", value: branch.isEmpty ? "请选择" : branch) }
                             .disabled(repository == nil)
                     }
                     if let repository, !branch.isEmpty {

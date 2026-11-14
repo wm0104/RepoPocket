@@ -39,8 +39,8 @@ refuse([a,a]); refuse([a], head:"changed")
 refuse([d], files:["gone":"changed"])
 refuse([a], files:["two":"s"])
 refuse([a], dirs:["two/a"])
-refuse([PendingRepoItem(local: b.local, size: 11*1024*1024, path:"b", head:"h")])
-let overBudget = (0..<6).map { PendingRepoItem(local: URL(fileURLWithPath:"/tmp/file-\($0)"), size: 10*1024*1024, path:"f\($0)", head:"h") }
+refuse([PendingRepoItem(local: b.local, size: 100*1024*1024, path:"b", head:"h")])
+let overBudget = (0..<10).map { PendingRepoItem(local: URL(fileURLWithPath:"/tmp/file-\($0)"), size: 10*1024*1024, path:"f\($0)", head:"h") }
 refuse(overBudget)
 refuse([PendingRepoItem(local:b.local,size:1,path:"../b",head:"h")])
 refuse([a,PendingRepoItem(local:b.local,size:1,path:"two/a/child",head:"h")])
@@ -64,7 +64,7 @@ precondition(failed)
 failed = false
 do { try bad.update(Data([0])) } catch { failed = true }
 precondition(failed)
-print("PASS: queue targets/reselection, 50MiB aggregate cap, atomic multi-folder tree/delete, conflicts, 11MiB streamed disk SHA1/SHA256, corruption/overflow")
+print("PASS: queue targets/reselection, strict 100MiB aggregate cap, atomic multi-folder tree/delete, conflicts, 11MiB streamed disk SHA1/SHA256, corruption/overflow")
 '''.replace('SIZE',str(len(payload))).replace('"GIT"','"'+git+'"').replace('"SHA"','"'+sha+'"')
 # Throwing expressions must be evaluated outside precondition's nonthrowing autoclosure.
 tests = tests.replace('precondition(try hash.finish(expectedGit:', 'let verified = try hash.finish(expectedGit:').replace('"'+git+'") == "'+sha+'")','"'+git+'")\nprecondition(verified == "'+sha+'")')
@@ -86,15 +86,25 @@ blob_helper = api_source.split('    private func uploadGitBlobFile(', 1)[1].spli
 blob_helper = '    private func uploadGitBlobFile(' + blob_helper
 blob_fixture = r'''
 import Foundation
+import CryptoKit
 struct AppError: Error { let text: String }
 struct GitObject: Decodable { let sha: String }
 @MainActor final class BlobUploadTransport {
     var bodies: [Data] = []
     var files: [URL] = []
+    var expectedStream: (size: Int, digest: String)?
+    var onUpload: ((URL) -> Void)?
     func upload(for request: URLRequest, fromFile file: URL) async throws -> (Data, URLResponse) {
         precondition(request.httpMethod == "POST")
         precondition(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
-        bodies.append(try Data(contentsOf: file)); files.append(file)
+        files.append(file)
+        if let expectedStream {
+            try BlobEncoderRegression.verifyBody(file, size: expectedStream.size, digest: expectedStream.digest)
+        } else {
+            bodies.append(try Data(contentsOf: file))
+        }
+        onUpload?(file)
+        try Task.checkCancellation()
         let response = HTTPURLResponse(url: request.url!, statusCode: 201, httpVersion: nil, headerFields: nil)!
         return (Data("{\"sha\":\"fixture-sha\"}".utf8), response)
     }
@@ -111,11 +121,61 @@ struct GitObject: Decodable { let sha: String }
         guard (response as? HTTPURLResponse)?.statusCode == 201 else { throw AppError(text: operation) }
     }
 PRODUCTION_HELPER
-    func fixtureUpload(_ file: URL, maximumBytes: Int64, expectedSize: Int64) async throws -> GitObject {
-        try await uploadGitBlobFile(file, path: "/repos/fixture/repo/git/blobs", maximumBytes: maximumBytes, expectedSize: expectedSize)
+    func fixtureUpload(_ file: URL, maximumBytes: Int64, expectedSize: Int64, expectedSHA256: String? = nil) async throws -> GitObject {
+        try await uploadGitBlobFile(file, path: "/repos/fixture/repo/git/blobs", maximumBytes: maximumBytes, expectedSize: expectedSize, expectedSHA256: expectedSHA256)
     }
 }
 @main struct BlobEncoderRegression {
+    static func writeFile(_ file: URL, size: Int) throws -> String {
+        precondition(FileManager.default.createFile(atPath: file.path, contents: nil))
+        let output = try FileHandle(forWritingTo: file)
+        defer { try? output.close() }
+        let block = Data((0..<(64 * 1024)).map { UInt8($0 % 251) })
+        var hash = SHA256(), remaining = size
+        while remaining > 0 {
+            let chunk = block.prefix(min(remaining, block.count))
+            try output.write(contentsOf: chunk)
+            hash.update(data: chunk)
+            remaining -= chunk.count
+        }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+    static func verifyBody(_ file: URL, size: Int, digest: String) throws {
+        let header = Data("{\"content\":\"".utf8), footer = Data("\",\"encoding\":\"base64\"}".utf8)
+        let encodedSize = ((size + 2) / 3) * 4
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        precondition((attributes[.size] as? NSNumber)?.intValue == header.count + encodedSize + footer.count)
+        let input = try FileHandle(forReadingFrom: file)
+        defer { try? input.close() }
+        let actualHeader = try input.read(upToCount: header.count)
+        precondition(actualHeader == header)
+        var hash = SHA256(), remaining = encodedSize, decodedSize = 0
+        while remaining > 0 {
+            let count = min(256 * 1024, remaining) // Whole Base64 quanta; never load the large JSON body.
+            let chunk = try input.read(upToCount: count) ?? Data()
+            precondition(chunk.count == count)
+            guard let decoded = Data(base64Encoded: chunk) else { preconditionFailure("Invalid Base64 request body") }
+            hash.update(data: decoded); decodedSize += decoded.count; remaining -= count
+        }
+        let actualFooter = try input.read(upToCount: footer.count), extra = try input.read(upToCount: 1)
+        precondition(actualFooter == footer && extra?.isEmpty != false)
+        precondition(decodedSize == size && hash.finalize().map { String(format: "%02x", $0) }.joined() == digest)
+    }
+    static func bodyDirectories() throws -> Set<String> {
+        Set(try FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path)
+            .filter { $0.hasPrefix("RepoPocket-GitBlob-") })
+    }
+    static func verifySource(_ file: URL, size: Int, digest: String, directories: Set<String>) throws {
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        precondition((attributes[.size] as? NSNumber)?.intValue == size)
+        let input = try FileHandle(forReadingFrom: file)
+        defer { try? input.close() }
+        var hash = SHA256()
+        while let chunk = try input.read(upToCount: 64 * 1024), !chunk.isEmpty { hash.update(data: chunk) }
+        precondition(hash.finalize().map { String(format: "%02x", $0) }.joined() == digest)
+        let remainingDirectories = try bodyDirectories()
+        precondition(remainingDirectories == directories, "Upload request body directory leaked")
+    }
     @MainActor static func main() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("BlobEncoderRegression-" + UUID().uuidString)
@@ -138,7 +198,8 @@ PRODUCTION_HELPER
             let selected = Data((0..<size).map { UInt8($0 % 251) })
             try selected.write(to: file)
             let before = api.session.bodies.count
-            let blob = try await api.fixtureUpload(file, maximumBytes: maximumBytes, expectedSize: Int64(size))
+            let digest = SHA256.hash(data: selected).map { String(format: "%02x", $0) }.joined()
+            let blob = try await api.fixtureUpload(file, maximumBytes: maximumBytes, expectedSize: Int64(size), expectedSHA256: digest)
             precondition(blob.sha == "fixture-sha" && api.session.bodies.count == before + 1)
             let object = try JSONSerialization.jsonObject(with: api.session.bodies.last!) as! [String: String]
             precondition(object["encoding"] == "base64")
@@ -161,6 +222,11 @@ PRODUCTION_HELPER
             _ = try await api.fixtureUpload(root, maximumBytes: maximumBytes, expectedSize: 0)
             preconditionFailure("directory accepted")
         } catch is AppError {}
+        let staleHash = SHA256.hash(data: Data([3, 4])).map { String(format: "%02x", $0) }.joined()
+        do {
+            _ = try await api.fixtureUpload(file, maximumBytes: maximumBytes, expectedSize: 2, expectedSHA256: staleHash)
+            preconditionFailure("same-size changed content accepted")
+        } catch is AppError {}
         api.active = false
         do {
             _ = try await api.fixtureUpload(file, maximumBytes: maximumBytes, expectedSize: 2)
@@ -168,6 +234,58 @@ PRODUCTION_HELPER
         } catch is CancellationError {}
         precondition(api.session.bodies.count == beforeRefusals)
         print("PASS: production blob helper empty .gitkeep, Base64 carry/chunk round trips, upload-file cleanup, size/account guards; no network")
+
+        api.active = true
+        let large = root.appendingPathComponent("large.bin")
+        let maximumRepositoryBytes = 100 * 1024 * 1024 - 1
+        let directories = try bodyDirectories()
+        var largeDigest = ""
+        for size in [50 * 1024 * 1024 + 1, maximumRepositoryBytes] {
+            largeDigest = try writeFile(large, size: size)
+            api.session.expectedStream = (size, largeDigest)
+            let before = api.session.files.count
+            let blob = try await api.fixtureUpload(large, maximumBytes: Int64(maximumRepositoryBytes), expectedSize: Int64(size), expectedSHA256: largeDigest)
+            precondition(blob.sha == "fixture-sha" && api.session.files.count == before + 1)
+            precondition(api.session.bodies.count == beforeRefusals, "Large body must not be retained in memory")
+            try verifySource(large, size: size, digest: largeDigest, directories: directories)
+            print("PASS: production large blob \(size) bytes, streamed disk Base64/count/SHA256 round trip and cleanup; transport stand-in only")
+        }
+
+        let beforeLargeRefusals = api.session.files.count
+        do {
+            _ = try await api.fixtureUpload(large, maximumBytes: Int64(maximumRepositoryBytes), expectedSize: Int64(maximumRepositoryBytes), expectedSHA256: String(repeating: "0", count: 64))
+            preconditionFailure("large same-size changed content accepted")
+        } catch is AppError {}
+        precondition(api.session.files.count == beforeLargeRefusals)
+        try verifySource(large, size: maximumRepositoryBytes, digest: largeDigest, directories: directories)
+        print("PASS: large blob wrong SHA256 refused before transport; request cleaned and source unchanged")
+
+        // MainActor ordering cancels before this task starts; no timing-based sleep.
+        let beforeEncoding = Task { @MainActor in
+            try await api.fixtureUpload(large, maximumBytes: Int64(maximumRepositoryBytes), expectedSize: Int64(maximumRepositoryBytes), expectedSHA256: largeDigest)
+        }
+        beforeEncoding.cancel()
+        do { _ = try await beforeEncoding.value; preconditionFailure("pre-cancelled upload accepted") } catch is CancellationError {}
+        precondition(api.session.files.count == beforeLargeRefusals)
+        try verifySource(large, size: maximumRepositoryBytes, digest: largeDigest, directories: directories)
+        print("PASS: cancellation before encoding prevents transport; request cleaned and source unchanged")
+
+        var enteredTransport = false
+        var duringTransport: Task<GitObject, Error>?
+        api.session.onUpload = { body in
+            enteredTransport = true
+            precondition(fm.fileExists(atPath: body.path))
+            duringTransport!.cancel() // Explicit entry handshake after the complete body was verified.
+        }
+        duringTransport = Task { @MainActor in
+            try await api.fixtureUpload(large, maximumBytes: Int64(maximumRepositoryBytes), expectedSize: Int64(maximumRepositoryBytes), expectedSHA256: largeDigest)
+        }
+        do { _ = try await duringTransport!.value; preconditionFailure("transport-cancelled upload accepted") } catch is CancellationError {}
+        api.session.onUpload = nil
+        precondition(enteredTransport && api.session.files.count == beforeLargeRefusals + 1)
+        precondition(!fm.fileExists(atPath: api.session.files.last!.path))
+        try verifySource(large, size: maximumRepositoryBytes, digest: largeDigest, directories: directories)
+        print("PASS: cancellation at transport entry cleans request and preserves source; stand-in only, no URLSession or GitHub")
     }
 }
 '''.replace('PRODUCTION_HELPER', blob_helper)

@@ -19,9 +19,11 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: NativeBuild
-          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh') }}
+          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh', 'Scripts/patch_native_git.py') }}
       - name: Build pinned native Git for macOS
         run: bash Scripts/build_native_git.sh macosx
+      - name: Test pinned native Git parser patch
+        run: python3 Tests/test_native_git_patch.py
       - name: Execute production Git bridge tests
         env:
           RP_GIT_NETWORK_SMOKE: '1'
@@ -32,12 +34,20 @@ jobs:
         run: python3 Tests/test_branch_deletion.py
       - name: Execute local page state tests
         run: python3 Tests/test_local_git_ui.py
+      - name: Execute local history reference models
+        run: python3 Tests/test_local_git_history_model.py
+      - name: Execute production local history safety tests
+        run: python3 Tests/test_local_git_workspace.py
+      - name: Execute production merge conflict lifecycle tests
+        run: python3 Tests/test_local_git_conflict.py
+      - name: Execute production staging and staged commit tests
+        run: python3 Tests/test_local_git_stage.py
       - name: Build native Git for iPhone
         run: bash Scripts/build_native_git.sh iphoneos
-      - name: Compile and link the same production bridge for iOS 16
+      - name: Compile and link the same production bridge for iOS 15
         run: |
           printf '#include "NativeGitBridge.h"\nint main(void) {rp_git_free(rp_git_execute("inspect", "{}"));return 0;}\n' > NativeBuild/probe.c
-          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=16.0 -fobjc-arc \
+          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=15.0 -fobjc-arc \
             -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
             -I NativeBuild/iphoneos/include -I Vendor/NativeGit \
             Vendor/NativeGit/NativeGitBridge.m NativeBuild/probe.c \

@@ -22,13 +22,15 @@ class DownloadTests(unittest.TestCase):
   self.assertIn('Task.detached(priority: .utility)', store)
   self.assertIn('withTaskCancellationHandler', store)
   self.assertIn('Task.isCancelled', store)
-  for name in ['RepoPocketApp.swift', 'UploadView.swift', 'UpdateFeature.swift', 'WorkflowViews.swift', 'ReleaseAssetDownload.swift']:
+  for name in ['RepoPocketApp.swift', 'UpdateFeature.swift', 'WorkflowViews.swift', 'ReleaseAssetDownload.swift']:
    self.assertIn('try await DownloadStore.shared.persist(', Path(REPO_ROOT, 'RepoPocket', name).read_text())
 
  def test_settings_remove_manual_cache_clearing_but_keep_downloads(self):
   self.assertFalse('CacheSettingsSection' in app)
-  self.assertIn('DownloadLocationSection()', app)
-  self.assertIn('AppUpdateSection(api: api, checker: updateChecker)', app)
+  self.assertIn('NativeMenuItem(id: "download-folder"', app)
+  self.assertIn('enabled: downloads.operations == 0', app)
+  self.assertIn('guard downloads.operations == 0 else { return }; downloads.choose()', app)
+  self.assertIn('AppUpdateSection(api: api, checker: updateChecker, connected: true)', app)
   self.assertNotIn('清缓存', store)
   for name in ['CacheSettings.swift', 'CacheUsage.swift']:
    self.assertFalse(Path(REPO_ROOT, 'RepoPocket', name).exists())
@@ -53,8 +55,13 @@ class DownloadTests(unittest.TestCase):
   self.assertNotIn('downloadsDirectory', store)
   self.assertIn('DownloadStore.shared.persist(temporary, session: generation)', app)
   upload = Path(REPO_ROOT, 'RepoPocket/UploadView.swift').read_text()
-  self.assertIn('api.downloadAsset(repo, asset: asset)', upload)
-  self.assertIn('DownloadStore.shared.persist(temporary, session: generation)', upload)
+  self.assertNotIn('func saveAsset(', upload)
+  downloader = Path(REPO_ROOT, 'RepoPocket/ReleaseAssetDownload.swift').read_text()
+  self.assertIn('api.downloadManagedAssetWithProgress(repo, asset: asset', downloader)
+  self.assertIn('DownloadStore.shared.persist(file, session: generation)', downloader)
+  management = Path(REPO_ROOT, 'RepoPocket/ReleaseManagementUI.swift').read_text()
+  self.assertIn('self.downloader.persist(temporary, generation: self.generation)', management)
+  self.assertIn('try self.check()', management)
   update = Path(REPO_ROOT, 'RepoPocket/UpdateFeature.swift').read_text()
   self.assertIn('DownloadStore.shared.persist(file, session: accountSession)', update)
   self.assertNotIn('removeItem(at: downloaded)', update)

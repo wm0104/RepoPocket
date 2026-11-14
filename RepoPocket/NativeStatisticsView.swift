@@ -9,10 +9,19 @@ struct NativeHistogram: View {
     let points: [NativeHistogramPoint]
     var body: some View {
         if points.isEmpty { Text("暂无可显示的数据").foregroundStyle(.secondary) }
-        else {
+        else if #available(iOS 16.0, *) {
             Chart(points) { point in
                 BarMark(x: .value("月份", point.id), y: .value("数量", point.count))
             }.frame(height: 200).accessibilityLabel("按月统计")
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(points) { point in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack { Text(point.id); Spacer(); Text(String(point.count)) }
+                        ProgressView(value: Double(point.count), total: Double(max(1, points.map(\.count).max() ?? 1)))
+                    }.accessibilityElement(children: .combine)
+                }
+            }.accessibilityLabel("按月统计")
         }
     }
 }
@@ -30,38 +39,63 @@ struct NativeRepositoryStatisticsView: View {
     @State private var counted = 0
     @State private var countError = ""
     @State private var countTask: Task<Void, Never>?
+    @State private var languagesExpanded = false
+    @State private var starScopeExpanded = false
+    @State private var budgetExpanded = false
+    private var primaryLanguage: String? {
+        languages.keys.sorted {
+            let left = languages[$0, default: 0], right = languages[$1, default: 0]
+            return left == right ? $0 < $1 : left > right
+        }.first
+    }
     private var monthly: [NativeHistogramPoint] {
         Dictionary(grouping: stars, by: { String($0.starred_at.prefix(7)) }).map { NativeHistogramPoint(id: $0.key, count: $0.value.count) }.sorted { $0.id < $1.id }
     }
     var body: some View {
         List {
-            Section("语言字节数") {
+            Section {
                 SoftGroupRows {
-                    for language in languages.keys.sorted() {
-                        SoftGroupRow(language) { LabeledContent(language, value: ByteCountFormatter.string(fromByteCount: Int64(languages[language, default: 0]), countStyle: .file)) }
+                    SoftGroupRow("languages-heading") { Text("语言字节数").font(.subheadline).foregroundStyle(.secondary) }
+                    if let primaryLanguage {
+                        SoftGroupRow("primary") { Text("主要语言：" + primaryLanguage).font(.headline) }
+                        SoftGroupRow("languages-toggle") {
+                            Button("语言明细(\(languages.count))") { UIRules.withoutAnimation { languagesExpanded.toggle() } }
+                                .accessibilityValue(languagesExpanded ? "已展开" : "已收起")
+                        }
+                        if languagesExpanded {
+                            for language in languages.keys.sorted() {
+                                SoftGroupRow("language:" + language) { AppLabeledContent(language, value: ByteCountFormatter.string(fromByteCount: Int64(languages[language, default: 0]), countStyle: .file)) }
+                            }
+                        }
                     }
                     if languages.isEmpty { SoftGroupRow("empty") { Text("暂无语言统计") } }
-                }
-            }
-            Section("Star 时间分布") {
-                SoftGroupRows {
+                    SoftGroupRow("stars-heading") { Text("Star 时间分布").font(.subheadline).foregroundStyle(.secondary) }
                     if let starTotal { SoftGroupRow("total") { Text("当前 Star：\(starTotal)") } }
                     SoftGroupRow("chart") { NativeHistogram(points: monthly) }
-                    SoftGroupRow("scope") { Text("按当前 Star 用户的加星月份统计，最多读取最近1000条；不包含已经取消的 Star，不等同于完整历史总量。").font(.caption).foregroundStyle(.secondary) }
-                    if !error.isEmpty { SoftGroupRow("error") { Text(error).font(.caption) } }
+                    SoftGroupRow("scope-toggle") {
+                        Button("统计范围说明") { UIRules.withoutAnimation { starScopeExpanded.toggle() } }
+                            .accessibilityValue(starScopeExpanded ? "已展开" : "已收起")
+                    }
+                    if starScopeExpanded {
+                        SoftGroupRow("scope") { Text("按当前 Star 用户的加星月份统计，最多读取最近1000条；不包含已经取消的 Star，不等同于完整历史总量。").font(.caption).foregroundStyle(.secondary) }
+                    }
+                    if !error.isEmpty { SoftGroupRow("stars-error") { Text(error).font(.caption) } }
                     SoftGroupRow("reload") { Button("刷新统计") { revision += 1 } }
-                }
-            }
-            Section("源码行数 · App 内计算") {
-                SoftGroupRows {
+                    SoftGroupRow("lines-heading") { Text("源码行数 · App 内计算").font(.subheadline).foregroundStyle(.secondary) }
                     if let summary {
                         SoftGroupRow("lines") { Text("已统计 \(summary.files) 个文件，\(summary.lines) 行文本（含空行和注释）") }
                         if summary.skipped > 0 || summary.treeTruncated { SoftGroupRow("partial") { Text("这是受预算限制的部分统计：另有 \(summary.skipped) 个候选文件未统计" + (summary.treeTruncated ? "，GitHub 文件树也已截断。" : "。")).font(.caption) } }
                     }
-                    SoftGroupRow("budget") { Text("最多40个 UTF-8 源码文件、每个128 KiB、合计2 MiB。固定当前提交后统计，不修改文件。").font(.caption).foregroundStyle(.secondary) }
+                    SoftGroupRow("budget-toggle") {
+                        Button("统计范围说明") { UIRules.withoutAnimation { budgetExpanded.toggle() } }
+                            .accessibilityValue(budgetExpanded ? "已展开" : "已收起")
+                    }
+                    if budgetExpanded {
+                        SoftGroupRow("budget") { Text("最多40个 UTF-8 源码文件、每个128 KiB、合计2 MiB。固定当前提交后统计，不修改文件。").font(.caption).foregroundStyle(.secondary) }
+                    }
                     if counting { SoftGroupRow("progress") { ProgressView("已统计 \(counted) 个文件") }; SoftGroupRow("cancel") { Button("取消统计") { countTask?.cancel() } } }
                     else { SoftGroupRow("count") { Button("开始计算行数") { startCount() } } }
-                    if !countError.isEmpty { SoftGroupRow("error") { Text(countError).font(.caption) } }
+                    if !countError.isEmpty { SoftGroupRow("count-error") { Text(countError).font(.caption) } }
                 }
             }
         }.navigationTitle("仓库统计").adaptiveWorkspaceLayout()
@@ -112,11 +146,7 @@ struct NativeActivityChartView: View {
                     if let range = store.recordRange { SoftGroupRow("range") { Text("已加载记录日期：" + range).font(.caption).foregroundStyle(.secondary) } }
                     SoftGroupRow("calendar") { ActivityCalendarView(days: days, selected: $selected) }
                     SoftGroupRow("scope") { Text("仅统计已加载的公开活动，不等同于全年贡献日历。虚线表示未完整覆盖的日期；当天记录可能延迟。点击日期查看活动。").font(.caption).foregroundStyle(.secondary) }
-                }
-            }
-            if let selected, let day = days.first(where: { $0.id == selected }) { ActivityDayEvents(api: api, day: day) }
-            Section {
-                SoftGroupRows {
+                    if let selected, let day = days.first(where: { $0.id == selected }) { ActivityDayEvents(api: api, day: day).rows }
                     if store.busy { SoftGroupRow("loading") { ProgressView("加载活动…") } }
                     if !store.error.isEmpty { SoftGroupRow("error") { Text(store.error).font(.caption) } }
                     if !store.exhausted && !store.limited {
@@ -145,9 +175,9 @@ struct NativeDevelopersView: View {
                             NavigationLink { UserRepositoriesView(api: api, user: row.user) } label: { HStack { GitHubAvatar(url: row.user.avatar_url); Text(row.user.login) } }
                         }
                     }
+                    CommunityPageFooter(store: store, next: { load() }).rows
                 }
             }
-            CommunityPageFooter(store: store, next: { load() })
         }.navigationTitle("开发者").task { if !store.loaded { load() } }.onDisappear { store.cancel() }
     }
     private func load() {

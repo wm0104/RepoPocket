@@ -18,22 +18,26 @@ import Combine
         }
     }
     func metadata(_ project: LocalGitProject) -> URL { directory.appendingPathComponent(project.metadataID.uuidString, isDirectory: true) }
-    func prepare(_ url: URL) throws -> LocalGitProject {
+    func preparePath(_ text: String) throws -> LocalGitProject {
+        try prepare(LocalGitFileAccess.pastedDirectory(text), direct: true)
+    }
+    func prepare(_ url: URL, direct: Bool = false) throws -> LocalGitProject {
         guard readable else { throw LocalGitError(text: error) }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let root = url.resolvingSymlinksInPath().standardizedFileURL
         let owned = internalRoot.resolvingSymlinksInPath().standardizedFileURL
-        guard scoped || root.path == owned.path || root.path.hasPrefix(owned.path + "/") else { throw LocalGitError(text: "未获得文件夹访问权限，请重新选择原目录。") }
+        guard direct || scoped || root.path == owned.path || root.path.hasPrefix(owned.path + "/") else { throw LocalGitError(text: "未获得文件夹访问权限，请重新选择原目录。") }
         let identity = try LocalGitFileAccess.identity(url)
+        guard FileManager.default.isReadableFile(atPath: url.path) else { throw LocalGitError(text: "无法读取此目录，请检查路径和 TrollStore 文件访问权限。") }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let bookmark = try url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil)
+        let bookmark = direct ? Data() : try url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil)
         if let previous = records.first(where: { $0.identity == identity }) {
             return LocalGitProject(id: previous.id, name: url.lastPathComponent, bookmark: bookmark, identity: identity,
-                                   metadataID: previous.metadataID, usesPrivateGit: previous.usesPrivateGit)
+                                   metadataID: previous.metadataID, usesPrivateGit: previous.usesPrivateGit, directPath: direct ? root.path : nil)
         }
         return LocalGitProject(id: UUID(), name: url.lastPathComponent, bookmark: bookmark, identity: identity,
-                               metadataID: UUID(), usesPrivateGit: !FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path))
+                               metadataID: UUID(), usesPrivateGit: !FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path), directPath: direct ? root.path : nil)
     }
     func attach(_ project: LocalGitProject) throws {
         var next = records.filter { $0.id != project.id }

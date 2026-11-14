@@ -9,7 +9,7 @@ class RepositoryInputTests(unittest.TestCase):
         api = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
         wrapper = api.split('static func repoPath', 1)[1].split('static func filePath', 1)[0]
         self.assertIn('RepositoryInput.parse(fullName)', wrapper)
-        for name in ['fetchWorkspace', 'associateWorkspace', 'commitQueue', 'trollPublish', 'metadataSnapshot', 'downloadZIP']:
+        for name in ['fetchWorkspace', 'associateWorkspace', 'commitQueue', 'downloadZIP']:
             method = api.split('func ' + name, 1)[1].split('\n    func ', 1)[0]
             self.assertIn('let repo = try RepositoryInput.parse(repo)', method)
         self.assertIn('let owner = try RepositoryInput.parse(repo)', api)
@@ -18,7 +18,9 @@ class RepositoryInputTests(unittest.TestCase):
             self.assertNotIn('TextField("用户名/仓库名"', ui)
             self.assertNotIn('TextField("已有仓库：', ui)
             self.assertIn('TextField("仓库链接"', ui)
-        self.assertIn('repo: snapshot.binding.repo', Path(REPO_ROOT, 'RepoPocket/TrollMetadataView.swift').read_text())
+        for removed in ('trollPublish', 'metadataSnapshot', 'saveMetadata'):
+            self.assertNotIn('func ' + removed + '(', api)
+        self.assertFalse(Path(REPO_ROOT, 'RepoPocket/TrollMetadataView.swift').exists())
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Production Swift execution on macOS Actions')
     def test_production_parser_and_api_path(self):

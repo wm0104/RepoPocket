@@ -19,7 +19,10 @@ assert 'session.download(for: request, delegate: redirect)' in g
 assert 'for attempt in 0..<3' in a
 assert 'top: change.id == changes.first?.id && binding != nil && !busy' in w
 assert 'softGroupedRow(top: !changes.isEmpty && !busy)' in w
-assert '.disabled(busy || binding == nil)' in w
+management = w.split('private func workspaceManagement', 1)[1].split('private func bindingSection', 1)[0]
+assert 'enabled: !busy && api.isCurrentSession' in management
+assert 'NativeMenuItem(id: "check-remote"' in management and 'enabled: binding != nil' in management
+assert 'guard !busy, api.isCurrentSession, self.folder == folder, binding != nil else { return }' in management
 assert 'baselineRevision).focused($focusedField, equals: .baselineRevision)' in w
 rules=Path(REPO_ROOT, 'RepoPocket/WorkspaceBaselineRules.swift').read_text()
 selection=Path(REPO_ROOT, 'RepoPocket/WorkspaceSelection.swift').read_text()

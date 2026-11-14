@@ -13,15 +13,16 @@ class WorkflowDeletionIntegrationTests(unittest.TestCase):
     def test_filters_and_selection_reuse_existing_rows(self):
         source = (ROOT/'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8')
         runs = source.split('struct WorkflowRunsView: View {', 1)[1].split('struct WorkflowRunView:', 1)[0]
-        filters = runs.split('Section {', 1)[1].split('}.disabled(selection.busy)', 1)[0]
+        filters = runs.split('Section {', 1)[1].split('if store.busy', 1)[0]
         for component in ['SoftGroupRows {', 'SoftGroupRow("branch")', 'SoftGroupRow("failed")']:
             self.assertIn(component, filters)
         self.assertEqual(runs.count('WorkflowRunSummary(run: run)'), 2)
         self.assertIn('selection.remove(target, api: api)', runs)
         self.assertIn('failedOnly: requestedFailedOnly', runs)
         self.assertIn('.onChange(of: failedOnly)', runs)
-        self.assertIn('.onChange(of: store.items.map(\\.id))', runs)
-        self.assertIn('.onDisappear { store.cancel(); selection.cancel() }', runs)
+        self.assertIn('.onChange(of: selectableIDs)', runs)
+        self.assertIn('selection.reconcile(store.items)', runs)
+        self.assertIn('.onDisappear { visible = false; store.cancel(); selection.cancel() }', runs)
         self.assertNotIn('cornerRadius:', runs)
 
     def test_delete_notification_preserves_loaded_list(self):
@@ -77,7 +78,7 @@ class CommunityTests(unittest.TestCase):
 
     def test_production_community(self):
         source = (ROOT/'RepoPocket/GitHub.swift').read_text()
-        models = source[source.index('struct User: Decodable'):source.index('struct Release: Decodable')]
+        models = source[source.index('struct User:'):source.index('struct Release: Decodable')]
         oauth = (ROOT/'RepoPocket/DeviceOAuth.swift').read_text()
         follow_rules = (ROOT/'RepoPocket/UserFollow.swift').read_text().split('/// Shared only', 1)[0]
         program = '''import Foundation
@@ -475,7 +476,7 @@ final class OAuthFixtureProtocol: URLProtocol {
     @unittest.skipUnless(shutil.which('swiftc'), 'Native social-account regressions run on macOS')
     def test_production_social_account_management(self):
         github = (ROOT/'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
-        models = github[github.index('struct User: Decodable'):github.index('struct Release: Decodable')]
+        models = github[github.index('struct User:'):github.index('struct Release: Decodable')]
         request = '    private func request(' + github.split('    private func request(', 1)[1].split('    // Public official update metadata', 1)[0]
         # Upstream sync appends a self-contained API block just before the closing
         # brace of this extension; drop that block and keep the brace so the

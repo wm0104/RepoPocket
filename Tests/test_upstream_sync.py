@@ -68,7 +68,7 @@ class UpstreamSyncSourceTests(unittest.TestCase):
         self.assertEqual(view.count('.alert('), 0)
         self.assertIn('titleVisibility: .visible', view)
         self.assertIn('SoftGroupRow(', view)
-        self.assertIn('SoftGroupRows {', view)
+        self.assertIn('SoftGroupRows(bottom: false) {', view)
         self.assertNotIn('LinearGradient', FEATURE)
         self.assertNotIn('.font(.system', FEATURE)
         self.assertNotIn('Color.red', FEATURE)
@@ -105,7 +105,7 @@ class UpstreamSyncSourceTests(unittest.TestCase):
     def test_dynamic_sections_have_one_boundary_calculation(self):
         preview = block(FEATURE, '@ViewBuilder private var previewSection:',
                         '@ViewBuilder private var mergeSection:')
-        self.assertEqual(preview.count('SoftGroupRows(animateBackground: false) {'), 1)
+        self.assertEqual(preview.count('SoftGroupRows(top: false, bottom: false, animateBackground: false) {'), 1)
         self.assertNotIn('.softGroupedRow(', preview)
         for row in ['"commit-" + commit.id', '"file-" + file.id', '"files-note"']:
             self.assertIn('SoftGroupRow(' + row, preview)
@@ -120,8 +120,8 @@ class UpstreamSyncSourceTests(unittest.TestCase):
         self.assertIn('UIRules.withoutAnimation { commitsExpanded = false; filesExpanded = false; receiptExpanded = false }', view)
         preview = block(FEATURE, '@ViewBuilder private var previewSection:', '@ViewBuilder private var mergeSection:')
         result = FEATURE.split('@ViewBuilder private var resultSection:', 1)[1]
-        for section in (preview, result):
-            self.assertIn('SoftGroupRows(animateBackground: false)', section)
+        for section, boundary in [(preview, 'top: false, bottom: false'), (result, 'top: false')]:
+            self.assertIn('SoftGroupRows(' + boundary + ', animateBackground: false)', section)
             self.assertIn('.transaction { $0.animation = nil; $0.disablesAnimations = true }', section)
             self.assertNotIn('withAnimation', section)
             self.assertNotIn('.clipShape', section)

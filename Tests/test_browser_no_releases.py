@@ -38,7 +38,7 @@ class BrowserRollbackTests(unittest.TestCase):
         # Upstream preview alone moves out of the AnyView row into a stable route.
         self.assertEqual(BROWSER.count('    @State private var showingUpstreamSync = false\n'), 1)
         self.assertEqual(BROWSER.count('Button("上游同步") { showingUpstreamSync = true }'), 1)
-        upstream_route = '''        .navigationDestination(isPresented: $showingUpstreamSync) {
+        upstream_route = '''        .appNavigationDestination(isPresented: $showingUpstreamSync) {
             UpstreamSyncView(api: api, repo: repo, branch: activeBranch, canWrite: canWrite, repository: repositoryInfo)
         }
 '''
@@ -51,13 +51,27 @@ class BrowserRollbackTests(unittest.TestCase):
         for file in ('RepositoryReleaseUI.swift','RepositoryReleases.swift'):
             self.assertFalse((ROOT/'RepoPocket'/file).exists())
         self.assertNotIn('/releases',BROWSER)
-        self.assertIn('if path.isEmpty && !showFiles { repositoryOverview } else { directoryRows }', BROWSER)
-        self.assertEqual(BROWSER.count('RepositoryHomeHighlights(api: api, repo: repo, releaseState: homeRelease, runState: homeRuns)'), 1)
+        self.assertIn('if path.isEmpty && !showFiles {', BROWSER)
+        self.assertEqual(BROWSER.count('RepositoryHomeHighlights(api: api, repo: repo, releaseState: homeRelease, runState: homeRuns, connected: true, revalidationID: revalidationID)'), 1)
         highlights = (ROOT/'RepoPocket/RepositoryHomeHighlights.swift').read_text()
         self.assertEqual(highlights.count('ReleaseManagementDestination(api: api, repo: repo)'), 1)
         self.assertNotIn('managedReleases', LOAD)
         api_original = subprocess.check_output(['git','show',f'{BASE}:RepoPocket/GitHub.swift'],cwd=ROOT,text=True)
         api_new = (ROOT/'RepoPocket/GitHub.swift').read_text()
+        # Remove only the explicitly retired TrollFools implementation from the
+        # historic baseline; all unrelated transport bytes remain frozen.
+        for signature, next_signature in (
+            ('    func trollPublish(', '    func saveRemoteDeb('),
+            ('    static func trollSize(', '    func downloadFile('),
+        ):
+            self.assertNotIn(signature, api_new)
+            start = api_original.index(signature)
+            end = api_original.index(next_signature, start)
+            api_original = api_original[:start] + api_original[end:]
+        removed_result = 'struct TrollPublishResult { let commitSHA: String; let path: String }\n\n'
+        self.assertNotIn('struct TrollPublishResult', api_new)
+        self.assertEqual(api_original.count(removed_result), 1)
+        api_original = api_original.replace(removed_result, '')
         added_start = api_new.index('    // These bounded endpoints')
         # Only the explicitly approved default workspace naming expression differs
         # outside the bounded Release endpoints. Normalize that single expression;
@@ -69,6 +83,39 @@ class BrowserRollbackTests(unittest.TestCase):
         # account/host/error guards. Normalize only those exact additions before
         # comparing the complete historic write/download implementation.
         normalized = api_new[:added_start].replace(approved, historic)
+        # Approved display snapshots encode the same existing API model fields.
+        for name in ('User', 'RepositoryReference', 'Repository', 'Entry'):
+            normalized = normalized.replace('struct ' + name + ': Codable', 'struct ' + name + ': Decodable')
+        normalized = normalized.replace('struct Permissions: Codable { let admin: Bool?; let push: Bool? }',
+                                        'struct Permissions: Decodable { let admin: Bool?; let push: Bool? }')
+        cache_start = normalized.index('    func cachedCollection(')
+        cache_end = normalized.index('    func forkParent(', cache_start)
+        previous_ref = 'faa3dc5c5fda21bfabb685e4a479341690e7e1e3'
+        if subprocess.run(['git', 'cat-file', '-e', previous_ref + '^{commit}'], cwd=ROOT, capture_output=True).returncode:
+            subprocess.run(['git', 'fetch', '--depth=1', 'origin', previous_ref], cwd=ROOT, check=True, timeout=120)
+        previous = subprocess.check_output(['git', 'show', previous_ref + ':RepoPocket/GitHub.swift'], cwd=ROOT, text=True)
+        old_start = previous.index('    func cachedCollection(')
+        old_end = previous.index('    func forkParent(', old_start)
+        snapshot_methods = normalized[cache_start:cache_end]
+        self.assertIn('ContentSnapshotCache.shared.save', snapshot_methods)
+        self.assertIn('if section == .starred { stars.seed(repositories) }', snapshot_methods)
+        normalized = normalized[:cache_start] + previous[old_start:old_end] + normalized[cache_end:]
+        snapshot_read = '''        try ensureActiveAccount(); try Task.checkCancellation()
+        if method == "GET", path.hasPrefix("/repos/") {
+            let parts = path.split(separator: "/")
+            if parts.count == 3 || parts.dropFirst(3).first == "contents" || path.hasSuffix("/actions/runs") || path.hasSuffix("/releases/latest") {
+                ContentSnapshotCache.shared.save(d, accountID: accountID, key: ContentSnapshotCache.key(path, query: query))
+            }
+        }
+'''
+        self.assertEqual(normalized.count(snapshot_read), 1)
+        normalized = normalized.replace(snapshot_read, '', 1)
+        # Upload's parsed immutable tree snapshot keeps the decoder private;
+        # all pre-existing account/transport/write methods remain byte-exact.
+        upload_start = normalized.index('    func uploadDestinationTree(')
+        upload_end = normalized.index('    func associateWorkspace(', upload_start)
+        self.assertEqual(normalized[upload_start:upload_end].count('    func '), 1)
+        normalized = normalized[:upload_start] + normalized[upload_end:]
         # Only the new remote-branch rename and delete methods are excluded; their
         # permission, protected/default/current branch and acknowledgement tests are separate.
         deletion_start = normalized.index('    /// Local-facing rename becomes create-then-delete on GitHub:')
@@ -174,8 +221,11 @@ class BrowserRollbackTests(unittest.TestCase):
         old_auth_start, old_auth_end = api_original.index('    func identify()'), api_original.index('    func repositories()')
         normalized = normalized[:auth_start] + api_original[old_auth_start:old_auth_end] + normalized[auth_end:]
         for signature, next_signature in (
+            # Upload-limit consumers are covered by test_repository_upload_limits.py.
+            ('    func commitWorkspace(', '    func commitQueue('),
             ('    func commitQueue(', '    func identify('),
-            ('    func trollPublish(', '    func metadataSnapshot('),
+            ('    func commit(_ repo:', '    func delete('),
+            ('    func saveRemoteDeb(', '    func downloadFile('),
         ):
             current_start = normalized.index(signature)
             current_end = normalized.index(next_signature, current_start)
@@ -200,10 +250,22 @@ class BrowserRollbackTests(unittest.TestCase):
             '    init(configuration: URLSessionConfiguration = .ephemeral) {\n'
             '        let config = configuration.copy() as! URLSessionConfiguration\n',
             '    init() {\n        let config = URLSessionConfiguration.ephemeral\n')
+        # Independently covered collection additions leave the historic transport byte-exact.
+        normalized = normalized.replace('    lazy var favorites = RepositoryFavoritesState(accountID: accountID) { [weak self] in self?.isCurrentSession == true }\n', '')
+        normalized = normalized.replace('    var starLists: GitHubStarLists { .init(send: { try await self.starListGraphQL($0, variables: $1) }, isCurrent: { self.isCurrentSession }) }\n', '')
+        collection_start = normalized.index('    func starListGraphQL(')
+        collection_end = normalized.index('    func starRequest(', collection_start)
+        normalized = normalized[:collection_start] + normalized[collection_end:]
         self.assertEqual(normalized.rstrip() + '\n}\n', api_original)
-        self.assertEqual(BROWSER.count('.task { if !loaded { await load() } }'),1)
-        for menu in ('CopyRepositoryLinkButton','ForkRepositoryMenuButton','RepositoryStarMenuButton'):
-            self.assertIn(menu,BROWSER)
+        self.assertEqual(BROWSER.count('.task { await load() }'), 1)
+        self.assertIn('metadataFresh && RepositoryWriteRules.canWrite', BROWSER)
+        self.assertIn('RepositoryBrowserActionMenu(', BROWSER)
+        self.assertIn('perform: { copyFeedback.copy(repo) }', BROWSER)
+        for menu in ('ForkRepositoryMenuButton', 'RepositoryStarMenuButton'):
+            self.assertIn(menu, BROWSER)  # the repository-home row retains its existing hosts
+        bridge = (ROOT/'RepoPocket/NativeActionMenu.swift').read_text()
+        for host in ('RepositoryForkActionHost(', 'RepositoryStarActionHost('):
+            self.assertIn(host, bridge)  # directory toolbar uses the same query/mutation lifecycle
         for file in ('RepoPocket/RepositoryStar.swift','RepoPocket/RepositoryStarUI.swift'):
             text=(ROOT/file).read_text()
             self.assertNotIn('DispatchSemaphore',text); self.assertNotIn('.wait()',text)
@@ -217,31 +279,41 @@ class BrowserRollbackTests(unittest.TestCase):
     def test_production_load_owned_other_root_and_folder_zero_release_calls(self):
         source='''import Foundation
 struct Entry { let name: String }
-struct Repository { let full_name: String }
+struct Repository { let full_name: String; var default_branch: String? = "main" }
+struct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }
 enum AccountStore { static var generation = UUID() }
 enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { false } }
-final class GitHub {
+@MainActor final class GitHub {
  var calls: [String] = []; var isCurrentSession = true; var message = ""
  func resolvedBranch(_ repo: String, branch: String) async throws -> String { calls.append("branch:"+repo); return "main" }
  func contents(_ repo: String, path: String, branch: String) async throws -> [Entry] { calls.append("contents:"+repo+":"+path); return [Entry(name:"README.md")] }
  func repository(_ repo: String) async throws -> Repository { calls.append("metadata:"+repo); return Repository(full_name:repo) }
  func releases(_ repo: String) async throws -> [Int] { calls.append("releases:"+repo); return [] }
+ func cachedContents(_ repo: String, path: String, branch: String) -> (value: [Entry], savedAt: Date)? { nil }
 }
-final class BrowserHarness {
+@MainActor final class Metadata {
+ func load(api: GitHub, repo: String, branch: String, entries: [Entry]) {}
+}
+@MainActor final class BrowserHarness {
  let api: GitHub; let repo: String; let path: String
- var activeBranch = ""; var repositoryInfo: Repository?; var busy = false; var refreshing = false
- var selectedBranch = ""; var entries: [Entry] = []; var loaded = false
- init(_ api: GitHub, _ repo: String, _ path: String) { self.api=api; self.repo=repo; self.path=path }
- func enter() async { if !loaded { await load() } }
+ var activeBranch: String { selectedBranch }
+ var repositoryInfo: Repository?; var busy = false; var refreshing = false
+ var selectedBranch = ""; var entries: [Entry] = []; var showFiles: Bool
+ var loadID: UUID?; var contentBranch = ""; var updatedAt: Date?; var loadError = ""; var metadataFresh = false
+ let metadata = Metadata()
+ init(_ api: GitHub, _ repo: String, _ path: String, _ showFiles: Bool) { self.api=api; self.repo=repo; self.path=path; self.showFiles=showFiles }
+ func enter() async { await load() }
 '''+LOAD+'''}
 @main struct Run {
- static func main() async {
+ @MainActor static func main() async {
   for repo in ["wm0104/RepoPocket", "other/public-repo"] {
-   for path in ["", "Sources"] {
-    let api=GitHub(); let browser=BrowserHarness(api,repo,path)
+   for (path, showFiles) in [("", false), ("", true), ("Sources", true)] {
+    let api=GitHub(); let browser=BrowserHarness(api,repo,path,showFiles)
     await browser.enter(); await browser.enter()
-    precondition(browser.loaded && browser.entries.count == 1 && !browser.busy)
-    precondition(api.calls == ["branch:"+repo,"contents:"+repo+":"+path,"metadata:"+repo])
+    precondition(browser.entries.count == (showFiles ? 1 : 0) && !browser.busy && browser.metadataFresh)
+    precondition(browser.selectedBranch == "main")
+    precondition(api.calls.filter { $0 == "metadata:"+repo }.count == 2)
+    precondition(api.calls.filter { $0 == "contents:"+repo+":"+path }.count == (showFiles ? 2 : 0))
     precondition(!api.calls.contains { $0.contains("releases") })
    }
   }

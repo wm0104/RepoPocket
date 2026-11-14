@@ -17,7 +17,7 @@ style = Path(REPO_ROOT, 'RepoPocket/WorkspaceSelectionUI.swift').read_text()
 class UpdateGroupTests(unittest.TestCase):
     def test_shared_background_defaults_do_not_inherit_list_transition_animation(self):
         self.assertIn('animateBackground: Bool = false, separatorInset:', style)
-        self.assertIn('init(animateBackground: Bool = false,', style)
+        self.assertIn('init(top: Bool = true, bottom: Bool = true, animateBackground: Bool = false,', style)
         self.assertIn('transaction.animation = nil', style)
         self.assertIn('transaction.disablesAnimations = true', style)
 
@@ -34,13 +34,14 @@ class UpdateGroupTests(unittest.TestCase):
         # The expanded release notes are a concrete child row too.
         self.assertEqual(len(rows), 13)
         self.assertTrue(all(row.count('.softGroupedRow(') == 1 for row in rows))
-        self.assertEqual(group.count('top: true'), 1)
+        self.assertEqual(group.count('top: !connected'), 1)
+        self.assertIn('var connected = false', body)
         self.assertNotIn('bottom:', group)
         self.assertNotIn('.listRowBackground', body)
         self.assertNotIn('.background(', body)
         self.assertIn('.downloadCompletionNotice($checker.downloadCompletion)', body)
         self.assertIn('.sheet(item: $share, onDismiss: { checker.sharing = false })', body)
-        block = settings.split('AppUpdateSection(api: api, checker: updateChecker)', 1)[1].split('}.formStyle', 1)[0]
+        block = settings.split('AppUpdateSection(api: api, checker: updateChecker, connected: true)', 1)[1].split('}.appGroupedFormStyle', 1)[0]
         self.assertIn('.softGroupedRow(bottom: true)', block)
         self.assertNotIn('top: true', block)
         self.assertNotIn('Section', block)
@@ -66,8 +67,11 @@ class UpdateGroupTests(unittest.TestCase):
         for checking, message, release, ipa, downloading, downloaded, trollstore in itertools.product((False, True), repeat=7):
             # Actual row flags are read from the source; enumerate all state
             # combinations with the production mutually exclusive branch order.
-            top = next(line for line in body.splitlines() if '}.softGroupedRow(top: true)' in line)
-            flags = [('top: true' in top, 'bottom: true' in top)]
+            top = next(line for line in body.splitlines() if '}.softGroupedRow(top: !connected)' in line)
+            self.assertIn('foregroundStyle(.secondary).softGroupedRow(top: true, spacingBefore: 10)', settings)
+            self.assertIn('softGroupedRow(top: true, bottom: savedAccount == nil)', settings)
+            # About opens its own compact module; connected update rows stay straight.
+            flags = [(True, False), (False, False)]
             if message: flags += [(False, False)]
             if downloading: flags += [(False,False)] * 2
             elif downloaded: flags += [(False,False)]
@@ -82,6 +86,10 @@ class UpdateGroupTests(unittest.TestCase):
             self.assertEqual(sum(bottom for _, bottom in rows), 1)
             state_count += 1
         self.assertEqual(state_count, 128)
+        for signed_in in (False, True):
+            profile = [(True, not signed_in)] + ([(False, True)] if signed_in else [])
+            self.assertEqual(sum(top for top, _ in profile), 1)
+            self.assertEqual(sum(bottom for _, bottom in profile), 1)
         print('PASS 128 dynamic update combinations including TrollStore handoff; one top, one bottom, straight intermediate rows')
 
     @unittest.skipUnless(shutil.which('swiftc'), 'SwiftUI geometry runs in macOS Actions')

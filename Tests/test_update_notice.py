@@ -29,7 +29,7 @@ class NoticeTests(unittest.TestCase):
                      'startupRelease', 'queueStartupSheet', 'selectedTab = 4']:
             self.assertNotIn(gone, app)
             self.assertNotIn(gone, feature)
-        self.assertIn('UpdateTabBadge(tabIndex: 3, isVisible: updateChecker.hasUpdate)', app)
+        self.assertIn('UpdateTabBadge(tabIndex: 2, isVisible: updateChecker.hasUpdate)', app)
         self.assertIn('appEntryCheck(api: api)', app)
         # A subtle 10pt dot with a bar-coloured ring, never a number or a custom image.
         for token in ['width: 10, height: 10', 'layer.cornerRadius = 5', 'cornerRadius = 7',

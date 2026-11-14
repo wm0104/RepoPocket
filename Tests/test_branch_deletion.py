@@ -45,7 +45,8 @@ class BranchDeletionContracts(unittest.TestCase):
         view = (ROOT / 'RepoPocket/DesktopViews.swift').read_text().split('struct BranchPickerView:', 1)[1]
         for text in ('.contextMenu', '.confirmationDialog', 'role: .destructive', 'api.deleteBranch(',
                      '删除 GitHub 远端分支', 'defaultBranch', 'b.name != current', 'presenting: deleting',
-                     'SoftGroupRow("deletion-result")', 'Text(deletionMessage)', 'deletionMessage = error.localizedDescription'):
+                     'Text(deletionMessage).font(.footnote).textSelection(.enabled).softGroupedRow(bottom: !busy)',
+                     'Text(deletionMessage)', 'deletionMessage = error.localizedDescription'):
             self.assertIn(text, view)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'swiftc absent: production URLProtocol fixture NOT executed')
@@ -136,7 +137,12 @@ HARNESS = r'''
 import Foundation
 struct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }
 struct GitHubMessage: Decodable { let message: String }
-struct User: Decodable {}
+struct User: Codable {}
+final class ContentSnapshotCache {
+    static let shared = ContentSnapshotCache()
+    static func key(_ path: String, query: [URLQueryItem] = []) -> String { path }
+    func save(_ body: Data, accountID: String, key: String) {}
+}
 enum RepositoryWriteRules { static func canWrite(push: Bool?) -> Bool { push == true } }
 @MainActor enum AccountStore { static var activeID = "fixture"; static var generation = UUID() }
 @MainActor enum CredentialStore { static func read(account: String) -> String { "fixture-only" } }

@@ -16,12 +16,28 @@ struct PendingRepoItem: Identifiable {
         path = replacementPath ?? local.map { (folder.isEmpty ? "" : folder + "/") + $0.lastPathComponent }
         self.sha = sha; self.head = head
     }
+    mutating func inheritTarget(folder: String, head: String, files: [String: String], directories: Set<String>) throws -> Bool {
+        guard local != nil else { return false }
+        var candidate = self
+        candidate.select(folder: folder, replacementPath: nil, sha: nil, head: head)
+        guard let path = candidate.path, files[path] == nil else { return false }
+        try RepoQueue.validate([candidate], head: head, files: files, directories: directories)
+        self = candidate
+        return true
+    }
 }
 
 enum RepoQueue {
-    static let maximumFileBytes: Int64 = 10 * 1024 * 1024
-    static let maximumTotalUploadBytes: Int64 = 50 * 1024 * 1024
-    static let maximumTrollPluginBytes: Int64 = 20 * 1024 * 1024
+    // maximumBytes parameters are inclusive; ordinary uploads must be strictly below 100 MiB.
+    static let maximumFileBytes: Int64 = 100 * 1024 * 1024 - 1
+    static let maximumTotalUploadBytes: Int64 = maximumFileBytes
+
+    static func addingUploadBytes(_ size: Int64, to total: Int64) throws -> Int64 {
+        guard size >= 0, size <= maximumFileBytes else { throw AppError(text: "普通提交单文件必须小于 100 MiB，请使用 Release。") }
+        guard total >= 0, total <= maximumTotalUploadBytes,
+              size <= maximumTotalUploadBytes - total else { throw AppError(text: "普通提交总原始文件大小必须小于 100 MiB，请使用 Release。") }
+        return total + size
+    }
 
     static func readiness(_ items: [PendingRepoItem], repo: String, message: String) -> String? {
         if repo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "请填写目标仓库" }
@@ -33,9 +49,8 @@ enum RepoQueue {
             if item.path == nil || item.head == nil { return label + "：请先选择目标（仓库/分支变化后需重新选择）" }
             if let file = item.local {
                 if !FileManager.default.fileExists(atPath: file.path) { return label + "：本地临时文件已不存在，请重新选择" }
-                if item.size < 0 || item.size > maximumFileBytes { return label + "：超过 10 MiB，请改用 Release" }
-                guard totalBytes <= maximumTotalUploadBytes - item.size else { return "普通提交总大小不能超过 50 MiB，请改用 Release。" }
-                totalBytes += item.size
+                do { totalBytes = try addingUploadBytes(item.size, to: totalBytes) }
+                catch { return label + "：" + error.localizedDescription }
             }
         }
         return nil
@@ -52,9 +67,7 @@ enum RepoQueue {
             guard seen.insert(key).inserted else { throw AppError(text: "重复目标：" + path) }
             guard files[path] == item.sha, item.local != nil || item.sha != nil else { throw AppError(text: "目标 SHA 已变化或未经明确选择替换：" + path) }
             if item.local != nil {
-                guard item.size >= 0, item.size <= maximumFileBytes else { throw AppError(text: path + " 超过上传 10 MiB，请使用 Release") }
-                guard totalBytes <= maximumTotalUploadBytes - item.size else { throw AppError(text: "普通提交总大小不能超过 50 MiB，请使用 Release") }
-                totalBytes += item.size
+                totalBytes = try addingUploadBytes(item.size, to: totalBytes)
             }
             let otherPaths = Array(files.keys) + Array(directories) + items.compactMap(\.path)
             guard !directories.contains(path), !otherPaths.contains(where: { other in
@@ -93,4 +106,24 @@ extension LocalStore {
         while let chunk = try handle.read(upToCount: 256 * 1024), !chunk.isEmpty { hash.update(data: chunk) }
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
+}
+
+extension RepoQueue {
+    static func reviewFingerprint(_ items: [PendingRepoItem], repo: String, branch: String, message: String) throws -> String {
+        var fields = [repo, branch, message]
+        for item in items {
+            fields += [item.id.uuidString, item.path ?? "", item.sha ?? "", item.head ?? "", String(item.size)]
+            if let file = item.local {
+                let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+                guard attributes[.type] as? FileAttributeType == .typeRegular,
+                      (attributes[.size] as? NSNumber)?.int64Value == item.size else {
+                    throw AppError(text: "本地文件类型或大小已变化，请重新选择并确认。")
+                }
+                fields.append(try LocalStore.snapshotFileSHA256(file))
+            }
+        }
+        // Length framing avoids collisions between paths, messages and content hashes.
+        return fields.map { "\($0.utf8.count):\($0)" }.joined()
+    }
+
 }

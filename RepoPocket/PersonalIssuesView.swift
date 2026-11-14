@@ -5,13 +5,25 @@ struct PersonalIssuesSection: View {
     @ObservedObject var store: CommunityPageStore<CollaborationItem>
     @ObservedObject private var deletions: IssueDeletionState
     @State private var deletionTarget: IssueDeletionConfirmation?
+    var connected = false
     private var visible: [CollaborationItem] { deletions.visible(store.items) }
-    init(api: GitHub, store: CommunityPageStore<CollaborationItem>) {
+    init(api: GitHub, store: CommunityPageStore<CollaborationItem>, connected: Bool = false) {
         self.api = api; self.store = store; deletions = api.issueDeletions
+        self.connected = connected
     }
     var body: some View {
-        Section("议题") {
-            SoftGroupRows {
+        Group {
+            if connected { content }
+            else { Section("议题") { content } }
+        }
+        .issueDeletionPresenter(api: api, state: deletions, target: $deletionTarget)
+        .onChange(of: store.items.map(\.id)) { _ in loadPermissions() }
+        .onChange(of: deletions.deleted) { _ in loadPermissions() }
+        .task { loadPermissions() }
+    }
+    private var content: some View {
+            SoftGroupRows(spacingBefore: connected ? 10 : 0) {
+                if connected { SoftGroupRow("heading") { Text("议题").font(.subheadline).foregroundStyle(.secondary) } }
                 for item in visible.prefix(3) {
                     if let repo = PersonalIssueRules.repository(item) {
                         SoftGroupRow(String(item.id)) {
@@ -34,11 +46,6 @@ struct PersonalIssuesSection: View {
                     .disabled(api.login.isEmpty).accessibilityIdentifier("home-personal-issues")
                 }
             }
-        }
-        .issueDeletionPresenter(api: api, state: deletions, target: $deletionTarget)
-        .onChange(of: store.items.map(\.id)) { _ in loadPermissions() }
-        .onChange(of: deletions.deleted) { _ in loadPermissions() }
-        .task { loadPermissions() }
     }
     private func loadPermissions() {
         deletions.load(visible.prefix(3).compactMap { item in PersonalIssueRules.repository(item).flatMap { IssueDeletionSubject(item, repo: $0) } }, api: api)
@@ -84,30 +91,28 @@ struct PersonalIssuesView: View {
     var body: some View {
         List {
             Section {
-                Picker("议题范围", selection: $filter) {
-                    ForEach(PersonalIssueFilter.allCases) { Text($0.title).tag($0) }
-                }.softGroupedRow(top: true, bottom: true)
-            }
-            if !visible.isEmpty {
-                Section {
-                    SoftGroupRows {
-                        for item in visible {
-                            if let repo = PersonalIssueRules.repository(item) {
-                                SoftGroupRow(String(item.id)) {
-                                    NavigationLink { CollaborationDetailView(api: api, repo: repo, kind: .issues, number: item.number) }
-                                    label: { PersonalIssueRow(item: item, repo: repo) }
-                                    .issueDeletionMenu(api: api, state: deletions, subject: IssueDeletionSubject(item, repo: repo), target: $deletionTarget)
-                                    .accessibilityIdentifier("personal-issue-\(item.number)")
-                                }
+                SoftGroupRows {
+                    SoftGroupRow("filter") {
+                        Picker("议题范围", selection: $filter) {
+                            ForEach(PersonalIssueFilter.allCases) { Text($0.title).tag($0) }
+                        }
+                    }
+                    for item in visible {
+                        if let repo = PersonalIssueRules.repository(item) {
+                            SoftGroupRow(String(item.id)) {
+                                NavigationLink { CollaborationDetailView(api: api, repo: repo, kind: .issues, number: item.number) }
+                                label: { PersonalIssueRow(item: item, repo: repo) }
+                                .issueDeletionMenu(api: api, state: deletions, subject: IssueDeletionSubject(item, repo: repo), target: $deletionTarget)
+                                .accessibilityIdentifier("personal-issue-\(item.number)")
                             }
                         }
                     }
+                    if store.loaded && visible.isEmpty && store.error.isEmpty {
+                        SoftGroupRow("empty") { Text("没有符合条件的议题").foregroundStyle(.secondary) }
+                    }
+                    CommunityPageFooter(store: store, next: { load() }).rows
                 }
             }
-            if store.loaded && visible.isEmpty && store.error.isEmpty {
-                Section { Text("没有符合条件的议题").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
-            }
-            CommunityPageFooter(store: store, next: { load() })
         }.listStyle(.insetGrouped).navigationTitle("我的议题").adaptiveWorkspaceLayout()
         .toolbar { Button("刷新") { load(reset: true) }.disabled(store.busy) }
         .onChange(of: filter) { _ in load(reset: true) }

@@ -45,8 +45,7 @@ enum WorkflowLogArchiveRules {
             }
             total += bytes.count
             guard let text = String(data: bytes, encoding: .utf8) else { throw AppError(text: "步骤日志不是有效 UTF-8 文本。") }
-            let clean = text.replacingOccurrences(of: "\u{1B}\\[[0-?]*[ -/]*[@-~]", with: "", options: .regularExpression)
-            output[number] = WorkflowStepOutput(text: clean, limited: false)
+            output[number] = WorkflowStepOutput(text: text, limited: false)
         }
         guard folder != nil else { throw AppError(text: "归档中暂未找到该任务的步骤日志，请在运行结束后刷新。") }
         return WorkflowStepLogs(steps: output)

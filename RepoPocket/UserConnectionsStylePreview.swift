@@ -11,21 +11,21 @@ struct UserConnectionsStylePreview: View {
         Group {
             if let api {
                 if ProcessInfo.processInfo.arguments.contains("-upstream-sync-style-preview") {
-                    NavigationStack { BrowserView(api: api, repo: "fixture-owner/sample", path: "", branch: "main") }
+                    AppNavigationStack { BrowserView(api: api, repo: "fixture-owner/sample", path: "", branch: "main") }
                 } else if ProcessInfo.processInfo.arguments.contains("-repository-file-search-preview") {
-                    NavigationStack { RepositoryCodeDestination(api: api, repo: "fixture-owner/sample", branch: "feature/search") }
+                    AppNavigationStack { RepositoryCodeDestination(api: api, repo: "fixture-owner/sample", branch: "feature/search") }
                 } else if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
-                    NavigationStack {
+                    AppNavigationStack {
                         FileView(api: api, repo: "fixture-owner/sample", entry: ConnectionsPreviewProtocol.editorEntry, branch: "main", canWrite: true)
                     }
                 } else if ProcessInfo.processInfo.arguments.contains("-social-account-settings-preview") {
                     SettingsView(api: api, updateChecker: updateChecker).environmentObject(accountPresentation)
                 } else if ProcessInfo.processInfo.arguments.contains("-issue-deletion-repository-preview") {
-                    NavigationStack { CollaborationListView(api: api, repo: "fixture-owner/sample", kind: .issues) }
+                    AppNavigationStack { CollaborationListView(api: api, repo: "fixture-owner/sample", kind: .issues) }
                 } else if ProcessInfo.processInfo.arguments.contains("-fork-author-preview") {
                     RepositorySocialView(api: api, repository: try! JSONDecoder().decode(Repository.self, from: Data(ConnectionsPreviewProtocol.repository.utf8)), destination: .forks)
                 } else if ProcessInfo.processInfo.arguments.contains("-event-author-preview") {
-                    NavigationStack { CommunityEventsView(api: api, login: "fixture-follower") }
+                    AppNavigationStack { CommunityEventsView(api: api, login: "fixture-follower") }
                 } else if ProcessInfo.processInfo.arguments.contains("-search-style-preview") {
                     RepositorySearchView(api: api)
                 } else { RepositoriesView(api: api) }

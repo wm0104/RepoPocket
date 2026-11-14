@@ -22,7 +22,7 @@ struct CommunityAuthorLink: View {
         }
         .sheet(isPresented: $showingProfile) {
             if let user {
-                NavigationStack {
+                AppNavigationStack {
                     UserRepositoriesView(api: api, user: user)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showingProfile = false } } }
                 }.appSheetCornerRadius()

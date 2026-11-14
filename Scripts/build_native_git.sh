@@ -14,9 +14,10 @@ fi
 echo "$digest  $archive" | shasum -a 256 --check
 source="$root/source/libgit2-$revision"
 if [ ! -d "$source" ]; then tar -xzf "$archive" -C "$root/source"; fi
+python3 Scripts/patch_native_git.py "$source/src/libgit2/attr_file.c"
 options=(-DCMAKE_POLICY_VERSION_MINIMUM=3.5)
 if [ "$platform" != macosx ]; then
-  options+=(-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_OSX_ARCHITECTURES=arm64)
+  options+=(-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DCMAKE_OSX_ARCHITECTURES=arm64)
 fi
 cmake -S "$source" -B "$root/build-$platform" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=MinSizeRel \

@@ -28,11 +28,8 @@ struct LocalGitMergeSourcePicker: View {
                         SoftGroupRow("error") { Text(failure).font(.caption).foregroundStyle(.secondary) }
                     }
                     SoftGroupRow("refresh") { Button("重新读取分支") { Task { await load() } }.disabled(busy || !valid) }
-                }
-            }
-            if let branches {
-                Section("选择要合入的本地分支") {
-                    SoftGroupRows {
+                    if let branches {
+                        SoftGroupRow("branches-heading") { Text("选择要合入的本地分支").font(.subheadline).foregroundStyle(.secondary) }
                         for branch in branches.local.filter({ !$0.current && !$0.remote }) {
                             SoftGroupRow(branch.id) {
                                 NavigationLink {

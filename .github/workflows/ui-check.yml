@@ -5,7 +5,7 @@ on:
       test_scope:
         description: Run all UI checks, profile navigation, or attachment/follow actions
         type: choice
-        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge]
+        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck]
         default: all
   pull_request:
     branches: [main]
@@ -26,21 +26,29 @@ permissions:
 jobs:
   preview:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      # 三组串行，避免同一工作流同时挤占 macOS runner 容量。
+      matrix:
+        group: ${{ fromJSON((inputs.test_scope || 'all') == 'all' && '["boundaries-a","boundaries-b","editors"]' || '["selected"]') }}
     env:
       RP_STYLE_TEST_SCOPE: ${{ inputs.test_scope || 'all' }}
+      RP_STYLE_TEST_GROUP: ${{ matrix.group }}
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
-      - name: Test community API and profile contacts
+      - name: Test community API, profile contacts and UI preflight
         run: |
           python3 Tests/test_community.py
           python3 Tests/test_social_platforms.py
+          python3 Tests/test_style_failure_diagnostics.py
       - uses: actions/cache@v4
         with:
           path: NativeBuild
-          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh') }}
+          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh', 'Scripts/patch_native_git.py') }}
       - name: Build real simulator application
         run: |
           set -euo pipefail
@@ -56,7 +64,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: preview-build-log
+          name: ${{ matrix.group == 'selected' && 'preview-build-log' || format('preview-build-log-{0}', matrix.group) }}
           path: preview-build.log
           retention-days: 7
       - name: Exercise shipping local Git and code surfaces
@@ -64,7 +72,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: simulator-style-preview
+          name: ${{ matrix.group == 'selected' && 'simulator-style-preview' || format('simulator-style-preview-{0}', matrix.group) }}
           path: |
             screenshots/*.png
             screenshots/*.mp4
@@ -72,5 +80,8 @@ jobs:
             preview-build.log
             style-test-build.log
             app-preview.log
+            preview-crashes/**
+            preview-linkage.log
+            preview-launch-help.log
             style-tests.log
             style-tests.xcresult

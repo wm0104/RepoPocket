@@ -120,5 +120,5 @@ print("PASS linked original changes, persistent bookmarks, same-name isolation, 
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / 'test.swift'
         prefix = 'import Foundation\nimport CryptoKit\nstruct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }\nlet fixture = URL(fileURLWithPath: "' + d.replace('\\', '\\\\') + '").resolvingSymlinksInPath().standardizedFileURL\nvar allowScope = true\nfunc fixtureRelease() {}\n'
-        path.write_text(prefix + core + remote + tests, encoding='utf-8')
+        path.write_text(prefix + core + (ROOT / 'RepoPocket/RepoQueue.swift').read_text() + remote + tests, encoding='utf-8')
         subprocess.run(['swift', str(path)], check=True)

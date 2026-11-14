@@ -7,7 +7,21 @@ struct WorkflowSelectionStylePreview: View {
     @State private var error = ""
     var body: some View {
         Group {
-            if let api { NavigationStack { WorkflowRunsView(api: api, repo: "fixture-owner/sample", branch: "main") } }
+            if let api {
+                AppNavigationStack {
+                    WorkflowRunsView(api: api, repo: "fixture-owner/sample", branch: "main")
+                        .safeAreaInset(edge: .bottom) {
+                            if ProcessInfo.processInfo.arguments.contains("-workflow-refresh-preview") {
+                                HStack {
+                                    Button("模拟运行中") { WorkflowSelectionPreviewProtocol.setPhase("in_progress") }
+                                    Button("模拟完成") { WorkflowSelectionPreviewProtocol.setPhase("completed") }
+                                    Button("模拟刷新失败") { WorkflowSelectionPreviewProtocol.failNextRefresh() }
+                                }.font(.caption).frame(minHeight: 44).buttonStyle(.borderless)
+                                    .background(Color(uiColor: .secondarySystemBackground))
+                            }
+                        }
+                }
+            }
             else if !error.isEmpty { Text(error) }
             else { ProgressView("准备工作流测试") }
         }.task {
@@ -29,10 +43,15 @@ private final class WorkflowSelectionPreviewProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var deleted = Set<Int>()
     private static var rejected = false
-    static func reset() { lock.lock(); defer { lock.unlock() }; deleted = []; rejected = false }
+    private static var phase = "queued"
+    private static var failNext = false
+    static func reset() { lock.lock(); defer { lock.unlock() }; deleted = []; rejected = false; phase = "queued"; failNext = false }
+    static func setPhase(_ value: String) { lock.lock(); defer { lock.unlock() }; phase = value }
+    static func failNextRefresh() { lock.lock(); defer { lock.unlock() }; failNext = true }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     private static var runs: [[String: Any]] {
+        lock.lock(); let phase = Self.phase; lock.unlock()
         let paginated = ProcessInfo.processInfo.arguments.contains("-workflow-pagination-preview")
         return (1...(paginated ? 30 : 4)).map { id in
             var row: [String: Any] = ["id": id, "name": "Build IPA", "run_number": id, "head_sha": "fixture-sha",
@@ -42,21 +61,70 @@ private final class WorkflowSelectionPreviewProtocol: URLProtocol {
             row["head_branch"] = id == 4 ? "feature" : "main"
             row["status"] = id == 3 ? "in_progress" : "completed"
             if id != 3 { row["conclusion"] = id == 4 ? "success" : "failure" }
+            if id == 3, ProcessInfo.processInfo.arguments.contains("-workflow-refresh-preview") {
+                row["display_title"] = "刷新回归运行"; row["status"] = phase
+                row["conclusion"] = phase == "completed" ? "success" : nil
+            }
             return row
         }
     }
+    private static let inputsYAML = """
+    name: Build IPA
+    on:
+      workflow_dispatch:
+        inputs:
+          run_title: {type: string, description: Preview title, required: true, default: Preview run}
+          channel: {type: choice, options: [stable, beta], default: stable}
+          dry_run: {type: boolean, default: true}
+          count: {type: number, default: 3}
+          environment: {type: environment, default: preview}
+    jobs:
+      preview:
+        runs-on: ubuntu-latest
+        env: {MODE: preview}
+        steps:
+          - run: |
+              echo 'This workflow exists only inside URLProtocol fixtures'
+    """
     override func startLoading() {
         let path = request.url?.path ?? "", root = "/repos/fixture-owner/sample"
         let allowed = request.url?.host == "api.github.com" && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-workflow"
-        var code = 200, payload: [String: Any] = [:]
-        if allowed, request.httpMethod == "GET", path == root {
+        var code = 200
+        var payload: Any = [String: Any]()
+        let cornerFixture = ProcessInfo.processInfo.arguments.contains("-workflow-filter-corners-preview")
+        let workflow: [String: Any] = ["id": 41, "name": "Build IPA", "path": ".github/workflows/build.yml", "state": "active"]
+        if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/actions/workflows" {
+            payload = ["workflows": [workflow]]
+        } else if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/actions/workflows/41" {
+            payload = workflow
+        } else if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/branches" {
+            payload = [["name": "main", "commit": ["sha": String(repeating: "a", count: 40)]]]
+        } else if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/branches/main" {
+            payload = ["name": "main", "commit": ["sha": String(repeating: "a", count: 40)]]
+        } else if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/contents/.github/workflows/build.yml" {
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            if query.first(where: { $0.name == "ref" })?.value == "main" {
+                payload = ["type": "file", "encoding": "base64", "content": Data(Self.inputsYAML.utf8).base64EncodedString(),
+                           "sha": "fixture-workflow-schema", "size": Self.inputsYAML.utf8.count]
+            } else { code = 404 }
+        } else if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/environments" {
+            payload = ["total_count": 1, "environments": [["name": "preview"]]]
+        } else if allowed, cornerFixture, request.httpMethod == "POST", path == root + "/actions/workflows/41/dispatches" {
+            // URLProtocol can receive a streamed body instead of httpBody on iOS; the
+            // dispatch payload is checked separately by WorkflowDispatchRules tests.
+            code = 204
+        } else if allowed, request.httpMethod == "GET", path == root {
             payload = ["id": 1, "name": "sample", "full_name": "fixture-owner/sample", "html_url": "https://github.com/fixture-owner/sample", "permissions": ["push": true]]
         } else if allowed, request.httpMethod == "GET", path == root + "/actions/runs" {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let branch = query.first { $0.name == "branch" }?.value, status = query.first { $0.name == "status" }?.value
-            Self.lock.lock(); let deleted = Self.deleted; Self.lock.unlock()
-            let rows = Self.runs.filter { !deleted.contains($0["id"] as! Int) && (branch == nil || $0["head_branch"] as? String == branch) && (status == nil || $0["conclusion"] as? String == status) }
+            Self.lock.lock(); let deleted = Self.deleted; let fail = Self.failNext; Self.failNext = false; Self.lock.unlock()
+            let rows = Self.runs.filter {
+                !deleted.contains($0["id"] as! Int) && (branch == nil || $0["head_branch"] as? String == branch) && (status == nil || $0["conclusion"] as? String == status)
+                    && (!ProcessInfo.processInfo.arguments.contains("-workflow-refresh-preview") || $0["id"] as? Int == 3)
+            }
             payload = ["workflow_runs": query.first { $0.name == "page" }?.value == "1" ? rows : []]
+            if fail { code = 500; payload = ["message": "模拟刷新失败"] }
         } else if allowed, path.hasPrefix(root + "/actions/runs/"), let id = Int(path.split(separator: "/").last ?? ""), (1...4).contains(id) {
             if request.httpMethod == "GET" { payload = Self.runs[id-1] }
             else if request.httpMethod == "DELETE" {

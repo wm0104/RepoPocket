@@ -7,9 +7,16 @@ struct WorkflowLogStylePreview: View {
     @State private var expanded = false
     @State private var output: WorkflowStepOutput?
     @State private var failure = ""
+    @State private var clipboardAudit = ""
+    static let rawFixture = "2026-10-17T00:00:00Z 准备步骤日志，保留普通上下文\n"
+        + "2026-10-17T00:00:01Z \u{1B}[31m##[error]中文构建失败详情 😀\u{1B}[0m\n"
+        + "2026-10-17T00:00:02Z ##[warning]明确警告详情\n"
+        + "2026-10-17T00:00:03Z let error = \"普通源码，不是错误\"\n"
+        + "2026-10-17T00:00:04Z 完整步骤输出已在 App 内显示\n"
     private let step = WorkflowJob.Step(number: 63, name: "Test build output", status: "completed", conclusion: "failure", started_at: "2026-10-17T00:00:00Z", completed_at: "2026-10-17T00:00:10Z")
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
+          VStack(spacing: 0) {
             List {
                 Section("步骤") {
                     SoftGroupRows(animateBackground: false) {
@@ -19,15 +26,33 @@ struct WorkflowLogStylePreview: View {
                             }, output: AnyView(WorkflowInlineLog(output: output, loading: output == nil && failure.isEmpty,
                                 error: failure, skipped: false, retry: {})))
                         }
+                        if expanded, let output, !output.limited, !output.text.isEmpty, failure.isEmpty {
+                            SoftGroupRow("full-log-63") {
+                                NavigationLink("全屏查看此步骤日志") { WorkflowLogReader(rawText: output.text).navigationTitle("步骤日志") }
+                                    .accessibilityIdentifier("workflow-step-full-log-63")
+                            }
+                        }
+                        SoftGroupRow("task-log") {
+                            NavigationLink("查看任务日志") { WorkflowLogReader(rawText: output?.text ?? "").navigationTitle("运行日志") }
+                                .accessibilityIdentifier("workflow-job-log")
+                        }
                     }
                 }.transaction { $0.animation = nil; $0.disablesAnimations = true }
-            }.navigationTitle("步骤日志预览")
+            }
+            HStack {
+                Button("检查日志副本") {
+                    clipboardAudit = UIPasteboard.general.string == Self.rawFixture ? "原文副本一致" : "原文副本不一致"
+                    UIPasteboard.general.string = "fixture-reset" // A later copy cannot pass using the previous pasteboard value.
+                }.accessibilityIdentifier("workflow-log-check-copy")
+                Text(clipboardAudit).accessibilityIdentifier("workflow-log-copy-audit")
+            }.font(.caption).frame(minHeight: 44)
+          }.navigationTitle("步骤日志预览")
         }.task {
             guard output == nil, failure.isEmpty else { return }
             let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
             defer { try? FileManager.default.removeItem(at: file) }
             do {
-                let bytes = Data("2026-10-17T00:00:01Z error: 中文构建失败详情\n2026-10-17T00:00:02Z 完整步骤输出已在 App 内显示\n".utf8)
+                let bytes = Data(Self.rawFixture.utf8)
                 let archive = try Archive(url: file, accessMode: .create)
                 try archive.addEntry(with: "build/63_Test build output.txt", type: .file, uncompressedSize: Int64(bytes.count)) { position, size in
                     bytes.subdata(in: Int(position)..<min(bytes.count, Int(position) + size))
@@ -46,7 +71,7 @@ struct SourceStylePreview: View {
     @State private var report = "待检查"
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             VStack(spacing: 0) {
                 SourceCodeEditor(text: $source, filename: "长行示例.py", readOnly: !editing).id(editing)
                 Divider()
@@ -77,7 +102,7 @@ private struct SourcePreviewProbe: UIViewRepresentable {
         for child in view.subviews { if let found = codeView(in: child) { return found } }
         return nil
     }
-    private static func measure(in window: UIWindow?, revision: Int) -> String {
+    @MainActor private static func measure(in window: UIWindow?, revision: Int) -> String {
         guard let window, let text = codeView(in: window), let horizontal = text.superview as? UIScrollView,
               let parent = horizontal.superview,
               let gutter = parent.subviews.first(where: { $0 !== horizontal }) else {
@@ -99,13 +124,22 @@ private struct SourcePreviewProbe: UIViewRepresentable {
         manager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs)) { _, _, _, _, _ in fragments += 1 }
         let hardLines = content.components(separatedBy: "\n").count
         let gutterRect = gutter.convert(gutter.bounds, to: window)
-        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(horizontal.contentOffset.x))|width=\(Int(horizontal.contentSize.width))|viewport=\(Int(horizontal.bounds.width))|tail=\(visible ? 1 : 0)|tailX=\(Int(onScreenTail.minX))|tailY=\(Int(onScreenTail.minY))|tailWidth=\(Int(onScreenTail.width.rounded(.up)))|tailHeight=\(Int(onScreenTail.height.rounded(.up)))|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))"
+        return "revision=\(revision)|editable=\(text.isEditable ? 1 : 0)|offset=\(Int(horizontal.contentOffset.x))|width=\(Int(horizontal.contentSize.width))|viewport=\(Int(horizontal.bounds.width))|tail=\(visible ? 1 : 0)|tailX=\(Int(onScreenTail.minX))|tailY=\(Int(onScreenTail.minY))|tailWidth=\(Int(onScreenTail.width.rounded(.up)))|tailHeight=\(Int(onScreenTail.height.rounded(.up)))|fragments=\(fragments)|hardLines=\(hardLines)|gutterX=\(Int(gutterRect.minX))|gutterWidth=\(Int(gutterRect.width))|font=\(text.font?.pointSize ?? 0)|lineHeight=\(text.font?.lineHeight ?? 0)|selection=\(text.selectedRange.location):\(text.selectedRange.length)|pinch=\(ContentPinchGesture.diagnostic(in: horizontal))"
     }
 }
 
 struct PatchStylePreview: View {
     @State private var revision = 0
     @State private var report = "待检查"
+    private var localChange: LocalChange {
+        if ProcessInfo.processInfo.arguments.contains("-budget-diff-style-preview") {
+            let before = (0...1000).map { "line\($0)\n" }.joined()
+            let after = "changed first\n" + (1..<1000).map { "line\($0)\n" }.joined() + "changed last\n"
+            return LocalChange(path: "预算差异.py", kind: "修改", before: before, after: after)
+        }
+        let prefix = "message = \"" + String(repeating: "abcdefgh", count: 12)
+        return LocalChange(path: "长行差异.py", kind: "修改", before: prefix + "BEFORE_TAIL\"\n", after: prefix + "AFTER_TAIL\"\n")
+    }
     private var file: DesktopCommit.File {
         if ProcessInfo.processInfo.arguments.contains("-recorded-patch-style-preview") {
             // The real commit/file shown in IMG_2331, including its long constraint line.
@@ -117,10 +151,12 @@ struct PatchStylePreview: View {
         return DesktopCommit.File(filename: "长行差异.py", previous_filename: nil, status: "modified", additions: 1, deletions: 1, patch: patch)
     }
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             NavigationLink("打开提交差异") {
             VStack(spacing: 0) {
-                CommitPatchView(file: file)
+                if ProcessInfo.processInfo.arguments.contains("-local-diff-style-preview") {
+                    LocalDiffPreview(change: localChange)
+                } else { CommitPatchView(file: file) }
                 Divider()
                 Button("检查代码布局") { revision += 1 }.padding(.vertical, 8)
                 Text(report).font(.caption2.monospaced()).lineLimit(3)

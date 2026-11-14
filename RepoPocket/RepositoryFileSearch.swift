@@ -30,12 +30,8 @@ struct RepositoryFileSearchView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                }
-            }
-            Section {
-                SoftGroupRows {
                     for entry in results.prefix(200) {
-                        SoftGroupRow(entry.id) {
+                        SoftGroupRow("entry-" + entry.id) {
                             if entry.type == "dir" {
                                 NavigationLink { DirectoryBrowserDestination(api: api, repo: repo, path: entry.path, branch: branch) } label: { label(entry) }
                                     .accessibilityIdentifier("repository-search-entry-" + entry.path)

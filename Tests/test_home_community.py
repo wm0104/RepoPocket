@@ -35,7 +35,7 @@ class HomeCommunityTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('swiftc'), 'Production Swift fixtures run on macOS')
     def test_production_search_reply_activity_and_request_budget(self):
         github = (ROOT/'RepoPocket/GitHub.swift').read_text()
-        models = github[github.index('struct User: Decodable'):github.index('struct Release: Decodable')]
+        models = github[github.index('struct User:'):github.index('struct Release: Decodable')]
         prefix = r'''import Foundation
 import Combine
 struct AppError: LocalizedError { let text:String; var errorDescription:String? {text} }

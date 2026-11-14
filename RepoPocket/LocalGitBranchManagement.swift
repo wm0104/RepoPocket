@@ -42,18 +42,12 @@ struct LocalGitBranchManagement: View {
                         SoftGroupRow("result") { Text(result).font(.caption).textSelection(.enabled) }
                     }
                     SoftGroupRow("refresh") { Button("重新检查分支") { operation = Task { await load() } }.disabled(busy || !valid) }
-                }
-            }
-            if let branches {
-                Section("本地分支") {
-                    SoftGroupRows {
+                    if let branches {
+                        SoftGroupRow("local-heading") { Text("本地分支").font(.subheadline).foregroundStyle(.secondary) }
                         for branch in branches.local {
                             SoftGroupRow(branch.id) { branchButton(branch) }
                         }
-                    }
-                }
-                Section("已获取的远端跟踪分支") {
-                    SoftGroupRows {
+                        SoftGroupRow("remote-heading") { Text("已获取的远端跟踪分支").font(.subheadline).foregroundStyle(.secondary) }
                         for branch in branches.remote {
                             SoftGroupRow(branch.id) { branchButton(branch) }
                         }
@@ -69,23 +63,21 @@ struct LocalGitBranchManagement: View {
         .refreshable { await load() }
         .onDisappear { operation?.cancel() }
         .sheet(item: $merging) { branch in
-            NavigationStack {
+            AppNavigationStack {
                 LocalGitMergeView(project: project, metadata: metadata, internalRoot: internalRoot,
                     generation: generation, isValid: isValid, source: branch) {
                     branches = nil; changed()
                 }
             }.appSheetCornerRadius()
         }
-        .alert("从当前 HEAD 新建并切换", isPresented: $creating) {
-            TextField("新分支名称", text: $newName).textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("取消", role: .cancel) {}
-            Button("新建并切换") {
-                guard !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    failure = "请输入新分支名称。"; result = ""; return
-                }
-                start("createBranch", arguments: ["name": newName], success: "已创建并切换到本地分支：" + newName)
+        .appTextInputAlert("从当前 HEAD 新建并切换",
+            message: "不会提交、移动或清理你的文件，也不会改动已有暂存。",
+            isPresented: $creating, text: $newName, placeholder: "新分支名称", confirmTitle: "新建并切换") {
+            guard !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                failure = "请输入新分支名称。"; result = ""; return
             }
-        } message: { Text("不会提交、移动或清理你的文件，也不会改动已有暂存。") }
+            start("createBranch", arguments: ["name": newName], success: "已创建并切换到本地分支：" + newName)
+        }
         .alert("切换分支？", isPresented: $confirmingSwitch) {
             Button("取消", role: .cancel) {}
             Button("切换") {
@@ -104,18 +96,15 @@ struct LocalGitBranchManagement: View {
         } message: { branch in
             Text("\(branch.name)\n仅删除本地分支，不删除 GitHub 远端分支或项目文件。含有未合并提交的分支会拒绝删除，没有强制删除选项。")
         }
-        .alert("重命名本地分支", isPresented: Binding(
-            get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { branch in
-            TextField("新分支名称", text: $renameName).textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("取消", role: .cancel) { renaming = nil }
-            Button("重命名") {
-                let name = renameName.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !name.isEmpty else { failure = "请输入新分支名称。"; result = ""; return }
-                renaming = nil
-                start("renameBranch", arguments: ["targetRef": branch.reference, "expectedTargetHead": branch.head, "name": name], success: "已重命名为本地分支：" + name)
-            }
-        } message: { branch in
-            Text("\(branch.name)\n只改本地分支名称，不会重命名远端分支，也不会移动你的文件和暂存区。跟踪的远端分支和合并目标保持原样。")
+        .appTextInputAlert("重命名本地分支",
+            message: "\(renaming?.name ?? "")\n只改本地分支名称，不会重命名远端分支，也不会移动你的文件和暂存区。跟踪的远端分支和合并目标保持原样。",
+            isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }),
+            text: $renameName, placeholder: "新分支名称", confirmTitle: "重命名") { [renaming] in
+            guard let branch = renaming else { return }
+            let name = renameName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { failure = "请输入新分支名称。"; result = ""; return }
+            self.renaming = nil
+            start("renameBranch", arguments: ["targetRef": branch.reference, "expectedTargetHead": branch.head, "name": name], success: "已重命名为本地分支：" + name)
         }
     }
 

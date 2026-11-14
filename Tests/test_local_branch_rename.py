@@ -16,9 +16,12 @@ class LocalRenameContracts(unittest.TestCase):
         self.assertIn('!branch.current && !branch.remote', view)
         self.assertIn('start("renameBranch"', view)
         self.assertIn('不会重命名远端分支', view)
-        alert = view.split('.alert("重命名本地分支"', 1)[1].split('} message:', 1)[0]
-        self.assertIn('TextField(', alert)
+        alert = view.split('.appTextInputAlert("重命名本地分支"', 1)[1].split('private func branchButton', 1)[0]
+        self.assertIn('text: $renameName, placeholder: "新分支名称", confirmTitle: "重命名"', alert)
+        compat = (ROOT / 'RepoPocket/AppTextInputAlert.swift').read_text()
+        self.assertIn('TextField(placeholder, text: $text)', compat)
         self.assertIn('"expectedTargetHead": branch.head', alert)
+        self.assertIn('[renaming]', alert)
 
     def test_native_rename_is_pinned_locked_and_never_checks_out(self):
         source = (ROOT / 'Vendor/NativeGit/NativeGitBridge.m').read_text()

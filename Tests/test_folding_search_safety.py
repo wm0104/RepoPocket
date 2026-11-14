@@ -15,13 +15,13 @@ class Regressions(unittest.TestCase):
         self.assertNotIn('查看已加星标仓库', home.split('struct BrowserView')[0])
         self.assertIn('RepositoryCollectionView(api: api, section: section', section)
         self.assertNotIn('RepositoryCollectionView', home.split('struct SettingsView:', 1)[1])
-        self.assertIn('ForEach(filteredRepositories)', section)
+        self.assertIn('for repository in filteredRepositories', section)
         self.assertIn('.swipeActions(edge: .trailing, allowsFullSwipe: false)', section)
         self.assertNotIn('Color.clear.frame(height: 8)', section)
         self.assertIn('SoftGroupRows {', section)
-        self.assertIn('bottom: repository.id == filteredRepositories.last?.id', section)
+        self.assertIn(r'SoftGroupRow("repository-\(repository.id)")', section)
         self.assertNotIn('withAnimation', section)
-        self.assertIn('if canWrite { Button("上传")', home)
+        self.assertIn('if canWrite && (showFiles || !path.isEmpty) { Button("上传")', home)
         self.assertIn('if canWrite { Button("删除"', home)
         self.assertIn('sessionMatches: api.isCurrentSession', home)
         self.assertIn('path.hasPrefix("/repos/")', api)
@@ -41,7 +41,7 @@ class Regressions(unittest.TestCase):
     @unittest.skipUnless(shutil.which('swiftc'), 'production Swift runs on macOS CI')
     def test_production_rules(self):
         api=(root/'GitHub.swift').read_text()
-        models=api[api.index('struct User: Decodable'):api.index('struct Entry: Decodable')]
+        models=api[api.index('struct User:'):api.index('struct Entry:')]
         source='import Foundation\n'+models+(root/'RepositorySafetyRules.swift').read_text()+(root/'RepositorySearchRules.swift').read_text()+r'''
 func check(_ value: Bool) { precondition(value) }
 for push in [Optional<Bool>.none, Optional(false)] { check(!RepositoryWriteRules.canWrite(push: push)) }

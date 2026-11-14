@@ -41,7 +41,7 @@ class MarkdownFileRenderTests(unittest.TestCase):
         self.assertIn('guard isMarkdown, let api, api.isCurrentSession,', page)
         self.assertIn('defer { if !Task.isCancelled { htmlAttempted = true } }', page)
         self.assertIn('guard !Task.isCancelled, api.isCurrentSession, !html.isEmpty', page)
-        self.assertIn('CommunityMarkdown(text: text, baseURL: baseURL, imageBaseURL: mediaBaseURL, api: api)', page)
+        self.assertIn('CommunityMarkdown(text: text, baseURL: baseURL, imageBaseURL: mediaBaseURL, api: api, reader: true)', page)
         self.assertLess(page.index('else if let renderedHTML'), page.index('CommunityMarkdown(text: text'))
         # Links use the blob base, images the raw base, exactly like the README section.
         self.assertIn('CommunityRules.readingBase(repo, branch: branch, file: path, raw: false)', page)

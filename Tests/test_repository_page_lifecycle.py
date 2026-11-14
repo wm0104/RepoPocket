@@ -45,6 +45,12 @@ struct FixtureError: Error {}
   precondition(calls==2)
   await state.load(key:"account:A/repo/main",refresh:true,operation:{calls+=1;return "updated"})
   precondition(calls==3 && state.value=="updated" && state.error.isEmpty)
+  let appearance=UUID()
+  await state.load(key:"account:A/repo/main",revalidationID:appearance,operation:{calls+=1;return "returned"})
+  for _ in 0..<20 {await state.load(key:"account:A/repo/main",revalidationID:appearance,operation:{calls+=1;return "duplicate"})}
+  precondition(calls==4 && state.value=="returned")
+  await state.load(key:"account:A/repo/main",revalidationID:UUID(),operation:{calls+=1;return "returned-again"})
+  precondition(calls==5 && state.value=="returned-again")
   let pending=RepositoryPageLoadState<String>()
   var gate:CheckedContinuation<String,Error>?
   var reads=0

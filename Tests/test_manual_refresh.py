@@ -1,4 +1,4 @@
-"""Foreground is inert; scans only first-load/manual/actual operations."""
+"""Remote workspaces stay inert; local Git may recheck external edits on return."""
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -8,11 +8,25 @@ for source in Path(REPO_ROOT, 'RepoPocket').glob('*.swift'):
     s=source.read_text()
     for forbidden in ['willEnterForegroundNotification', 'didBecomeActiveNotification']:
         assert forbidden not in s, source
-    # Workspace scans remain inert; only root update checks and the visible
-    # workflow's bounded cancellation acknowledgement poll observe lifecycle.
-    assert ('scenePhase' in s) == (source.name in ('RepoPocketApp.swift', 'WorkflowViews.swift')), source
+    # Visible local Git views may recheck external edits; never mutate on return.
+    assert ('scenePhase' in s) == (source.name in ('RepoPocketApp.swift', 'WorkflowViews.swift', 'LocalProjectView.swift', 'LocalGitStageView.swift')), source
+    if source.name == 'LocalGitStageView.swift':
+        foreground = s.split('.onChange(of: scenePhase)', 1)[1].split('.refreshable', 1)[0]
+        assert 'if phase == .active, valid, !busy { refresh() }' in foreground
+        assert 'task?.cancel(); snapshot = nil; confirming = false' in foreground
+        assert 'mutate(' not in foreground
+        load = s.split('@MainActor private func load()', 1)[1].split('private func mutate(', 1)[0]
+        assert 'LocalGitEngine.shared.run("stageStatus"' in load
+        assert 'Task.checkCancellation()' in load and 'if valid { snapshot = value }' in load
+        assert 'commitStaged' not in load and 'sync(' not in load
+    if source.name == 'LocalProjectView.swift':
+        refresh = s.split('private func refreshExternalChanges()', 1)[1].split('private func check(', 1)[0]
+        for guard in ('externalRefreshPending', 'visible', 'scenePhase == .active', '!busy', 'sheet == nil', '!pendingCommit', 'syncing == nil', 'valid'):
+            assert guard in refresh, guard
+        assert 'await check(force: true)' in refresh
+        assert 'sync(' not in refresh and 'configureRemote' not in refresh
     if source.name == 'WorkflowViews.swift':
-        assert s.count('scenePhase') == 4
+        assert s.split('struct WorkflowRunView:', 1)[1].count('scenePhase') == 4
         assert '@Environment(\\.scenePhase) private var scenePhase' in s
         polling = s.split('.task(id: cancellation.waiting && scenePhase == .active) {', 1)[1].split('        .task {', 1)[0]
         assert 'guard cancellation.waiting, scenePhase == .active' in polling
@@ -27,7 +41,10 @@ assert '.onAppear' not in w
 assert '.task { if !hasScanned' in w and '.refreshable { await scan() }' in w
 assert 'Button("刷新变更") { Task { await scan() } }.disabled(busy)' in w
 assert '.transition(' not in w and '.animation(' not in w
-assert '.disabled(busy || binding == nil)' in w  # no weakening association safety
+management = w.split('private func workspaceManagement', 1)[1].split('private func bindingSection', 1)[0]
+assert 'enabled: !busy && api.isCurrentSession' in management
+assert 'title: "检查远端更新"' in management and 'enabled: binding != nil' in management
+assert 'guard !busy, api.isCurrentSession, self.folder == folder, binding != nil' in management  # association safety at invocation too
 assert '本地新增、修改、删除均可先勾选' in w
 assert '.disabled(busy || commitBlockReason != nil)' in w
 assert 'ProgressView("处理中，请保持前台…").softGroupedRow()' in w
@@ -46,6 +63,6 @@ for signature in ['importItems(_ urls: [URL], zip: Bool)', 'downloadRemote()', '
 assert 'hasScanned = true' in scan  # no foreground reset/recreation identity
 import re
 build = re.search(r'CURRENT_PROJECT_VERSION: "([^"]+)"', Path(REPO_ROOT, "project.yml").read_text()).group(1)
-assert build == '1.1.8'
+assert build == '1.2.0'
 assert f'CFBundleVersion\' "$APP/Info.plist")" = "{build}"' in Path(REPO_ROOT, ".github/workflows/build.yml").read_text()
-print('PASS manual-only foreground contract, stable Text, explicit safety reason, no blocking overlay, atomic scan/reconciliation, operation busy gates and internal build12')
+print('PASS inert remote workspaces, guarded local Git foreground recheck, stable Text, atomic scan/reconciliation and operation busy gates')

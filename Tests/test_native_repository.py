@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class NativeRepositoryTests(unittest.TestCase):
     def test_native_repository(self):
         api = (ROOT/'RepoPocket/GitHub.swift').read_text()
-        models = api[api.index('struct User: Decodable'):api.index('struct Release: Decodable')]
+        models = api[api.index('struct User:'):api.index('struct Release: Decodable')]
         mutate = api[api.index('    func communityMutate('):api.index('    func communityStarDates(')]
         source = r'''
 import Foundation
@@ -27,6 +27,7 @@ final class Fixture: URLProtocol {
 @MainActor final class GitHub {
  let session:URLSession
  var active=true; var push=false; var pushChecks=0; var payload=Data(); var queries:[URLQueryItem]=[]
+ var onRead: (() -> Void)?
  var payloads:[String:Data]=[:]; var paths:[String]=[]; var branches:[String]=[]
  var body:[String:Any]=[:]; var method="";var files:[String]=[];var invalidContent=false
  init(){let config=URLSessionConfiguration.ephemeral;config.protocolClasses=[Fixture.self];session=URLSession(configuration:config)}
@@ -44,7 +45,7 @@ FILE_PATH
  func check(_ data:Data,_ response:URLResponse,operation:String)throws {
    try ensureActiveAccount();guard let h=response as? HTTPURLResponse,(200..<300).contains(h.statusCode) else {throw AppError(text:"server denied")}
  }
- func communityRead(_ path:String,query:[URLQueryItem]=[])async throws->Data {try ensureActiveAccount();queries=query;paths.append(path);return payloads[path] ?? payload}
+ func communityRead(_ path:String,query:[URLQueryItem]=[])async throws->Data {try ensureActiveAccount();queries=query;paths.append(path);onRead?();return payloads[path] ?? payload}
  func resolvedBranch(_ repo:String,branch:String)async throws->String {branch.isEmpty ? "main" : branch}
  func workspaceHead(_ repo:String,branch:String)async throws->String {branches.append(branch);return String(repeating:"a",count:40)}
  func file(_ repo:String,path:String,branch:String)async throws->Entry {
@@ -133,6 +134,7 @@ MUTATE
     var cancellation=WorkflowCancellationState()
     precondition(cancellation.begin() && !cancellation.begin(), "Repeated taps must not send another cancellation")
     Fixture.status=202
+    api.payload=Data(#"{"status":"in_progress"}"#.utf8)
     _ = try await api.communityMutate("owner/repo",action:.cancelRun(10));precondition(api.pushChecks==3)
     cancellation.accepted()
     precondition(cancellation.waiting && cancellation.message.contains("已接受取消请求"))
@@ -168,6 +170,35 @@ MUTATE
    precondition(api.method=="DELETE")
    Fixture.lock.lock();let deletion=Fixture.seen.last!;Fixture.lock.unlock()
    precondition(deletion.url!.path=="/repos/owner/repo/actions/runs/10" && deletion.httpBody==nil)
+   Fixture.status=201
+   let recent=ISO8601DateFormatter().string(from:Date().addingTimeInterval(-3600))
+   api.payload=Data(("{\"status\":\"completed\",\"conclusion\":\"failure\",\"created_at\":\""+recent+"\"}").utf8)
+   _ = try await api.communityMutate("owner/repo",action:.rerunFailedJobs(10))
+   Fixture.lock.lock();let rerun=Fixture.seen.last!;Fixture.lock.unlock()
+   precondition(rerun.url!.path=="/repos/owner/repo/actions/runs/10/rerun-failed-jobs" && rerun.httpMethod=="POST")
+   precondition(api.paths.last=="/repos/owner/repo/actions/runs/10" && api.body.isEmpty)
+   let beforeInvalid=Fixture.count()
+   for payload in [#"{"status":"in_progress","conclusion":"failure"}"#,
+                   #"{"status":"completed","conclusion":"success"}"#,
+                   #"{"status":"completed","conclusion":"failure","created_at":"2020-01-01T00:00:00Z"}"#] {
+     api.payload=Data(payload.utf8)
+     do {_ = try await api.communityMutate("owner/repo",action:.rerunFailedJobs(10));preconditionFailure("Invalid rerun state")}catch{}
+   }
+   precondition(Fixture.count()==beforeInvalid)
+   api.payload=Data(("{\"status\":\"completed\",\"conclusion\":\"failure\",\"created_at\":\""+recent+"\"}").utf8)
+   api.push=false
+   do {_ = try await api.communityMutate("owner/repo",action:.rerunFailedJobs(10));preconditionFailure("No write permission")}catch{}
+   precondition(Fixture.count()==beforeInvalid);api.push=true
+   api.onRead={ api.active=false }
+   do {_ = try await api.communityMutate("owner/repo",action:.rerunFailedJobs(10));preconditionFailure("Account revoked during preflight")}catch{}
+   precondition(Fixture.count()==beforeInvalid);api.active=true;api.onRead=nil
+   for unexpected in [200,202,204,403,409,422] {
+     Fixture.status=unexpected
+     do {_ = try await api.communityMutate("owner/repo",action:.rerunFailedJobs(10));preconditionFailure("Rerun requires 201")}catch{}
+   }
+   Fixture.status=201
+   _ = try await api.communityMutate("owner/repo",action:.rerun(10))
+   precondition(Fixture.seen.last!.url!.path=="/repos/owner/repo/actions/runs/10/rerun")
    Fixture.status=200
    api.active=false;let inactive=Fixture.count()
    do {_ = try await api.communityMutate("owner/repo",action:.comment(7),text:"must not send");preconditionFailure()}catch{}

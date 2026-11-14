@@ -15,7 +15,7 @@ struct ReadingLinkDestination: View {
         if GitHubLinkRules.isGitHub(url), GitHubLinkRules.target(url) == nil {
             SystemBrowserPage(url: url, onClose: onClose)
         } else if let api, GitHubLinkRules.isGitHub(url) {
-            NavigationStack {
+            AppNavigationStack {
                 NativeLinkView(url: url, api: api, onClose: onClose)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("完成", action: onClose) }

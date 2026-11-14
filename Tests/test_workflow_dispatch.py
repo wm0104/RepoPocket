@@ -46,11 +46,12 @@ class WorkflowDispatchTests(unittest.TestCase):
         self.assertIn('currentBranchOnly = true', view)
         self.assertIn('failedOnly = false', view)
         self.assertIn('? displayedBranch : ""', view)
-        for text in ['SoftGroupRows', 'Picker("工作流"', 'Picker("分支"', 'target.repo',
+        for text in ['SoftGroupRows', 'NativeActionMenu(title: "工作流："', 'NativeActionMenu(title: "分支："', 'target.repo',
                      'target.workflow.path', 'target.ref', '.confirmationDialog', 'state.submit(target',
-                     'state.loadWorkflows', 'state.loadBranches', '运行名称会作为 run_title']:
+                     'state.loadWorkflows', 'state.loadBranches', 'WorkflowInputField', 'state.loadSchema', 'target.inputsSummary']:
             self.assertIn(text, dispatch)
-        self.assertIn('TextField("运行名称（选填）", text: $state.runTitle)', dispatch)
+        self.assertNotIn('TextField("运行名称（选填）"', dispatch)
+        self.assertNotIn('仅使用默认输入', dispatch)
         self.assertNotIn('softGroupedRow', dispatch, 'Use the original SoftGroupRows component')
         source = (ROOT / 'RepoPocket/WorkflowDispatch.swift').read_text()
         self.assertIn('branches.contains(where: { $0.name == ref })', source)
@@ -61,16 +62,21 @@ class WorkflowDispatchTests(unittest.TestCase):
         self.assertIn('delegate: OfficialUpdateRedirectPolicy()', transport)
         self.assertIn('inputs.isEmpty ?', transport)
         self.assertIn('["ref": $0, "inputs": inputs]', transport)
-        # The only free-form input allowed is the optional run title.
-        self.assertNotIn('"text"', transport)
-        self.assertIn('"run_title": title', transport)
-        self.assertNotIn('requireWriteAccess', transport, 'Actions write errors must not report Contents permission')
+        # The native form uses the generic transport and may send only schema-declared inputs.
+        generic = (ROOT / 'RepoPocket/WorkflowInputsGitHub.swift').read_text()
+        self.assertIn('workflowInputsSource(repo', generic)
+        self.assertNotIn('URLSession', generic)
+        self.assertIn('fresh.schema.values(target.inputs', transport)
+        self.assertIn('fresh.sha == target.schemaSHA', transport)
+        self.assertNotIn('"run_title":', transport)
+        self.assertIn('api.dispatchWorkflow(target', source)
+        self.assertNotIn('requireWriteAccess', generic, 'Actions write errors must not report Contents permission')
 
     @unittest.skipUnless(shutil.which('swiftc'), 'swiftc absent: native URLProtocol tests NOT executed')
     def test_native_production_network_and_state(self):
         github = (ROOT / 'RepoPocket/GitHub.swift').read_text()
         methods = '\n'.join(production_method(github, signature) for signature in [
-            '    static func component(', '    static func repoPath(',
+            '    static func component(', '    static func repoPath(', '    static func filePath(',
             '    private func url(', '    private func request(',
             '    var isCurrentSession:', '    private func ensureActiveAccount()'])
         transport = github.split('    // Dispatch uses the account-bound session and refuses redirects, including reads.\n', 1)[1].split('    func searchUsers', 1)[0]
@@ -78,12 +84,13 @@ class WorkflowDispatchTests(unittest.TestCase):
         source += '\n' + (ROOT / 'RepoPocket/RepositoryInput.swift').read_text()
         source += '\n' + (ROOT / 'RepoPocket/OfficialUpdateRedirectPolicy.swift').read_text()
         source += '\n' + (ROOT / 'RepoPocket/WorkflowDispatch.swift').read_text()
-        with tempfile.TemporaryDirectory() as folder:
-            main = Path(folder) / 'main.swift'
-            main.write_text(source)
-            executable = str(Path(folder) / 'workflow-dispatch')
-            subprocess.run(['swiftc', '-parse-as-library', str(main), '-o', executable], check=True)
-            subprocess.run([executable], check=True, timeout=60)
+        source += '\n' + (ROOT / 'RepoPocket/WorkflowInputSchema.swift').read_text()
+        source += '\n' + (ROOT / 'RepoPocket/WorkflowInputsGitHub.swift').read_text()
+        try:
+            from Tests.workflow_inputs_support import run_swift_fixture
+        except ModuleNotFoundError:
+            from workflow_inputs_support import run_swift_fixture
+        run_swift_fixture(source, 'workflow-dispatch')
 
 
 HARNESS = r'''
@@ -112,6 +119,11 @@ final class DispatchFixture: URLProtocol {
     static var workflowState = "active"
     static var failPOST = false
     static var onRequest: ((URLRequest) -> Void)?
+    static var yaml = "on: workflow_dispatch\n"
+    static var sha = "fixture-source-sha"
+    static var schemaStatus = 200
+    static var seenRefs: [String] = []
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -136,6 +148,13 @@ final class DispatchFixture: URLProtocol {
             } else if path.hasSuffix("/branches") {
                 let names = page == "1" ? (0..<100).map { "branch-\($0)" } : ["feature/中文"]
                 object = names.map { ["name": $0] }
+            } else if path.contains("/contents/.github/workflows/") {
+                let ref = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!.first { $0.name == "ref" }!.value!
+                Self.seenRefs.append(ref)
+                code = Self.schemaStatus
+                object = ["type": "file", "encoding": "base64", "content": Data(Self.yaml.utf8).base64EncodedString(), "sha": Self.sha, "size": Self.yaml.utf8.count]
+            } else if path.hasSuffix("/environments") {
+                object = ["total_count": 1, "environments": [["name": "production"]]]
             } else if path.contains("/actions/workflows/") {
                 object = ["id": 101, "name": "Workflow 101", "path": ".github/workflows/101.yml", "state": Self.workflowState]
             } else if path.contains("/branches/") {
@@ -176,6 +195,8 @@ HARNESS += r'''
         await state.loadBranches("someone/any-repo", api: api)
         precondition(state.branches.count == 101 && !state.moreBranches)
         state.workflowID = 101; state.ref = "feature/中文"
+        await state.loadSchema("someone/any-repo", api: api)
+        precondition(state.schemaReady, state.schemaError)
         return state
     }
     @MainActor static func main() async throws {
@@ -186,6 +207,8 @@ HARNESS += r'''
         state.ref = "feature/中文"; state.workflowID = 2
         precondition(state.target("someone/any-repo", api: api) == nil)
         state.workflowID = 101
+        precondition(state.target("someone/any-repo", api: api) == nil, "Changing a selection must invalidate the old schema")
+        await state.loadSchema("someone/any-repo", api: api)
         precondition(state.target("different/repository", api: api) == nil)
         let target = state.target("someone/any-repo", api: api)!
         var accepted = 0
@@ -205,11 +228,51 @@ HARNESS += r'''
         await state.submit(target, api: api) { _ in preconditionFailure("Consumed target") }
         precondition(DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count == 1)
 
+        // Read errors, missing dispatch and unsupported types all block before any POST.
+        let blocked = await prepared(api)
+        let beforeBlocked = DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count
+        DispatchFixture.schemaStatus = 403
+        await blocked.loadSchema("someone/any-repo", api: api)
+        precondition(!blocked.schemaReady && blocked.schemaError.contains("Contents: read"))
+        precondition(blocked.target("someone/any-repo", api: api) == nil)
+        DispatchFixture.schemaStatus = 200
+        DispatchFixture.yaml = "on: push\n"
+        await blocked.loadSchema("someone/any-repo", api: api)
+        precondition(blocked.definition == nil && blocked.schemaError.contains("未声明"))
+        DispatchFixture.yaml = "on: {workflow_dispatch: {inputs: {bad: {type: future}}}}\n"
+        await blocked.loadSchema("someone/any-repo", api: api)
+        precondition(blocked.definition == nil && blocked.target("someone/any-repo", api: api) == nil)
+        precondition(DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count == beforeBlocked)
+
+        // The real payload carries all five input types as GitHub-compatible strings.
+        DispatchFixture.yaml = """
+        on:
+          workflow_dispatch:
+            inputs:
+              message: {type: string, default: hello}
+              channel: {type: choice, options: [stable, beta], default: stable}
+              flag: {type: boolean, default: false}
+              amount: {type: number, default: 3}
+              env: {type: environment, required: true, default: production}
+        """
+        let generic = await prepared(api)
+        let genericTarget = generic.target("someone/any-repo", api: api)!
+        let expectedInputs = ["message": "hello", "channel": "stable", "flag": "false", "amount": "3", "env": "production"]
+        precondition(genericTarget.inputs == expectedInputs)
+        await generic.submit(genericTarget, api: api) { _ in }
+        precondition(!generic.result.isEmpty)
+        let genericPost = DispatchFixture.requests.last { $0.httpMethod == "POST" }!
+        let genericBody = try JSONSerialization.jsonObject(with: DispatchFixture.body(genericPost)) as! [String: Any]
+        precondition(genericBody["inputs"] as? [String: String] == expectedInputs)
+        precondition(genericBody["ref"] as? String == "feature/中文")
+        precondition(DispatchFixture.seenRefs.allSatisfy { $0 == "feature/中文" })
+
         // Exercise normal title submission before the account-revocation cases below.
+        DispatchFixture.yaml = "on:\n  workflow_dispatch:\n    inputs:\n      run_title:\n        type: string\n"
         let titled = await prepared(api)
-        titled.runTitle = "  测试标题  "
+        titled.inputValues["run_title"] = "测试标题"
         let titledTarget = titled.target("someone/any-repo", api: api)!
-        precondition(titledTarget.runTitle == "测试标题")
+        precondition(titledTarget.inputs["run_title"] == "测试标题")
         let beforeTitled = DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count
         var titledAccepted = 0
         await titled.submit(titledTarget, api: api) { _ in titledAccepted += 1 }
@@ -219,6 +282,20 @@ HARNESS += r'''
         precondition(titledBody["ref"] as? String == "feature/中文")
         precondition(titledBody["inputs"] as? [String: String] == ["run_title": "测试标题"])
         precondition(api.isCurrentSession)
+        DispatchFixture.yaml = "on: workflow_dispatch\n"
+
+        // A declaration-free run_title may never leak into arbitrary workflows.
+        let undeclared = await prepared(api)
+        undeclared.inputValues["run_title"] = "not declared"
+        precondition(undeclared.target("someone/any-repo", api: api) == nil)
+        let changed = await prepared(api)
+        let changedTarget = changed.target("someone/any-repo", api: api)!
+        DispatchFixture.sha = "new-source-sha"
+        let beforeChanged = DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count
+        await changed.submit(changedTarget, api: api) { _ in preconditionFailure("Changed source must not POST") }
+        precondition(DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count == beforeChanged)
+        precondition(changed.error.contains("已变化"))
+        DispatchFixture.sha = "fixture-source-sha"
 
         for (code, help) in [(401, "重新登录"), (403, "Actions: write"), (404, "仓库"), (422, "workflow_dispatch"), (200, "204"), (202, "204"), (500, "未知")] {
             DispatchFixture.status = code
@@ -248,6 +325,15 @@ HARNESS += r'''
         DispatchFixture.failPOST = false
 
         // An in-flight page from the old generation must never populate a new account.
+        let schemaStale = await prepared(api)
+        schemaStale.workflowID = nil
+        schemaStale.workflowID = 101
+        DispatchFixture.onRequest = { request in
+            if request.url!.path.contains("/contents/") { schemaStale.ref = "branch-1" }
+        }
+        await schemaStale.loadSchema("someone/any-repo", api: api)
+        precondition(schemaStale.definition == nil && schemaStale.inputValues.isEmpty)
+        DispatchFixture.onRequest = nil
         let stale = WorkflowDispatchState()
         DispatchFixture.onRequest = { _ in AccountStore.generation = UUID() }
         await stale.loadWorkflows("someone/any-repo", api: api)

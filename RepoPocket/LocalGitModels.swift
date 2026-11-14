@@ -12,6 +12,7 @@ struct LocalGitProject: Codable, Identifiable, Equatable {
     let metadataID: UUID
     let usesPrivateGit: Bool
     var active = true
+    var directPath: String? = nil
 }
 struct LocalGitChange: Codable, Identifiable, Equatable {
     let path: String
@@ -58,7 +59,8 @@ struct LocalGitStatus: Codable {
     let files: [LocalGitChange]
     let staged: [String]
     let repoState: Int
-    var canCommit: Bool { staged.isEmpty && repoState == 0 }
+    var mergePending: Bool? = nil
+    var canCommit: Bool { staged.isEmpty && repoState == 0 && mergePending != true }
 }
 struct LocalGitBranch: Codable, Identifiable {
     let name: String
@@ -101,6 +103,8 @@ struct LocalGitHistory: Codable {
     let behind: Int
     let tracking: Bool
     let remote: String
+    var remoteMissing: Bool? = nil
+    var remoteIssue: String? = nil
 }
 struct LocalGitDocument { let text: String; let fingerprint: String }
 struct LocalGitPullSummary: Codable {
@@ -124,6 +128,8 @@ struct LocalGitReply: Codable {
     let commit: String?
     let head: String?
     var pullSummary: LocalGitPullSummary? = nil
+    var mergePending: Bool? = nil
+    var recoveryRef: String? = nil
 }
 enum LocalGitDate {
     static func string(_ time: Double) -> String {

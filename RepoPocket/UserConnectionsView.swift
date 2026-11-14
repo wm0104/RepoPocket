@@ -3,13 +3,20 @@ import SwiftUI
 /// Counts come from the home page's existing identify request, never from scrolling.
 struct UserConnectionsSection: View {
     @ObservedObject var api: GitHub
+    var connected = false
     private var login: String {
         if !api.login.isEmpty { return api.login }
         return AccountStore.accounts.first { $0.id == api.accountID }?.login ?? ""
     }
     var body: some View {
-        Section("我的关注") {
-            SoftGroupRows {
+        Group {
+            if connected { content }
+            else { Section("我的关注") { content } }
+        }
+    }
+    private var content: some View {
+            SoftGroupRows(spacingBefore: connected ? 10 : 0) {
+                if connected { SoftGroupRow("heading") { Text("我的关注").font(.subheadline).foregroundStyle(.secondary) } }
                 for kind in UserConnectionKind.allCases {
                     SoftGroupRow(kind.id) {
                         NavigationLink {
@@ -26,7 +33,6 @@ struct UserConnectionsSection: View {
                     }
                 }
             }
-        }
     }
     private func count(_ kind: UserConnectionKind) -> Int? {
         kind == .followers ? api.profile?.followers : api.profile?.following
@@ -46,9 +52,9 @@ struct UserConnectionsView: View {
     }
     var body: some View {
         List {
-            if searchVisible {
-                Section {
-                    SoftGroupRows {
+            Section {
+                SoftGroupRows {
+                    if searchVisible {
                         SoftGroupRow("search") { ListSearchField(query: $query, title: kind.title) }
                         if store.more || store.limited {
                             SoftGroupRow("scope") {
@@ -57,39 +63,31 @@ struct UserConnectionsView: View {
                             }
                         }
                     }
-                }
-            }
-            Section {
-                Text(login).font(.caption).foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true)
-            }
-            if !visiblePeople.isEmpty {
-                Section {
-                    SoftGroupRows {
-                        for person in visiblePeople {
-                            SoftGroupRow(String(person.id)) {
-                                NavigationLink {
-                                    UserRepositoriesView(api: api, user: person.user)
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        GitHubAvatar(url: person.avatar_url, size: 36)
-                                        Text(person.login).foregroundStyle(.primary)
-                                    }
-                                }.accessibilityIdentifier("connection-person-" + person.login)
-                            }
+                    SoftGroupRow("login") { Text(login).font(.caption).foregroundStyle(.secondary) }
+                    for person in visiblePeople {
+                        SoftGroupRow(String(person.id)) {
+                            NavigationLink {
+                                UserRepositoriesView(api: api, user: person.user)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    GitHubAvatar(url: person.avatar_url, size: 36)
+                                    Text(person.login).foregroundStyle(.primary)
+                                }
+                            }.accessibilityIdentifier("connection-person-" + person.login)
                         }
                     }
+                    if store.loaded && store.items.isEmpty && !store.busy && store.error.isEmpty {
+                        SoftGroupRow("empty") {
+                            Text(kind == .followers ? "暂无关注者" : "暂未关注任何人")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if store.loaded && !store.items.isEmpty && visiblePeople.isEmpty {
+                        SoftGroupRow("no-match") { Text("没有匹配用户").foregroundStyle(.secondary) }
+                    }
+                    CommunityPageFooter(store: store, next: { load() }).rows
                 }
             }
-            if store.loaded && store.items.isEmpty && !store.busy && store.error.isEmpty {
-                Section {
-                    Text(kind == .followers ? "暂无关注者" : "暂未关注任何人")
-                        .foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true)
-                }
-            }
-            if store.loaded && !store.items.isEmpty && visiblePeople.isEmpty {
-                Section { Text("没有匹配用户").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
-            }
-            CommunityPageFooter(store: store, next: { load() })
         }
         .listStyle(.insetGrouped)
         .navigationTitle(kind.title)

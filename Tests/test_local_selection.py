@@ -37,7 +37,10 @@ precondition(session.selected(in:remote)==paths && session.selected(in:local).is
 precondition(WorkspaceCommitEligibility.reason(binding:binding,selected:paths,scanned:current,sameWorkspace:true,message:"edit") == nil)
 precondition(WorkspaceCommitEligibility.reason(binding:binding,selected:paths,scanned:current,sameWorkspace:false,message:"edit") != nil)
 let writes=try LocalStore.prepare(root,paths:Set(changes.map{$0.relativePath}),expected:current)
-precondition(writes.count==3 && writes.first{$0.path=="deleted"}?.bytes == nil)
+precondition(writes.count==3 && writes.first{$0.path=="deleted"}?.bytes == nil && writes.first{$0.path=="deleted"}?.file == nil)
+for write in writes where write.path != "deleted" {
+ precondition(write.bytes == nil && write.file != nil && write.sha256 == current.hashes[write.path])
+}
 // Remote HEAD movement is not part of selection identity; branch/repo/account are.
 var advanced=binding; advanced.head="h2"
 try LocalStore.saveBinding(advanced,folder:root)
@@ -84,7 +87,7 @@ print("PASS production Swift local add/modify/delete scan, unbound selection, bl
 '''
 with tempfile.TemporaryDirectory() as d:
  p=Path(d)/'test.swift'
- p.write_text('import Foundation\nimport CryptoKit\nstruct AppError: LocalizedError { let text:String; var errorDescription:String? {text} }\n'+core+r+s+tests)
+ p.write_text('import Foundation\nimport CryptoKit\nstruct AppError: LocalizedError { let text:String; var errorDescription:String? {text} }\n'+core+Path(REPO_ROOT, 'RepoPocket/RepoQueue.swift').read_text()+r+s+tests)
  subprocess.run(['swift',str(p)],check=True)
 row=w.split('ForEach(changes) { change in',1)[1].split('Button("刷新变更")',1)[0]
 assert '.buttonStyle(.plain)' in row and '.frame(width: 44, height: 44).contentShape(Rectangle())' in row

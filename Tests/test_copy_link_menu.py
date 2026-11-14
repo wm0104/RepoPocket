@@ -11,20 +11,23 @@ RULES = (ROOT / 'RepoPocket/RepositoryLinkRules.swift').read_text(encoding='utf-
 
 BROWSER = APP.split('struct BrowserView: View {', 1)[1].split('struct FileView: View {', 1)[0]
 FILE = APP.split('struct FileView: View {', 1)[1].split('\nstruct ', 1)[0]
-ROWS = BROWSER.split('@ViewBuilder private var directoryRows:', 1)[1].split('var body: some View {', 1)[0]
+ROWS = BROWSER.split('@SoftGroupRowsBuilder private var directoryRows:', 1)[1].split('var body: some View {', 1)[0]
 
 # Toolbar menus keep only the repository link; the per-file and per-folder copies are long-press.
 assert BROWSER.count('.toolbar {') == 1
 browser_toolbar = BROWSER.split('.toolbar {', 1)[1]
-assert 'CopyRepositoryLinkButton(repository: repo, feedback: copyFeedback)' in browser_toolbar
-assert 'Button("刷新目录")' in browser_toolbar
+assert 'title: "复制仓库链接"' in browser_toolbar
+assert 'perform: { copyFeedback.copy(repo) }' in browser_toolbar
+assert 'title: "刷新目录"' in browser_toolbar
 for removed in ('复制当前目录链接', 'directoryLink', 'folder: true'):
     assert removed not in browser_toolbar, removed
 
 MAIN_FILE = FILE.split('private var fileInformation', 1)[0]
 assert MAIN_FILE.count('.toolbar {') == 1
 file_toolbar = MAIN_FILE.split('.toolbar {', 1)[1]
-assert 'Button("文件信息")' in file_toolbar
+assert 'NativeActionMenu(title: "文件操作", items: fileMenuItems)' in file_toolbar
+file_actions = FILE.split('private var fileMenuItems: [NativeMenuItem]', 1)[1].split('var body: some View', 1)[0]
+assert 'NativeMenuItem(id: "info", title: "文件信息"' in file_actions
 for removed in ('复制文件链接', '复制 raw 链接', 'copyFeedback', 'RepositoryCopyFeedback'):
     assert removed not in FILE, removed
 assert 'RepositoryCopyFeedback()' not in FILE

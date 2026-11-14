@@ -17,13 +17,13 @@ struct RemoteBranchMergeView: View {
             Section("远端 PR · Squash") {
                 SoftGroupRows {
                     SoftGroupRow("repository") { Text(repo).textSelection(.enabled) }
-                    SoftGroupRow("source") { LabeledContent("来源分支", value: source) }
+                    SoftGroupRow("source") { AppLabeledContent("来源分支", value: source) }
                     SoftGroupRow("target") {
                         NavigationLink {
                             LocalGitBranchPicker(api: api, repo: repo, current: target) { selected in
                                 target = selected; state.dismissConfirmation()
                             }
-                        } label: { LabeledContent("已有目标分支", value: target.isEmpty ? "请选择" : target) }
+                        } label: { AppLabeledContent("已有目标分支", value: target.isEmpty ? "请选择" : target) }
                         .disabled(locked).accessibilityIdentifier("branch-merge-target")
                     }
                     SoftGroupRow("title") { TextField("PR / Squash 提交标题", text: $title).disabled(locked).accessibilityIdentifier("branch-merge-title") }
@@ -37,21 +37,15 @@ struct RemoteBranchMergeView: View {
                         Text("这是远端 PR 合并，不操作本地工作树。仅支持 Squash；仓库必须关闭合并后自动删除分支。不主动启动 Actions，但仓库自身的 PR / push 工作流规则仍会生效；检查与审查必须符合 GitHub 规则，不绕过保护。")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
-                }
-            }
-            if let preview {
-                Section("固定 SHA 预览") {
-                    SoftGroupRows {
+                    if let preview {
+                        SoftGroupRow("sha-heading") { Text("固定 SHA 预览").font(.subheadline).foregroundStyle(.secondary) }
                         SoftGroupRow("head") { Text("来源 \(preview.source)：\(preview.sourceSHA)").font(.caption.monospaced()).textSelection(.enabled) }
                         SoftGroupRow("base") { Text("目标 \(preview.target)：\(preview.targetSHA)").font(.caption.monospaced()).textSelection(.enabled) }
                         SoftGroupRow("limits") {
                             Text("提交最多 5,000 个，文件必须少于 300 个；单次网络响应最多 8 MiB。patch 可能缺失（二进制或 GitHub 省略）或被查看器截断，不代表完整内容。请逐项核实；超限列表不能用于合并。")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
-                    }
-                }
-                Section("提交（\(preview.commits.count)）") {
-                    SoftGroupRows {
+                        SoftGroupRow("commits-heading") { Text("提交（\(preview.commits.count)）").font(.subheadline).foregroundStyle(.secondary) }
                         for commit in preview.commits {
                             SoftGroupRow("commit:" + commit.sha) {
                                 NavigationLink { CommitDetailView(api: api, repo: preview.repository, sha: commit.sha) } label: {
@@ -62,10 +56,7 @@ struct RemoteBranchMergeView: View {
                                 }
                             }
                         }
-                    }
-                }
-                Section("文件差异（\(preview.files.count)）") {
-                    SoftGroupRows {
+                        SoftGroupRow("files-heading") { Text("文件差异（\(preview.files.count)）").font(.subheadline).foregroundStyle(.secondary) }
                         for file in preview.files {
                             SoftGroupRow("file:" + file.id) {
                                 NavigationLink { CommitPatchDestination(file: file, pullRequest: true) } label: {
@@ -77,10 +68,7 @@ struct RemoteBranchMergeView: View {
                                 }
                             }
                         }
-                    }
-                }
-                Section("明确操作") {
-                    SoftGroupRows {
+                        SoftGroupRow("actions-heading") { Text("明确操作").font(.subheadline).foregroundStyle(.secondary) }
                         if let pull = state.pull {
                             SoftGroupRow("pull") { Text("PR #\(pull.number)：\(preview.source) → \(preview.target)") }
                             SoftGroupRow("gate") {
@@ -106,11 +94,17 @@ struct RemoteBranchMergeView: View {
                             SoftGroupRow("reconcile") { Button("只读核实 PR（不重发写入）") { run { await state.reconcile(api: api) } }.disabled(state.busy || !api.isCurrentSession) }
                         }
                     }
+                    if state.busy { SoftGroupRow("busy") { ProgressView("读取并校验 GitHub 状态…") } }
+                    if !state.failure.isEmpty {
+                        SoftGroupRow("failure-heading") { Text("未完成").font(.subheadline).foregroundStyle(.secondary) }
+                        SoftGroupRow("failure") { Text(state.failure).textSelection(.enabled) }
+                    }
+                    if !state.result.isEmpty {
+                        SoftGroupRow("result-heading") { Text("结果 / 核实").font(.subheadline).foregroundStyle(.secondary) }
+                        SoftGroupRow("result") { Text(state.result).accessibilityIdentifier("branch-merge-result").textSelection(.enabled) }
+                    }
                 }
             }
-            if state.busy { Section { ProgressView("读取并校验 GitHub 状态…").softGroupedRow(top: true, bottom: true) } }
-            if !state.failure.isEmpty { Section("未完成") { Text(state.failure).textSelection(.enabled).softGroupedRow(top: true, bottom: true) } }
-            if !state.result.isEmpty { Section("结果 / 核实") { Text(state.result).accessibilityIdentifier("branch-merge-result").textSelection(.enabled).softGroupedRow(top: true, bottom: true) } }
         }
         .navigationTitle("远端 PR 压缩合并")
         .adaptiveWorkspaceLayout()

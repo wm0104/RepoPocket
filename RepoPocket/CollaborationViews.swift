@@ -18,11 +18,20 @@ struct RepositoryCommunitySection: View {
     let repo: String
     let branch: String
     let avatar: String?
+    var connected = false
     @State private var expanded = false
     private var owner: String? { (try? RepositoryInput.parse(repo))?.split(separator: "/").first.map(String.init) }
     var body: some View {
-        Section {
-            SoftGroupRows(animateBackground: false) {
+        Group {
+            if connected { content }
+            else { Section { content } }
+        }
+#if DEBUG
+        .onAppear { if ProcessInfo.processInfo.arguments.contains("-expanded-style-preview") { UIRules.withoutAnimation { expanded = true } } }
+#endif
+    }
+    private var content: some View {
+            SoftGroupRows(animateBackground: false, spacingBefore: connected ? 10 : 0) {
             SoftGroupRow("issues", separatorInset: 62) { NavigationLink { CollaborationListView(api: api, repo: repo, kind: .issues) } label: { RepositoryFeatureLabel(title: "议题", symbol: "exclamationmark.circle", color: .green) } }
             SoftGroupRow("pulls", separatorInset: 62) { NavigationLink { CollaborationListView(api: api, repo: repo, kind: .pulls) } label: { RepositoryFeatureLabel(title: "拉取请求", symbol: "arrow.triangle.branch", color: .blue) } }
             SoftGroupRow("actions", separatorInset: 62) { NavigationLink { WorkflowRunsView(api: api, repo: repo, branch: branch) } label: { RepositoryFeatureLabel(title: "操作 · Actions", symbol: "play.circle", color: .orange) } }
@@ -39,10 +48,6 @@ struct RepositoryCommunitySection: View {
             }
             }
             }
-        }
-#if DEBUG
-        .onAppear { if ProcessInfo.processInfo.arguments.contains("-expanded-style-preview") { UIRules.withoutAnimation { expanded = true } } }
-#endif
     }
 }
 
@@ -88,9 +93,9 @@ struct CollaborationListView: View {
                 }
             }
             if store.loaded && visible.isEmpty && store.error.isEmpty { SoftGroupRow("empty") { Text("当前页没有符合条件的 \(kind.title)" + (store.more ? "，可继续加载。" : "。")) } }
+            CommunityPageFooter(store: store, next: { load() }).rows
             }
             }
-            CommunityPageFooter(store: store, next: { load() })
         }.navigationTitle(kind.title).adaptiveWorkspaceLayout()
         .toolbar {
             if kind == .issues { Button("新建议题") { composing = true } }
@@ -118,13 +123,16 @@ struct CollaborationListView: View {
 struct CommunityPageFooter<Item: Identifiable>: View where Item.ID: Hashable {
     @ObservedObject var store: CommunityPageStore<Item>
     let next: () -> Void
+    @SoftGroupRowsBuilder var rows: [SoftGroupRow] {
+        if store.busy { SoftGroupRow("page:loading") { ProgressView("加载中…") } }
+        if !store.error.isEmpty { SoftGroupRow("page:error") { Text(store.error).font(.caption).textSelection(.enabled) } }
+        if store.more { SoftGroupRow("page:next") { Button(store.error.isEmpty ? "加载更多" : "重试") { next() }.disabled(store.busy) } }
+        if store.limited { SoftGroupRow("page:limited") { Text("已显示前 300 条。").font(.caption).foregroundStyle(.secondary) } }
+    }
     var body: some View {
-        Section {
-            SoftGroupRows {
-        if store.busy { SoftGroupRow("loading") { ProgressView("加载中…") } }
-        if !store.error.isEmpty { SoftGroupRow("error") { Text(store.error).font(.caption).textSelection(.enabled) } }
-        if store.more { SoftGroupRow("next") { Button(store.error.isEmpty ? "加载更多" : "重试") { next() }.disabled(store.busy) } }
-        if store.limited { SoftGroupRow("limited") { Text("已显示前 300 条。").font(.caption).foregroundStyle(.secondary) } }
+        if !rows.isEmpty {
+            Section {
+                SoftGroupRows { rows }
             }
         }
     }
@@ -145,20 +153,17 @@ struct CollaborationDetailView: View {
     @State private var mayManage = false
     var body: some View {
         List {
-            if let item {
-                Section {
-                    SoftGroupRows {
+            Section {
+                SoftGroupRows {
+                    if let item {
                     SoftGroupRow("title") { Text(item.title).font(.title3.bold()).textSelection(.enabled) }
                     SoftGroupRow("state") { Text("#\(number) · \(item.merged == true ? "已合并" : item.state)").font(.caption) }
                     SoftGroupRow("author") { CommunityAuthorLink(api: api, user: item.user).accessibilityIdentifier("issue-author") }
                     if let labels = item.labels, !labels.isEmpty { SoftGroupRow("labels") { Text(labels.map { $0.name }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary) } }
                     if let head = item.head, let base = item.base { SoftGroupRow("branches") { Text(head.ref + " → " + base.ref).font(.caption).textSelection(.enabled) } }
                     if let count = item.changed_files { SoftGroupRow("stats") { Text("\(count) 个文件 · +\(item.additions ?? 0) / −\(item.deletions ?? 0)").font(.caption) } }
-                    }
-                }
-                Section("正文") { CommunityMarkdown(text: item.body ?? "暂无正文", baseURL: CommunityRules.webURL(item.html_url), api: api).softGroupedRow(top: true, bottom: true) }
-                Section {
-                    SoftGroupRows {
+                    SoftGroupRow("body-heading") { Text("正文").font(.caption).foregroundStyle(.secondary) }
+                    SoftGroupRow("body") { CommunityMarkdown(text: item.body ?? "暂无正文", baseURL: CommunityRules.webURL(item.html_url), api: api) }
                     SoftGroupRow("comments") { NavigationLink("讨论评论") { DiscussionView(api: api, repo: repo, number: number, stream: .conversation) } }
                     if kind == .pulls {
                         SoftGroupRow("reviews") { NavigationLink("审查记录") { DiscussionView(api: api, repo: repo, number: number, stream: .reviews) } }
@@ -172,19 +177,22 @@ struct CollaborationDetailView: View {
                             mutation = .state(number, item.state == "open" ? "closed" : "open")
                         }.disabled(busy) }
                     }
-                    if kind == .pulls, mayManage, item.state == "open", item.draft != true, let sha = item.head?.sha {
-                        SoftGroupRow("merge") { Button("合并 PR") { mutationTitle = "确认合并当前 PR？"; mutation = .merge(number, sha) }.disabled(busy) }
+                    if kind == .pulls, mayManage, item.state == "open", item.draft != true, item.head?.sha != nil {
+                        SoftGroupRow("merge") { NavigationLink("合并 PR") { PullRequestMergeView(api: api, repo: repo, number: number) }.disabled(busy) }
                     }
                     }
+                    if busy { SoftGroupRow("loading") { ProgressView("处理中…") } }
+                    if !error.isEmpty { SoftGroupRow("error") { Text(error) }; SoftGroupRow("retry") { Button("刷新详情") { revision += 1 } } }
                 }
             }
-            Section { SoftGroupRows {
-            if busy { SoftGroupRow("loading") { ProgressView("处理中…") } }
-            if !error.isEmpty { SoftGroupRow("error") { Text(error) }; SoftGroupRow("retry") { Button("刷新详情") { revision += 1 } } }
-            } }
         }.navigationTitle("\(kind.title) #\(number)").adaptiveWorkspaceLayout()
         .toolbar { Button("刷新") { revision += 1 }.disabled(busy) }
         .task(id: revision) { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryHistoryChanged)) { notice in
+            if kind == .pulls, notice.userInfo?["repo"] as? String == repo,
+               notice.userInfo?["account"] as? String == api.accountID,
+               notice.userInfo?["generation"] as? UUID == AccountStore.generation { revision += 1 }
+        }
         .sheet(isPresented: $composing) { CollaborationComposer(api: api, repo: repo, number: number) { revision += 1 } }
         .confirmationDialog(mutationTitle, isPresented: Binding(get: { mutation != nil }, set: { if !$0 { mutation = nil } }), titleVisibility: .visible) {
             Button("确认操作") { if let action = mutation { mutation = nil; Task { await perform(action) } } }
@@ -223,6 +231,7 @@ struct DiscussionView: View {
     @State private var attempted = false
     @State private var composerTarget: DiscussionComposerTarget?
     var body: some View {
+        let pageRows = CommunityPageFooter(store: store, next: { load() }).rows
         List {
             ForEach(store.items) { comment in
                 Section {
@@ -242,11 +251,18 @@ struct DiscussionView: View {
                             .accessibilityIdentifier("reply-comment-\(comment.id)")
                         }
                     }
+                    if comment.id == store.items.last?.id { pageRows }
                     }
                 }
             }
-            if store.loaded && store.items.isEmpty { Text("暂无记录").softGroupedRow(top: true, bottom: true) }
-            CommunityPageFooter(store: store, next: { load() })
+            if store.items.isEmpty && (store.loaded || !pageRows.isEmpty) {
+                Section {
+                    SoftGroupRows {
+                        if store.loaded { SoftGroupRow("empty") { Text("暂无记录") } }
+                        pageRows
+                    }
+                }
+            }
         }.navigationTitle(stream.title).adaptiveWorkspaceLayout()
         .toolbar {
             if stream == .conversation { Button("发表评论") { composerTarget = .comment } }
@@ -271,18 +287,24 @@ struct PullFilesView: View {
     @StateObject private var store = CommunityPageStore<DesktopCommit.File>()
     var body: some View {
         List {
-            ForEach(store.items) { file in
+            Section {
+              SoftGroupRows {
+              for file in store.items {
+                SoftGroupRow("file-" + file.id) {
                 NavigationLink { CommitPatchDestination(file: file, pullRequest: true) } label: {
                     VStack(alignment: .leading) {
                         Text(file.filename)
                         Text("\(file.status) · +\(file.additions) / −\(file.deletions)").font(.caption).foregroundStyle(.secondary)
                         if let previous = file.previous_filename { Text("原路径：" + previous).font(.caption) }
                     }
-                }.softGroupedRow(top: file.id == store.items.first?.id, bottom: file.id == store.items.last?.id)
+                }
+                }
+              }
+              if store.loaded && store.items.isEmpty { SoftGroupRow("empty") { Text("暂无变更文件") } }
+              CommunityPageFooter(store: store, next: { load() }).rows
+              SoftGroupRow("patch-scope") { Text("二进制或部分大文件没有文本 patch；不代表没有变化。").font(.caption).foregroundStyle(.secondary) }
+              }
             }
-            if store.loaded && store.items.isEmpty { Text("暂无变更文件").softGroupedRow(top: true, bottom: true) }
-            CommunityPageFooter(store: store, next: { load() })
-            Section { Text("二进制或部分大文件没有文本 patch；不代表没有变化。").font(.caption).foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
 
         }.navigationTitle("PR 变更文件").adaptiveWorkspaceLayout()
         .task { if !store.loaded { load() } }.onDisappear { store.cancel() }

@@ -28,7 +28,8 @@ class ReleaseManagementTests(unittest.TestCase):
             self.assertNotIn('ShareSheet(url:', screen)
         self.assertIn('.downloadCompletionNotice($downloadedZIP)', app)
         self.assertIn('downloadedZIP = saved', app)
-        self.assertIn('downloadedAsset = saved', upload)
+        self.assertNotIn('downloadedAsset', upload)
+        self.assertIn('self.completedDownload = saved', ui)
         update = (ROOT/'RepoPocket/UpdateFeature.swift').read_text()
         self.assertIn('Button("分享 IPA 安装")', update)
         highlights = (ROOT/'RepoPocket/RepositoryHomeHighlights.swift').read_text()
@@ -44,14 +45,15 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertIn('struct Presence: Decodable { let id: Int }', added)
         self.assertIn('if path.isEmpty && !showFiles {', app)
         self.assertIn('api.isCurrentSession', highlights)
-        self.assertIn('if path.isEmpty && canWrite', app)
+        self.assertNotIn('NativeMenuItem(id: "release"', app)
+        self.assertIn('ReleaseEntryView(api: state.api, initialRepo: state.repo)', ui)
         self.assertIn('暂无发行版', ui)
         self.assertIn('canWrite = false', ui)
         self.assertIn('复制下载链接', ui)
         self.assertIn('UIPasteboard.general.url = link', ui)
         self.assertIn('asset.browser_download_url, repo: state.repo', ui)
-        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'ForEach(state.rows)', 'ForEach(state.assets)', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', '确认删除这个附件？', '确认删除整个发行版？', '此操作不可恢复。', 'Button("删除", role: .destructive) { performDelete() }', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'self.downloader.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup', 'if expanded', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
-            self.assertIn(token,ui)
+        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'for row in state.rows', 'for asset in state.assets', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', '确认删除这个附件？', '确认删除整个发行版？', '此操作不可恢复。', 'Button("删除", role: .destructive) { performDelete() }', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'self.downloader.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup', 'if expanded', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
+            self.assertIn(token,ui + (ROOT/'RepoPocket/ReleaseAttachmentReview.swift').read_text())
         self.assertNotIn('AsyncImage',ui)
         transfers=(ROOT/'RepoPocket/ReleaseTransfers.swift').read_text()
         self.assertIn('ReleaseAssetRedirectPolicy()',transfers)
@@ -64,13 +66,15 @@ class ReleaseManagementTests(unittest.TestCase):
     def test_inline_branch_and_delete_safety(self):
         picker = (ROOT/'RepoPocket/ReleaseBranchPicker.swift').read_text()
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
-        for token in ['for page in 1...10', 'batch.count < 30', 'guard complete', 'generation == AccountStore.generation', 'token == identity', 'Task.checkCancellation()', 'task?.cancel()', 'info.permissions?.push', 'state.branches.count > 1', 'LabeledContent("目标分支", value: name)', 'if expanded', 'if searching', 'expanded = false', '.easeInOut(duration: 0.18)', 'accessibilityReduceMotion', '已有 Git 标签不受目标分支影响。', 'value.count == 40', 'api.commitDetail', 'ready = false']:
+        for token in ['for page in 1...10', 'batch.count < 30', 'guard complete', 'generation == AccountStore.generation', 'token == identity', 'Task.checkCancellation()', 'task?.cancel()', 'info.permissions?.push', 'state.branches.count > 1', 'AppLabeledContent("目标分支", value: name)', 'if expanded', 'if searching', 'expanded = false', '.easeInOut(duration: 0.18)', 'accessibilityReduceMotion', '已有 Git 标签不受目标分支影响。', 'value.count == 40', 'api.commitDetail', 'ready = false']:
             self.assertIn(token, picker)
         rows = picker.split('ForEach(visible', 1)[1].split('} else if', 1)[0]
         self.assertNotIn('await', rows)
         self.assertNotIn('.task', rows)
         self.assertIn('guard targetReady, !attachments.isEmpty', ui)
-        self.assertIn('attachments.isEmpty || !targetReady', ui)
+        self.assertIn('guard targetReady, !form.branch.isEmpty', ui)
+        self.assertIn('original == nil && attachments.isEmpty', ui)
+        self.assertIn('reviewFingerprint == nil || !state.valid', ui)
         self.assertIn('确认删除这个附件？', ui)
         self.assertIn('确认删除整个发行版？', ui)
         self.assertIn('target.generation == AccountStore.generation', ui)
@@ -81,10 +85,11 @@ class ReleaseManagementTests(unittest.TestCase):
 
     def test_asset_row_actions_are_independent_and_accessible(self):
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
-        row = ui.split('ForEach(state.assets) { asset in',1)[1].split('if state.assets.isEmpty',1)[0]
-        self.assertEqual(row.count('.softGroupedRow('), 1)
+        row = ui.split('for asset in state.assets {',1)[1].split('if state.assets.isEmpty',1)[0]
+        self.assertEqual(row.count('SoftGroupRow("asset-\\(asset.id)")'), 1)
         for token in ['LocalGitFileLabel(name: asset.name, size: Int64(asset.size))', 'Menu {', '.buttonStyle(.borderless)', 'assetActions(asset)', 'if state.canWrite', 'prepareDelete(r, asset: asset)', 'ReleaseAssetDownloadStatusView(']: self.assertIn(token,row)
-        self.assertIn('bottom: isLastAsset',row)
+        self.assertNotIn('.softGroupedRow(', row)
+        self.assertIn('SoftGroupRow("asset-help")', ui)
         self.assertNotIn('Divider()',row)
         actions=ui.split('@ViewBuilder private func assetActions(',1)[1].split('    private var deleteDescription',1)[0]
         self.assertIn('state.download(asset)',actions)
@@ -104,16 +109,16 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertNotIn('附件（独立分页', ui)
         self.assertNotIn('公开附件可直接在浏览器下载', ui)
         self.assertEqual(ui.count('Text("私有附件需在浏览器登录。")'), 1)
-        self.assertIn('} footer: {', ui)
+        self.assertIn('SoftGroupRow("asset-help") { Text("私有附件需在浏览器登录。")', ui)
         self.assertIn('var draft = false', models)
         self.assertIn('ReleaseManagementRules.more', ui)
         self.assertIn('此操作不可恢复。', ui)
-        self.assertIn('已公开发行版会立即受到影响', ui)
+        self.assertIn('已公开发行版会立即受到影响', (ROOT/'RepoPocket/ReleaseAttachmentReview.swift').read_text())
 
     def test_official_marker_and_tag_write_contracts(self):
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
         api = (ROOT/'RepoPocket/GitHub.swift').read_text()
-        for text in ['Picker("发行版标记"', 'Text("无")', 'Text("预发行版")', 'if !form.draft', 'Text("最新发行版")', 'Toggle("保存为草稿"', 'form.marker = .none', '!markerReady', '发布此发行版？']:
+        for text in ['Picker("发行版标记"', 'Text("无")', 'Text("预发行版")', 'if !form.draft', 'Text("最新发行版")', 'Toggle("保存为草稿"', 'form.marker = .none', '!markerReady', '确认发行版']:
             self.assertIn(text, ui)
         self.assertNotIn('Toggle("预发行"', ui)
         latest = api.split('func managedLatestID(', 1)[1].split('private func verifyManagedTagAvailable', 1)[0]
@@ -208,6 +213,36 @@ struct Item: Identifiable { let id: Int }
   precondition(parsed.rows[3].old==11 && parsed.rows[3].new==21)
   precondition(parsed.rows[4].text=="文件末尾没有换行")
   precondition(parsed.rows[0].text.contains("区块") && !parsed.rows[0].text.contains("@@"))
+  let crlf = try CommitPatchParser.parse("@@ -1,3 +1,3 @@\n unchanged before\r\n-old\r\n+new\r\n unchanged after\r\n")
+  precondition(!crlf.malformed && crlf.rows.count == 5)
+  precondition(crlf.rows.map(\.kind) == [.hunk, .context, .deletion, .addition, .context])
+  precondition(crlf.rows[1].text == "unchanged before\r" && crlf.rows[1].old == 1 && crlf.rows[1].new == 1)
+  precondition(crlf.rows[2].text == "old\r" && crlf.rows[2].old == 2 && crlf.rows[2].new == nil)
+  precondition(crlf.rows[3].text == "new\r" && crlf.rows[3].old == nil && crlf.rows[3].new == 2)
+  precondition(crlf.rows[4].text == "unchanged after\r" && crlf.rows[4].old == 3 && crlf.rows[4].new == 3)
+  let headerLike = try CommitPatchParser.parse("--- a/file\n+++ b/file\n@@ -1,2 +1,2 @@\n--- old literal\n+++ new literal\n unchanged\n\\ No newline at end of file")
+  precondition(!headerLike.malformed && headerLike.rows.map(\.kind) == [.note, .note, .hunk, .deletion, .addition, .context, .note])
+  precondition(headerLike.rows[3].text == "-- old literal" && headerLike.rows[3].old == 1 && headerLike.rows[3].new == nil)
+  precondition(headerLike.rows[4].text == "++ new literal" && headerLike.rows[4].old == nil && headerLike.rows[4].new == 1)
+  precondition(headerLike.rows[5].text == "unchanged" && headerLike.rows[5].old == 2 && headerLike.rows[5].new == 2)
+  precondition(headerLike.rows[6].text == "文件末尾没有换行")
+  let literalMarkers = try CommitPatchParser.parse("@@ -1,3 +1,3 @@\n---- old\n++++ new\n --- unchanged\n +++ unchanged")
+  precondition(!literalMarkers.malformed && literalMarkers.rows.map(\.kind) == [.hunk, .deletion, .addition, .context, .context])
+  precondition(literalMarkers.rows[1].text == "--- old" && literalMarkers.rows[2].text == "+++ new")
+  precondition(literalMarkers.rows[4].old == 3 && literalMarkers.rows[4].new == 3)
+  // Literal GitHub patches from wm0104/my-python: preserve Git's EOF-sensitive edits.
+  let appendPrints = try CommitPatchParser.parse("@@ -1,3 +1,5 @@\n print(\"测试\")\n print()\n+print()\n+print()\n print()\n\\ No newline at end of file")
+  precondition(!appendPrints.malformed && appendPrints.rows.count == 7)
+  precondition(appendPrints.rows.map(\.kind) == [.hunk, .context, .context, .addition, .addition, .context, .note])
+  precondition(appendPrints.rows.filter { $0.kind == .addition }.count == 2 && !appendPrints.rows.contains { $0.kind == .deletion })
+  precondition(appendPrints.rows[3].new == 3 && appendPrints.rows[4].new == 4)
+  precondition(appendPrints.rows[5].old == 3 && appendPrints.rows[5].new == 5)
+  let removePrints = try CommitPatchParser.parse("@@ -1,5 +1 @@\n-print(\"测试\")\n-print()\n-print()\n-print()\n-print()\n\\ No newline at end of file\n+print(\"测试\")\n\\ No newline at end of file")
+  precondition(!removePrints.malformed && removePrints.rows.count == 9)
+  precondition(removePrints.rows.filter { $0.kind == .deletion }.map(\.old) == [1, 2, 3, 4, 5])
+  precondition(removePrints.rows.filter { $0.kind == .addition }.count == 1)
+  precondition(removePrints.rows[7].text == "print(\"测试\")" && removePrints.rows[7].new == 1 && removePrints.rows[7].old == nil)
+  precondition(removePrints.rows[6].kind == .note && removePrints.rows[8].kind == .note)
   let insertion=try CommitPatchParser.parse("@@ -0,0 +1,1 @@\n+你好😀")
   precondition(insertion.rows[1].new==1 && !insertion.malformed)
   let malformed=try CommitPatchParser.parse("@@ broken\n+something")

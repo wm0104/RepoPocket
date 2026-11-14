@@ -23,7 +23,7 @@ struct CollaborationComposer: View {
         (try? CommunityMutationRules.request(action, title: title, text: submittedText)) != nil
     }
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section {
                     SoftGroupRows {

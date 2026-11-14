@@ -7,7 +7,7 @@ def tar(bad=False):
     out=io.BytesIO()
     with tarfile.open(fileobj=out, mode='w',format=tarfile.USTAR_FORMAT) as t:
         for name,body,kind in [('./',b'',tarfile.DIRTYPE),('./control',control,tarfile.REGTYPE),('./postinst',b'#!/bin/sh\n',tarfile.REGTYPE)]:
-            x=tarfile.TarInfo(name);x.type=kind;x.size=len(body);x.mtime=42;x.mode=0o755 if name.endswith('postinst') else 0o644;t.addfile(x,io.BytesIO(body))
+            x=tarfile.TarInfo(name);x.type=kind;x.size=len(body);x.mtime=42;x.mode=0o755 if kind == tarfile.DIRTYPE or name.endswith('postinst') else 0o644;t.addfile(x,io.BytesIO(body))
         if bad:
             x=tarfile.TarInfo('./evil');x.type=tarfile.SYMTYPE;x.linkname='/etc/passwd';t.addfile(x)
     return out.getvalue()
@@ -59,6 +59,20 @@ for bad in ['mode','directory']:
     (fixtures/(bad+'.deb')).write_bytes(permission_deb('gz',bad=bad))
 (fixtures/'special.deb').write_bytes(permission_deb('gz',0o4755))
 (fixtures/'unsupported.deb').write_bytes(b'!<arch>\n'+member('debian-binary',b'2.0\n')+member('control.tar.bz2',__import__('bz2').compress(tar()))+member('data.tar.gz',gzip.compress(tar())))
+# Metadata fixtures are synthesized locally; no real packages are downloaded.
+_original_control = control
+for name, package, metadata in [
+    ('legacy', 'com.wm0104.repopocket', 'X-RepoPocket-Changelog: 1.0 | 2024-02-29 | **更新**；Second\n'),
+    ('unified', 'com.wm0104.repopocket', 'X-WM0104-Changelog: 1.0 | 2025-01-01 | Unified\nX-RepoPocket-Changelog: 1.0 | 2024-02-29 | Old\n'),
+    ('foreign', 'other.test', 'X-RepoPocket-Changelog: opaque legacy value\n'),
+]:
+    control = _original_control.replace(b'Package: old.test\n', ('Package: ' + package + '\n').encode())
+    # Untouched spelling, indentation, dot lines and trailing separators must survive.
+    control = control.replace(b'Description: Old summary\n second line\n .\n last\n', b'dEsCrIpTiOn:  Old summary  \n\tsecond line\n .\n  last\n')
+    control += ('X-Unknown: keep\n continuation\n' + metadata + '\n\n').encode()
+    (fixtures / (name + '.deb')).write_bytes(deb(''))
+control = _original_control
+
 if len(sys.argv)>1:
     results=pathlib.Path(sys.argv[1]);
     def parse(path):
@@ -85,6 +99,35 @@ if len(sys.argv)>1:
             assert 'Depends: substrate\n' in c and 'Section: Tweaks\n' in c
             assert t.extractfile('./postinst').read()==b'#!/bin/sh\n'
         print('PASS independent archive verification',name)
+
+    def control_bytes(items):
+        key = next(k for k in items if k.startswith('control.tar'))
+        payload = items[key][1]
+        if key.endswith('.gz'): payload = gzip.decompress(payload)
+        with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+            return archive.extractfile('./control').read()
+
+    for name in ('legacy', 'unified', 'foreign'):
+        before = parse(fixtures / (name + '.deb'))
+        for action in ('metadata', 'cleared'):
+            after = parse(results / (name + '-' + action + '.deb'))
+            for key in before:
+                if not key.startswith('control.tar'): assert before[key] == after[key]
+            c = control_bytes(after)
+            assert b'dEsCrIpTiOn:  Old summary  \n\tsecond line\n .\n  last\n' in c
+            assert b'X-Unknown: keep\n continuation\n' in c and c.endswith(b'\n\n\n')
+            assert b'X-WM0104-Release-Date: 2026-11-12\n' in c
+            if action == 'metadata': assert 'X-WM0104-Changelog: 2.0 | 2026-11-12 | **更新**；Second\n'.encode() in c
+            else: assert b'X-WM0104-Changelog:' not in c
+            if name == 'foreign': assert b'X-RepoPocket-Changelog: opaque legacy value\n' in c
+            else: assert b'X-RepoPocket-Changelog:' not in c
+        print('PASS exact description, unknown fields, payload and metadata preservation', name)
+    assert (fixtures / 'plain.deb').read_bytes() == (results / 'unchanged.deb').read_bytes()
+    for name in ('dated', 'cleared'):
+        before = parse(fixtures / 'plain.deb'); after = parse(results / (name + '.deb'))
+        for key in before:
+            if not key.startswith('control.tar'): assert before[key] == after[key]
+        assert b'Description: Old summary\n second line\n .\n last\n' in control_bytes(after)
 
     for name in ('plain','gzip','xz','zst'):
         before=parse(fixtures/('zero-'+name+'.deb'))

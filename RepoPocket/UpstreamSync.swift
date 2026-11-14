@@ -399,13 +399,15 @@ struct UpstreamSyncView: View {
 
     var body: some View {
         List {
-            sourceSection
-            previewSection
-            mergeSection
-            resultSection
+            Section {
+                sourceSection
+                previewSection
+                mergeSection
+                resultSection
+            }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .appScrollContentBackgroundHidden()
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("上游同步")
         .adaptiveWorkspaceLayout()
@@ -431,7 +433,7 @@ struct UpstreamSyncView: View {
         }
         .sheet(isPresented: Binding(get: { branchRepository != nil }, set: { if !$0 { branchRepository = nil } })) {
             if let selectedRepository = branchRepository {
-                NavigationStack {
+                AppNavigationStack {
                     LocalGitBranchPicker(api: api, repo: selectedRepository, current: state.upstreamBranch) {
                         guard api.isCurrentSession, (try? RepositoryInput.parse(state.upstreamRepository)) == selectedRepository else { return }
                         state.upstreamBranch = $0; state.compare = nil
@@ -461,153 +463,151 @@ struct UpstreamSyncView: View {
     }
 
     @ViewBuilder private var sourceSection: some View {
-        Section {
-            SoftGroupRows {
-                SoftGroupRow("upstream-repository") {
-                    TextField("上游仓库（owner/repo 或链接）", text: Binding(get: { state.upstreamRepository }, set: {
-                        state.upstreamRepository = $0; state.upstreamBranch = ""; state.compare = nil
-                    }))
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .focused($editingRepository).accessibilityIdentifier("upstream-source-repository")
-                }
-                SoftGroupRow("upstream-branch") {
+        SoftGroupRows(bottom: false) {
+            SoftGroupRow("source-heading") { Text("上游来源").font(.subheadline).foregroundStyle(.secondary) }
+            SoftGroupRow("upstream-repository") {
+                TextField("上游仓库（owner/repo 或链接）", text: Binding(get: { state.upstreamRepository }, set: {
+                    state.upstreamRepository = $0; state.upstreamBranch = ""; state.compare = nil
+                }))
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .focused($editingRepository).accessibilityIdentifier("upstream-source-repository")
+            }
+            SoftGroupRow("upstream-branch") {
+                Button {
+                    editingRepository = false
+                    branchRepository = try? RepositoryInput.parse(state.upstreamRepository)
+                } label: { AppLabeledContent("上游分支", value: state.upstreamBranch.isEmpty ? "请选择" : state.upstreamBranch) }
+                    .disabled((try? RepositoryInput.parse(state.upstreamRepository)) == nil)
+                    .accessibilityIdentifier("upstream-source-branch")
+            }
+            for hint in hints {
+                SoftGroupRow("candidate-" + hint.repository) {
                     Button {
-                        editingRepository = false
-                        branchRepository = try? RepositoryInput.parse(state.upstreamRepository)
-                    } label: { LabeledContent("上游分支", value: state.upstreamBranch.isEmpty ? "请选择" : state.upstreamBranch) }
-                        .disabled((try? RepositoryInput.parse(state.upstreamRepository)) == nil)
-                        .accessibilityIdentifier("upstream-source-branch")
-                }
-                for hint in hints {
-                    SoftGroupRow("candidate-" + hint.repository) {
-                        Button {
-                            state.upstreamRepository = hint.repository
-                            state.upstreamBranch = hint.branch ?? ""
-                            state.compare = nil
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(hint.repository)
-                                Text(hint.branch.map { "\(hint.title) · 默认分支 \($0)" } ?? hint.title)
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }.buttonStyle(.borderless)
-                    }
-                }
-                if state.upstreamRepository.isEmpty && state.upstreamBranch.isEmpty {
-                    SoftGroupRow("upstream-hint") {
-                        Text("未识别到已保存选择或明确的复刻来源，请填写上游仓库后点选已有分支。")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                SoftGroupRow("preview") {
-                    Button(state.loading ? "正在比较…" : "预览差异（只读）") {
-                        editingRepository = false
-                        UIRules.withoutAnimation { commitsExpanded = false; filesExpanded = false; receiptExpanded = false }
-                        Task { await state.loadPreview(api: api, repo: repo, branch: branch) }
-                    }
-                    .disabled(state.loading || state.upstreamRepository.isEmpty || state.upstreamBranch.isEmpty)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .accessibilityIdentifier("upstream-preview")
-                }
-                if state.loading {
-                    SoftGroupRow("preview-loading") { ProgressView("正在读取上游差异…").accessibilityIdentifier("upstream-preview-loading") }
-                }
-                if !sourceError.isEmpty {
-                    SoftGroupRow("source-error") { Text(sourceError).font(.caption).foregroundStyle(.secondary) }
-                }
-                if !state.error.isEmpty && state.stage == .preview {
-                    SoftGroupRow("preview-error") {
-                        Text(state.error).font(.caption).foregroundStyle(.red)
-                            .accessibilityIdentifier("upstream-preview-error")
-                    }
+                        state.upstreamRepository = hint.repository
+                        state.upstreamBranch = hint.branch ?? ""
+                        state.compare = nil
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(hint.repository)
+                            Text(hint.branch.map { "\(hint.title) · 默认分支 \($0)" } ?? hint.title)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }.buttonStyle(.borderless)
                 }
             }
-            .disabled(state.busy || state.loading)
-        } header: {
-            Text("上游来源")
-        } footer: {
-            Text("预览只发出一次只读比较请求，不创建分支、标签或提交。选择按仓库分别记住，只有你确认过的选择会被保存。")
+            if state.upstreamRepository.isEmpty && state.upstreamBranch.isEmpty {
+                SoftGroupRow("upstream-hint") {
+                    Text("未识别到已保存选择或明确的复刻来源，请填写上游仓库后点选已有分支。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            SoftGroupRow("preview") {
+                Button(state.loading ? "正在比较…" : "预览差异（只读）") {
+                    editingRepository = false
+                    UIRules.withoutAnimation { commitsExpanded = false; filesExpanded = false; receiptExpanded = false }
+                    Task { await state.loadPreview(api: api, repo: repo, branch: branch) }
+                }
+                .disabled(state.loading || state.upstreamRepository.isEmpty || state.upstreamBranch.isEmpty)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .accessibilityIdentifier("upstream-preview")
+            }
+            if state.loading {
+                SoftGroupRow("preview-loading") { ProgressView("正在读取上游差异…").accessibilityIdentifier("upstream-preview-loading") }
+            }
+            if !sourceError.isEmpty {
+                SoftGroupRow("source-error") { Text(sourceError).font(.caption).foregroundStyle(.secondary) }
+            }
+            if !state.error.isEmpty && state.stage == .preview {
+                SoftGroupRow("preview-error") {
+                    Text(state.error).font(.caption).foregroundStyle(.red)
+                        .accessibilityIdentifier("upstream-preview-error")
+                }
+            }
+            SoftGroupRow("source-note") {
+                Text("预览只发出一次只读比较请求，不创建分支、标签或提交。选择按仓库分别记住，只有你确认过的选择会被保存。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
+        .disabled(state.busy || state.loading)
     }
 
     @ViewBuilder private var previewSection: some View {
         if let compare = state.compare {
-            Section("差异预览") {
-                SoftGroupRows(animateBackground: false) {
-                    SoftGroupRow("summary") {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(compare.status ?? "")
-                            Text("上游新增 \(compare.ahead_by ?? 0) 个提交 · 目标分支多出 \(compare.behind_by ?? 0) 个提交")
-                                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                                .accessibilityIdentifier("upstream-preview-summary")
-                            if (compare.total_commits ?? 0) > commits.count {
-                                Text("比较结果共 \(compare.total_commits ?? 0) 个提交，仅列出最近 \(commits.count) 个。")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    if commits.isEmpty {
-                        SoftGroupRow("no-commits") {
-                            Text("没有需要合并的上游提交。").foregroundStyle(.secondary)
-                        }
-                    }
-                    if !commits.isEmpty {
-                        SoftGroupRow("commits-disclosure") {
-                            Button { UIRules.withoutAnimation { commitsExpanded.toggle() } } label: {
-                                HStack {
-                                    Text("提交记录（\(commits.count)）"); Spacer()
-                                    Image(systemName: commitsExpanded ? "chevron.up" : "chevron.down").font(.caption)
-                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain).accessibilityIdentifier("upstream-commits-disclosure")
-                                .accessibilityValue(commitsExpanded ? "已展开" : "已折叠")
-                        }
-                    }
-                    if commitsExpanded {
-                        for commit in commits {
-                            SoftGroupRow("commit-" + commit.id) {
-                                HStack(alignment: .top, spacing: 10) {
-                                    Text(short(commit.sha)).font(.caption).monospacedDigit()
-                                        .foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(title(commit.commit.message)).lineLimit(2)
-                                        Text((commit.commit.author?.name ?? "未知作者") + " · "
-                                             + CommitDatePresentation.local(commit.commit.author?.date ?? ""))
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if !files.isEmpty {
-                        SoftGroupRow("files-disclosure") {
-                            Button { UIRules.withoutAnimation { filesExpanded.toggle() } } label: {
-                                HStack {
-                                    Text("变更文件（\(files.count)）"); Spacer()
-                                    Image(systemName: filesExpanded ? "chevron.up" : "chevron.down").font(.caption)
-                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain).accessibilityIdentifier("upstream-files-disclosure")
-                                .accessibilityValue(filesExpanded ? "已展开" : "已折叠")
-                        }
-                    }
-                    if filesExpanded {
-                        for file in files {
-                            SoftGroupRow("file-" + file.id) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(file.filename).font(.callout)
-                                    Text("+\(file.additions ?? 0) / −\(file.deletions ?? 0)")
-                                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                                }
-                            }
-                        }
-                    }
-                    if !files.isEmpty {
-                        SoftGroupRow("files-note") {
-                            Text((compare.files?.count ?? 0) > files.count
-                                 ? "变更文件超过 \(UpstreamSyncRules.fileLimit) 个，仅显示前 \(UpstreamSyncRules.fileLimit) 个；GitHub 最多返回 3,000 个文件。"
-                                 : "文件统计由 GitHub 比较接口返回；二进制文件不会给出文本差异。")
+            SoftGroupRows(top: false, bottom: false, animateBackground: false) {
+                SoftGroupRow("preview-heading") { Text("差异预览").font(.subheadline).foregroundStyle(.secondary) }
+                SoftGroupRow("summary") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(compare.status ?? "")
+                        Text("上游新增 \(compare.ahead_by ?? 0) 个提交 · 目标分支多出 \(compare.behind_by ?? 0) 个提交")
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            .accessibilityIdentifier("upstream-preview-summary")
+                        if (compare.total_commits ?? 0) > commits.count {
+                            Text("比较结果共 \(compare.total_commits ?? 0) 个提交，仅列出最近 \(commits.count) 个。")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
+                    }
+                }
+                if commits.isEmpty {
+                    SoftGroupRow("no-commits") {
+                        Text("没有需要合并的上游提交。").foregroundStyle(.secondary)
+                    }
+                }
+                if !commits.isEmpty {
+                    SoftGroupRow("commits-disclosure") {
+                        Button { UIRules.withoutAnimation { commitsExpanded.toggle() } } label: {
+                            HStack {
+                                Text("提交记录（\(commits.count)）"); Spacer()
+                                Image(systemName: commitsExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                            }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("upstream-commits-disclosure")
+                            .accessibilityValue(commitsExpanded ? "已展开" : "已折叠")
+                    }
+                }
+                if commitsExpanded {
+                    for commit in commits {
+                        SoftGroupRow("commit-" + commit.id) {
+                            HStack(alignment: .top, spacing: 10) {
+                                Text(short(commit.sha)).font(.caption).monospacedDigit()
+                                    .foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(title(commit.commit.message)).lineLimit(2)
+                                    Text((commit.commit.author?.name ?? "未知作者") + " · "
+                                         + CommitDatePresentation.local(commit.commit.author?.date ?? ""))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                if !files.isEmpty {
+                    SoftGroupRow("files-disclosure") {
+                        Button { UIRules.withoutAnimation { filesExpanded.toggle() } } label: {
+                            HStack {
+                                Text("变更文件（\(files.count)）"); Spacer()
+                                Image(systemName: filesExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                            }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("upstream-files-disclosure")
+                            .accessibilityValue(filesExpanded ? "已展开" : "已折叠")
+                    }
+                }
+                if filesExpanded {
+                    for file in files {
+                        SoftGroupRow("file-" + file.id) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(file.filename).font(.callout)
+                                Text("+\(file.additions ?? 0) / −\(file.deletions ?? 0)")
+                                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                            }
+                        }
+                    }
+                }
+                if !files.isEmpty {
+                    SoftGroupRow("files-note") {
+                        Text((compare.files?.count ?? 0) > files.count
+                             ? "变更文件超过 \(UpstreamSyncRules.fileLimit) 个，仅显示前 \(UpstreamSyncRules.fileLimit) 个；GitHub 最多返回 3,000 个文件。"
+                             : "文件统计由 GitHub 比较接口返回；二进制文件不会给出文本差异。")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }.transaction { $0.animation = nil; $0.disablesAnimations = true }
@@ -615,95 +615,93 @@ struct UpstreamSyncView: View {
     }
 
     @ViewBuilder private var mergeSection: some View {
-        Section {
-            SoftGroupRows {
-                SoftGroupRow("merge") {
-                    Button("创建备份标签与临时分支并合并") {
-                        if state.propose() { confirmingMerge = true }
-                    }
-                    .disabled(!canMerge)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        SoftGroupRows(top: false, bottom: state.stage == .preview && state.receipt == nil) {
+            SoftGroupRow("merge-heading") { Text("合并到临时分支").font(.subheadline).foregroundStyle(.secondary) }
+            SoftGroupRow("merge") {
+                Button("创建备份标签与临时分支并合并") {
+                    if state.propose() { confirmingMerge = true }
                 }
-                if !canWrite {
-                    SoftGroupRow("merge-permission") {
-                        Text("此账号没有已确认的仓库推送权限：预览可用，合并与应用需要 Contents: write。")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                } else if let compare = state.compare, (compare.ahead_by ?? 0) == 0 {
-                    SoftGroupRow("merge-no-change") {
-                        Text("上游没有新的提交，无需合并。").font(.caption).foregroundStyle(.secondary)
-                    }
-                } else if state.compare == nil {
-                    SoftGroupRow("merge-needs-preview") {
-                        Text("先预览差异，确认后才允许写入。").font(.caption).foregroundStyle(.secondary)
-                    }
+                .disabled(!canMerge)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            if !canWrite {
+                SoftGroupRow("merge-permission") {
+                    Text("此账号没有已确认的仓库推送权限：预览可用，合并与应用需要 Contents: write。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } else if let compare = state.compare, (compare.ahead_by ?? 0) == 0 {
+                SoftGroupRow("merge-no-change") {
+                    Text("上游没有新的提交，无需合并。").font(.caption).foregroundStyle(.secondary)
+                }
+            } else if state.compare == nil {
+                SoftGroupRow("merge-needs-preview") {
+                    Text("先预览差异，确认后才允许写入。").font(.caption).foregroundStyle(.secondary)
                 }
             }
-        } header: {
-            Text("合并到临时分支")
-        } footer: {
-            Text("读取 \(targetBranch) 的最新提交 → 创建备份标签 → 在相同提交创建临时分支 → 只把上游合并进临时分支。\(targetBranch) 在“应用”前不会改变；冲突时立即停止，没有 force 选项。")
+            SoftGroupRow("merge-note") {
+                Text("读取 \(targetBranch) 的最新提交 → 创建备份标签 → 在相同提交创建临时分支 → 只把上游合并进临时分支。\(targetBranch) 在“应用”前不会改变；冲突时立即停止，没有 force 选项。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 
     @ViewBuilder private var resultSection: some View {
         if state.stage != .preview || state.receipt != nil {
-            Section("同步结果") {
-                SoftGroupRows(animateBackground: false) {
-                    if state.busy {
-                        SoftGroupRow("busy") { ProgressView("正在等待 GitHub…") }
+            SoftGroupRows(top: false, animateBackground: false) {
+                SoftGroupRow("result-heading") { Text("同步结果").font(.subheadline).foregroundStyle(.secondary) }
+                if state.busy {
+                    SoftGroupRow("busy") { ProgressView("正在等待 GitHub…") }
+                }
+                if let receipt = state.receipt {
+                    SoftGroupRow("receipt-disclosure") {
+                        Button { UIRules.withoutAnimation { receiptExpanded.toggle() } } label: {
+                            HStack {
+                                Text("同步技术详情"); Spacer()
+                                Image(systemName: receiptExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                            }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("upstream-receipt-disclosure")
+                            .accessibilityValue(receiptExpanded ? "已展开" : "已折叠")
                     }
-                    if let receipt = state.receipt {
-                        SoftGroupRow("receipt-disclosure") {
-                            Button { UIRules.withoutAnimation { receiptExpanded.toggle() } } label: {
-                                HStack {
-                                    Text("同步技术详情"); Spacer()
-                                    Image(systemName: receiptExpanded ? "chevron.up" : "chevron.down").font(.caption)
-                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain).accessibilityIdentifier("upstream-receipt-disclosure")
-                                .accessibilityValue(receiptExpanded ? "已展开" : "已折叠")
-                        }
-                        if receiptExpanded {
-                            SoftGroupRow("backup-tag") { LabeledContent("备份标签", value: receipt.backupTag) }
-                            SoftGroupRow("temp-branch") { LabeledContent("临时分支", value: receipt.tempBranch) }
-                            if !receipt.head.isEmpty {
-                                SoftGroupRow("head") { LabeledContent("起点提交", value: short(receipt.head)) }
-                            }
-                        }
-                    }
-                    if state.stage == .merged {
-                        SoftGroupRow("merge-done") { Text("合并成功，目标分支尚未改变。") }
-                        SoftGroupRow("apply") {
-                            Button("应用到目标分支") { confirmingApply = true }
-                                .disabled(state.busy || state.loading || !canWrite)
-                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    if receiptExpanded {
+                        SoftGroupRow("backup-tag") { AppLabeledContent("备份标签", value: receipt.backupTag) }
+                        SoftGroupRow("temp-branch") { AppLabeledContent("临时分支", value: receipt.tempBranch) }
+                        if !receipt.head.isEmpty {
+                            SoftGroupRow("head") { AppLabeledContent("起点提交", value: short(receipt.head)) }
                         }
                     }
-                    if state.stage == .upToDate {
-                        SoftGroupRow("up-to-date") {
-                            Text("上游没有可合并的新提交；已创建的备份标签与临时分支保留，目标分支未改变。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                }
+                if state.stage == .merged {
+                    SoftGroupRow("merge-done") { Text("合并成功，目标分支尚未改变。") }
+                    SoftGroupRow("apply") {
+                        Button("应用到目标分支") { confirmingApply = true }
+                            .disabled(state.busy || state.loading || !canWrite)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     }
-                    if state.stage == .conflict {
-                        SoftGroupRow("conflict") {
-                            Text("检测到冲突，已停止。未自动解决冲突，未选择任何一方，目标分支未改变。")
-                                .font(.caption).foregroundStyle(.red)
-                        }
-                        SoftGroupRow("conflict-help") {
-                            Text("临时分支与备份标签已保留，可在电脑上查看差异、解决冲突后自行处理。")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
+                }
+                if state.stage == .upToDate {
+                    SoftGroupRow("up-to-date") {
+                        Text("上游没有可合并的新提交；已创建的备份标签与临时分支保留，目标分支未改变。")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    if !state.error.isEmpty {
-                        SoftGroupRow("error") {
-                            Text(state.error).font(.caption).foregroundStyle(.red)
-                        }
+                }
+                if state.stage == .conflict {
+                    SoftGroupRow("conflict") {
+                        Text("检测到冲突，已停止。未自动解决冲突，未选择任何一方，目标分支未改变。")
+                            .font(.caption).foregroundStyle(.red)
                     }
-                    if state.stage == .applied {
-                        SoftGroupRow("applied") {
-                            Text("已应用：\(targetBranch) 现在指向 \(short(state.appliedSHA))。")
-                        }
+                    SoftGroupRow("conflict-help") {
+                        Text("临时分支与备份标签已保留，可在电脑上查看差异、解决冲突后自行处理。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if !state.error.isEmpty {
+                    SoftGroupRow("error") {
+                        Text(state.error).font(.caption).foregroundStyle(.red)
+                    }
+                }
+                if state.stage == .applied {
+                    SoftGroupRow("applied") {
+                        Text("已应用：\(targetBranch) 现在指向 \(short(state.appliedSHA))。")
                     }
                 }
             }.transaction { $0.animation = nil; $0.disablesAnimations = true }

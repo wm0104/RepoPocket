@@ -14,7 +14,19 @@ struct StylePreviewGallery: View {
     private var readme: Bool { ProcessInfo.processInfo.arguments.contains("-readme-style-preview") }
     private let sample = "# RepoPocket\n\n适用于 iOS 16 的 GitHub 客户端。\n\n- 原生代码浏览\n- Issue 与 PR\n- Actions 与发行版\n\n" + String(repeating: "支持在 App 内浏览与管理仓库。\n\n", count: 30)
     var body: some View {
-        if ProcessInfo.processInfo.arguments.contains("-remote-branch-merge-preview") {
+        if ProcessInfo.processInfo.arguments.contains("-repository-collections-style-preview") {
+            RepositoryCollectionsStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-repository-operations-style-preview") {
+            RepositoryOperationsStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-settings-style-preview") {
+            SettingsStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-upload-editor-style-preview") {
+            UploadEditorStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-reading-zoom-style-preview") {
+            ReadingZoomStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-release-editor-style-preview") {
+            ReleaseEditorStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-remote-branch-merge-preview") {
             RemoteBranchMergeStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-soft-group-lifecycle-preview") {
             SoftGroupLifecycleStylePreview()
@@ -41,7 +53,7 @@ struct StylePreviewGallery: View {
         }
     }
     private var gallery: some View {
-        NavigationStack {
+        AppNavigationStack {
             List {
                 if swipe {
                     Section("左滑边界检查 · 固定数据") {
@@ -109,11 +121,11 @@ struct StylePreviewGallery: View {
                 }
             }.onAppear { if ProcessInfo.processInfo.arguments.contains("-expanded-style-preview") { expanded = true } }.navigationTitle(account ? "账号管理" : "RepoPocket").adaptiveWorkspaceLayout()
             .toolbar {
-                if readme && readmeReady {
-                    ToolbarItem(placement: .navigationBarLeading) { Text("页面就绪").accessibilityIdentifier("readme-document-ready") }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if readme && readmeReady { Text("页面就绪").accessibilityIdentifier("readme-document-ready") }
                 }
-                if readme && readmeOpened {
-                    ToolbarItem(placement: .navigationBarTrailing) { Text("链接已处理").accessibilityIdentifier("readme-link-opened") }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if readme && readmeOpened { Text("链接已处理").accessibilityIdentifier("readme-link-opened") }
                 }
             }
         }

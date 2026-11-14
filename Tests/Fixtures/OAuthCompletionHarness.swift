@@ -1,6 +1,13 @@
 import Foundation
 import Combine
 
+final class ContentSnapshotCache {
+    static let shared = ContentSnapshotCache()
+    func removeAccount(_ id: String) {}
+}
+enum RemoteHistoryBackup { static func removeAccount(_ id: String) {} }
+enum RepositoryFavorites { static func removeAccount(_ id: String) {} }
+
 // PRODUCTION_ERRORS
 // PRODUCTION_ACCOUNTS
 // PRODUCTION_USER

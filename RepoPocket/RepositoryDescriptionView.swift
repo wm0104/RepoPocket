@@ -42,7 +42,7 @@ struct RepositoryDescriptionView: View {
         }
     }
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section {
                     Text(target.repository.full_name).font(.headline).softGroupedRow(top: true)

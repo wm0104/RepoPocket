@@ -57,15 +57,20 @@ private struct SocialPageFooter<Item: Identifiable>: View where Item.ID: Hashabl
     @ObservedObject var state: SocialPageState<Item>
     let load: () -> Void
     let retry: () -> Void
+    @SoftGroupRowsBuilder var rows: [SoftGroupRow] {
+        if state.busy { SoftGroupRow("social-page:loading") { ProgressView("正在加载…") } }
+        if !state.error.isEmpty {
+            SoftGroupRow("social-page:error") { Text(state.error) }
+            SoftGroupRow("social-page:retry") { Button("重试") { retry() }.disabled(state.busy) }
+        } else if state.attempted && !state.busy {
+            if state.items.isEmpty { SoftGroupRow("social-page:empty") { Text("暂无记录") } }
+            if state.more { SoftGroupRow("social-page:more") { Button("加载更多") { load() } } }
+            else if state.items.count >= 300 { SoftGroupRow("social-page:limit") { Text("最多显示 300 条记录。") } }
+        }
+    }
     var body: some View {
-        Section {
-            if state.busy { ProgressView("正在加载…") }
-            if !state.error.isEmpty { Text(state.error); Button("重试") { retry() }.disabled(state.busy) }
-            else if state.attempted && !state.busy {
-                if state.items.isEmpty { Text("暂无记录") }
-                if state.more { Button("加载更多") { load() } }
-                else if state.items.count >= 300 { Text("最多显示 300 条记录。") }
-            }
+        if !rows.isEmpty {
+            Section { SoftGroupRows { rows } }
         }
     }
 }
@@ -80,20 +85,23 @@ struct RepositorySocialView: View {
     @Environment(\.dismiss) private var dismiss
     private var isStars: Bool { destination == .stars }
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             List {
-                Section { Text(repository.full_name).font(.caption).softGroupedRow(top: true, bottom: true) }
+                Section {
+                  SoftGroupRows {
+                  SoftGroupRow("repository") { Text(repository.full_name).font(.caption) }
                 if isStars {
-                    ForEach(stars.items) { person in
+                    for person in stars.items {
+                        SoftGroupRow("star:" + String(person.id)) {
                         NavigationLink { UserRepositoriesView(api: api, user: person.user) } label: { SocialPersonRow(login: person.login, avatar: person.avatar_url) }
-                            .softGroupedRow(top: person.id == stars.items.first?.id, bottom: person.id == stars.items.last?.id)
+                        }
                     }
-                    SocialPageFooter(state: stars, load: { Task { await load() } }, retry: { Task { await retry() } })
+                    SocialPageFooter(state: stars, load: { Task { await load() } }, retry: { Task { await retry() } }).rows
                 } else {
-                    ForEach(forks.items) { fork in
+                    for fork in forks.items {
+                      SoftGroupRow("fork:" + String(fork.id)) {
                         if ForkPresentation.peopleOnly {
                             NavigationLink { UserRepositoriesView(api: api, user: forkUser(fork)) } label: { SocialPersonRow(login: forkUser(fork).login, avatar: fork.owner?.avatar_url) }
-                                .softGroupedRow(top: fork.id == forks.items.first?.id, bottom: fork.id == forks.items.last?.id)
                         } else {
                             VStack(alignment: .leading, spacing: 6) {
                                 CommunityAuthorLink(api: api, user: forkUser(fork), opensInSheet: true)
@@ -102,13 +110,16 @@ struct RepositorySocialView: View {
                                     Text(fork.full_name).font(.caption).foregroundStyle(.secondary)
                                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                                 }.buttonStyle(.borderless).accessibilityIdentifier("fork-repository-\(fork.id)")
-                            }.softGroupedRow(top: fork.id == forks.items.first?.id, bottom: fork.id == forks.items.last?.id)
+                            }
                         }
+                      }
                     }
-                    SocialPageFooter(state: forks, load: { Task { await load() } }, retry: { Task { await retry() } })
+                    SocialPageFooter(state: forks, load: { Task { await load() } }, retry: { Task { await retry() } }).rows
+                }
+                  }
                 }
             }.navigationTitle(isStars ? "星标用户" : "复刻者")
-            .navigationDestination(isPresented: Binding(get: { selectedFork != nil }, set: { if !$0 { selectedFork = nil } })) {
+            .appNavigationDestination(isPresented: Binding(get: { selectedFork != nil }, set: { if !$0 { selectedFork = nil } })) {
                 if let selectedFork { ForkRepositoryView(api: api, base: repository, fork: selectedFork) }
             }
             .toolbar {
@@ -162,18 +173,22 @@ struct ForkChangesView: View {
     var body: some View {
         List {
             Section {
-                Text("比较双方默认分支；新增提交不一定由复刻者本人编写。").font(.caption).softGroupedRow(top: true, bottom: summary.isEmpty)
-                if !summary.isEmpty { Text(summary).font(.caption).softGroupedRow(bottom: true) }
-            }
-            ForEach(commits.items) { item in
+              SoftGroupRows {
+                SoftGroupRow("context") { Text("比较双方默认分支；新增提交不一定由复刻者本人编写。").font(.caption) }
+                if !summary.isEmpty { SoftGroupRow("summary") { Text(summary).font(.caption) } }
+            for item in commits.items {
+              SoftGroupRow("commit:" + item.sha) {
                 NavigationLink { CommitDetailView(api: api, repo: fork.full_name, sha: item.sha) } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(item.commit.message.components(separatedBy: .newlines).first ?? item.commit.message).lineLimit(3)
                         Text(String(item.sha.prefix(7)) + " · " + (item.commit.author?.name ?? "未知作者")).font(.caption).foregroundStyle(.secondary)
                     }
-                }.softGroupedRow(top: item.id == commits.items.first?.id, bottom: item.id == commits.items.last?.id)
+                }
+              }
             }
-            SocialPageFooter(state: commits, load: { Task { await load() } }, retry: { Task { await retry() } })
+            SocialPageFooter(state: commits, load: { Task { await load() } }, retry: { Task { await retry() } }).rows
+              }
+            }
         }.navigationTitle("新增提交")
         .toolbar { Button("刷新") { Task { await load(refresh: true) } }.disabled(commits.busy) }
         .task { guard !commits.attempted else { return }; await load() }

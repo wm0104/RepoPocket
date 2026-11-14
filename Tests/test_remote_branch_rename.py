@@ -28,10 +28,13 @@ class RemoteRenameContracts(unittest.TestCase):
     def test_view_exposes_long_press_rename_with_explicit_warning(self):
         self.assertIn('Label("重命名 GitHub 远端分支"', VIEW)
         self.assertIn('Label("删除 GitHub 远端分支"', VIEW)
-        alert = VIEW.split('.alert("重命名 GitHub 远端分支"', 1)[1].split('} message:', 1)[0]
-        self.assertIn('TextField(', alert)
+        alert = VIEW.split('.appTextInputAlert("重命名 GitHub 远端分支"', 1)[1].split('.confirmationDialog("删除 GitHub 远端分支？"', 1)[0]
+        self.assertIn('text: $renameName, placeholder: "新分支名称", confirmTitle: "重命名"', alert)
+        compat = (ROOT / 'RepoPocket/AppTextInputAlert.swift').read_text()
+        self.assertIn('TextField(placeholder, text: $text)', compat)
+        self.assertIn('[renaming]', alert)
         self.assertIn('DesktopRules.validBranch(name)', alert)
-        message = VIEW.split('.alert("重命名 GitHub 远端分支"', 1)[1].split('.confirmationDialog("删除 GitHub 远端分支？"', 1)[0]
+        message = alert
         self.assertIn('默认分支', message)
         self.assertIn('Pull Request', message)
         self.assertIn('本地 Git 跟踪不会自动改名', message)

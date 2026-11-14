@@ -5,6 +5,7 @@ struct CommunityProfileSection: View {
     @ObservedObject var api: GitHub
     let login: String
     let avatar: String?
+    var connected = false
     let openWeb: (URL) -> Void
     @State private var profile: CommunityProfile?
     @State private var error = ""
@@ -14,8 +15,34 @@ struct CommunityProfileSection: View {
     @State private var unsupportedLink: String?
 
     var body: some View {
-        Section("用户资料") {
-            SoftGroupRows {
+        Group {
+            if connected { content }
+            else { Section("用户资料") { content } }
+        }
+        .alert("无法打开此链接", isPresented: Binding(get: { unsupportedLink != nil }, set: { if !$0 { unsupportedLink = nil } }), presenting: unsupportedLink) { value in
+            Button("复制链接") { UIPasteboard.general.string = value }
+            Button("取消", role: .cancel) {}
+        } message: { _ in Text("此链接没有可用的网页地址，可以复制后在对应应用中使用。") }
+        .onDisappear { contacts.cancel(); linkRequest = nil; unsupportedLink = nil }
+        .onReceive(NotificationCenter.default.publisher(for: .socialAccountsChanged)) { notice in
+            let viewer = api.login.isEmpty ? AccountStore.accounts.first { $0.id == api.accountID }?.login : api.login
+            guard api.isCurrentSession, viewer?.lowercased() == login.lowercased(),
+                  notice.userInfo?["account"] as? String == api.accountID,
+                  notice.userInfo?["generation"] as? UUID == AccountStore.generation else { return }
+            contacts.load(reset: true, api: api) { try await api.communitySocialAccounts(login, page: $0) }
+        }
+        .task(id: revision) {
+            error = ""
+            do {
+                let value = try await api.communityProfile(login)
+                try Task.checkCancellation(); guard api.isCurrentSession else { return }; profile = value
+                if value.type == "User", !contacts.loaded { loadContacts() }
+            } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { self.error = "资料加载失败，仓库浏览仍可使用。" } }
+        }
+    }
+    private var content: some View {
+            SoftGroupRows(bottom: !connected) {
+                if connected { SoftGroupRow("profile-heading") { Text("用户资料").font(.caption).foregroundStyle(.secondary) } }
                 SoftGroupRow("profile") {
                     HStack(alignment: .top) {
                         GitHubAvatar(url: profile?.avatar_url ?? avatar, size: 56)
@@ -72,27 +99,6 @@ struct CommunityProfileSection: View {
                 SoftGroupRow("chart") { NavigationLink("活动图表") { NativeActivityChartView(api: api, login: login) } }
                 if !error.isEmpty { SoftGroupRow("error") { Text(error).font(.caption) }; SoftGroupRow("retry") { Button("重试资料加载") { revision += 1 } } }
             }
-        }
-        .alert("无法打开此链接", isPresented: Binding(get: { unsupportedLink != nil }, set: { if !$0 { unsupportedLink = nil } }), presenting: unsupportedLink) { value in
-            Button("复制链接") { UIPasteboard.general.string = value }
-            Button("取消", role: .cancel) {}
-        } message: { _ in Text("此链接没有可用的网页地址，可以复制后在对应应用中使用。") }
-        .onDisappear { contacts.cancel(); linkRequest = nil; unsupportedLink = nil }
-        .onReceive(NotificationCenter.default.publisher(for: .socialAccountsChanged)) { notice in
-            let viewer = api.login.isEmpty ? AccountStore.accounts.first { $0.id == api.accountID }?.login : api.login
-            guard api.isCurrentSession, viewer?.lowercased() == login.lowercased(),
-                  notice.userInfo?["account"] as? String == api.accountID,
-                  notice.userInfo?["generation"] as? UUID == AccountStore.generation else { return }
-            contacts.load(reset: true, api: api) { try await api.communitySocialAccounts(login, page: $0) }
-        }
-        .task(id: revision) {
-            error = ""
-            do {
-                let value = try await api.communityProfile(login)
-                try Task.checkCancellation(); guard api.isCurrentSession else { return }; profile = value
-                if value.type == "User", !contacts.loaded { loadContacts() }
-            } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { self.error = "资料加载失败，仓库浏览仍可使用。" } }
-        }
     }
     private func loadContacts() {
         contacts.load(api: api) { try await api.communitySocialAccounts(login, page: $0) }
@@ -135,11 +141,11 @@ struct CommunityEventsView: View {
                     }
                     if store.loaded && store.items.isEmpty { SoftGroupRow("empty") { Text("暂无可见活动") } }
                     SoftGroupRow("scope") { Text("GitHub 活动流可能延迟，且仅提供有限时间内的记录。").font(.caption).foregroundStyle(.secondary) }
+                    CommunityPageFooter(store: store, next: { load() }).rows
                 }
             }
-            CommunityPageFooter(store: store, next: { load() })
         }.navigationTitle(received ? "关注动态" : "公开活动").adaptiveWorkspaceLayout()
-        .navigationDestination(isPresented: Binding(get: { selectedRepository != nil }, set: { if !$0 { selectedRepository = nil } })) {
+        .appNavigationDestination(isPresented: Binding(get: { selectedRepository != nil }, set: { if !$0 { selectedRepository = nil } })) {
             if let selectedRepository { BrowserView(api: api, repo: selectedRepository, path: "", branch: "") }
         }
         .toolbar { Button("刷新") { load(reset: true) }.disabled(store.busy) }
@@ -158,27 +164,20 @@ struct CommunityDiscoveryView: View {
 
     var body: some View {
         List {
-            Section("近期新建的热门仓库") {
+            Section {
                 SoftGroupRows {
+                    SoftGroupRow("heading") { Text("近期新建的热门仓库").font(.caption).foregroundStyle(.secondary) }
                     SoftGroupRow("time") { Picker("时间范围", selection: $days) { Text("一天").tag(1); Text("一周").tag(7); Text("一月").tag(30) } }
                     SoftGroupRow("language") { Picker("语言", selection: $language) { ForEach(RepositorySearchOptions.languages, id: \.self) { Text($0.isEmpty ? "所有语言" : $0).tag($0) } } }
                     SoftGroupRow("refresh") { Button("加载 / 刷新") { load(reset: true) }.disabled(store.busy) }
                     SoftGroupRow("scope") { Text("按所选时间内新建仓库的累计 Star 排序。").font(.caption).foregroundStyle(.secondary) }
-                }
-            }
-            Section {
-                SoftGroupRows {
                     for repository in store.items {
                         SoftGroupRow(String(repository.id)) {
                             NavigationLink { BrowserView(api: api, repo: repository.full_name, path: "", branch: repository.default_branch ?? "") } label: { RepositoryCard(repository: repository, account: api.login, api: api) }
                         }
                     }
                     if store.loaded && store.items.isEmpty { SoftGroupRow("empty") { Text("没有符合条件的仓库") } }
-                }
-            }
-            CommunityPageFooter(store: store, next: { load() })
-            Section {
-                SoftGroupRows {
+                    CommunityPageFooter(store: store, next: { load() }).rows
                     SoftGroupRow("developers") { NavigationLink("浏览公开开发者") { NativeDevelopersView(api: api) } }
                     if !api.login.isEmpty { SoftGroupRow("following") { NavigationLink("关注动态") { CommunityEventsView(api: api, login: api.login, received: true) } } }
                 }
@@ -221,9 +220,9 @@ struct RepositoryContributorsView: View {
                         }
                     }
                     if store.loaded && store.items.isEmpty { SoftGroupRow("empty") { Text("暂无贡献者") } }
+                    CommunityPageFooter(store: store, next: { load() }).rows
                 }
             }
-            CommunityPageFooter(store: store, next: { load() })
         }.navigationTitle("贡献者").adaptiveWorkspaceLayout()
         .task { if !store.loaded { load() } }.onDisappear { store.cancel() }
     }

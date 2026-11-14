@@ -42,10 +42,10 @@ import Combine
         presentation.showing = false; dismiss()
     }
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section("账号") {
-                    if accounts.isEmpty { Text("尚无已验证账号").softGroupedRow(top: true, bottom: true) }
+                    if accounts.isEmpty { Text("尚无已验证账号").softGroupedRow(top: true) }
                     ForEach(accounts) { account in
                         HStack(spacing: 12) {
                             GitHubAvatar(url: account.avatarURL, size: 32)
@@ -53,11 +53,9 @@ import Combine
                             if account.id == AccountStore.activeID { Image(systemName: "checkmark") }
                             else { Button("切换") { AccountStore.activate(account.id) }.buttonStyle(.borderless).disabled(busy) }
                             Button(role: .destructive) { pendingRemoval = account } label: { Image(systemName: "trash").frame(width: 44, height: 44) }.buttonStyle(.borderless).disabled(busy)
-                        }.softGroupedRow(top: account.id == accounts.first?.id, bottom: account.id == accounts.last?.id)
+                        }.softGroupedRow(top: account.id == accounts.first?.id)
                     }
-                }
-                Section {
-                    NavigationLink("使用 GitHub 浏览器授权") { DeviceOAuthView(api: api) }.softGroupedRow(top: true)
+                    NavigationLink("使用 GitHub 浏览器授权") { DeviceOAuthView(api: api) }.softGroupedRow()
                     NavigationLink("添加 / 更新 GitHub 账号") {
                         Form {
                             SecureField("粘贴你自己的 Token", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)

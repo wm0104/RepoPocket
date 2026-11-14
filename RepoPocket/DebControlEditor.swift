@@ -13,12 +13,17 @@ public enum DebControlEditor {
         public var maintainer: String
         /// Only Name, Author, Section, Priority and Homepage may be additionally changed.
         public var optionalFields: [String: String]
+        /// nil preserves existing release metadata for non-UI callers.
+        public var releaseDate: String?
+        public var changelog: String
 
         public init(package: String, version: String, description: String,
-                    maintainer: String, optionalFields: [String: String] = [:]) {
+                    maintainer: String, optionalFields: [String: String] = [:],
+                    releaseDate: String? = nil, changelog: String = "") {
             self.package = package; self.version = version
             self.description = description; self.maintainer = maintainer
             self.optionalFields = optionalFields
+            self.releaseDate = releaseDate; self.changelog = changelog
         }
     }
 
@@ -29,6 +34,73 @@ public enum DebControlEditor {
             switch self { case .invalid(let message), .unsupported(let message): return message }
             return nil
         }
+    }
+
+    // Adapted from Fila 70820797 DebianPackageInformation.swift,
+    // Copyright (c) 2026 OwnGoal Studio, MIT; see Licenses/SourceText/Fila-MIT.txt.
+    private static func releaseDateFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter
+    }
+
+    public static func validReleaseDate(_ value: String) -> Bool {
+        guard value.range(of: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", options: .regularExpression) != nil else { return false }
+        let formatter = releaseDateFormatter()
+        guard let date = formatter.date(from: value) else { return false }
+        return formatter.string(from: date) == value
+    }
+
+    public static func releaseInformation(fields: [String: String], now: Date = Date()) -> (date: String, changelog: String) {
+        let formatter = releaseDateFormatter(); formatter.timeZone = .current
+        var date = formatter.string(from: now), changelog = ""
+        let log = fields["X-WM0104-Changelog"]
+            ?? (fields["Package"] == "com.wm0104.repopocket" ? fields["X-RepoPocket-Changelog"] : nil)
+        if let log {
+            let parts = log.components(separatedBy: " | ")
+            if parts.count == 3, parts[0] == fields["Version"], validReleaseDate(parts[1]) {
+                date = parts[1]; changelog = parts[2].components(separatedBy: "；").joined(separator: "\n")
+            }
+        }
+        // Keep an invalid saved date visible so saving requires explicit correction.
+        if let saved = fields["X-WM0104-Release-Date"] { date = saved }
+        return (date, changelog)
+    }
+
+    /// Empty values mean removal, not an empty control field.
+    public static func releaseFields(package: String, originalPackage: String, version: String,
+                                     date: String, changelog: String) throws -> [String: String] {
+        guard validReleaseDate(date) else { throw Failure.invalid("请输入有效的发布日期（YYYY-MM-DD）") }
+        // Only LF separates entries; reject CR and other control characters, not silently strip them.
+        guard changelog.unicodeScalars.allSatisfy({ $0.value == 10 || ($0.value >= 32 && $0.value != 127) }),
+              changelog.utf8.count <= 65536 else { throw Failure.invalid("更新信息不能包含控制字符，且不得超过 64 KiB") }
+        let entries = changelog.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard entries.allSatisfy({ !$0.contains("；") && !$0.contains(" | ") }) else {
+            throw Failure.invalid("每行一条更新；内容不能包含“；”或“ | ”分隔符")
+        }
+        var fields = ["X-WM0104-Release-Date": date,
+                      "X-WM0104-Changelog": entries.isEmpty ? "" : "\(version) | \(date) | \(entries.joined(separator: "；"))"]
+        if package == "com.wm0104.repopocket" || originalPackage == "com.wm0104.repopocket" {
+            fields["X-RepoPocket-Changelog"] = ""
+        }
+        return fields
+    }
+
+    private static func canonicalField(_ key: String) -> String {
+        ["Package", "Version", "Description", "Maintainer", "Name", "Author", "Section", "Priority", "Homepage",
+         "X-WM0104-Release-Date", "X-WM0104-Changelog", "X-RepoPocket-Changelog"].first { $0.lowercased() == key.lowercased() } ?? key
+    }
+
+    private static func blockValue(_ key: String, _ lines: [String]) -> String {
+        let first = lines[0].split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)[1].trimmingCharacters(in: .whitespaces)
+        return ([first] + lines.dropFirst().map {
+            let value = String($0.dropFirst())
+            return key.lowercased() == "description" && value == "." ? "" : value
+        }).joined(separator: "\n")
     }
 
     private static let maxDeb = 512 * 1024 * 1024
@@ -219,10 +291,11 @@ public enum DebControlEditor {
         for line in text.components(separatedBy: "\n") where !line.isEmpty {
             if line.hasPrefix(" ") || line.hasPrefix("\t") {
                 guard !key.isEmpty else { throw Failure.invalid("Orphan continuation") }
-                fields[key, default: ""] += "\n" + String(line.dropFirst())
+                let value = String(line.dropFirst())
+                fields[key, default: ""] += "\n" + (key == "Description" && value == "." ? "" : value)
             } else {
                 guard let colon = line.firstIndex(of: ":") else { throw Failure.invalid("Malformed field") }
-                key = String(line[..<colon]); fields[key] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                key = canonicalField(String(line[..<colon])); fields[key] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
             }
         }
         let changes = Changes(package: fields["Package"] ?? "", version: fields["Version"] ?? "", description: fields["Description"] ?? "", maintainer: fields["Maintainer"] ?? "")
@@ -433,6 +506,7 @@ public enum DebControlEditor {
             throw Failure.invalid("Control text is not bounded UTF-8")
         }
         let updated = try editFields(text, changes: changes)
+        if updated == text { return try repairTarPermissions(tar) }
         let newData = Data(updated.utf8)
         guard newData.count <= 1024 * 1024 else { throw Failure.invalid("Control text exceeds 1 MiB") }
         var header = tar.subdata(in: entry.header..<entry.header+512)
@@ -455,7 +529,7 @@ public enum DebControlEditor {
     }
 
     private static func editFields(_ text: String, changes: Changes) throws -> String {
-        let replacements = ["Package": changes.package, "Version": changes.version,
+        var replacements = ["Package": changes.package, "Version": changes.version,
                             "Description": changes.description, "Maintainer": changes.maintainer]
             .merging(changes.optionalFields) { current, _ in current }
         guard changes.optionalFields.keys.allSatisfy({ ["Name", "Author", "Section", "Priority", "Homepage"].contains($0) }),
@@ -464,18 +538,19 @@ public enum DebControlEditor {
         }
         for (key, value) in replacements {
             guard !value.isEmpty, value.utf8.count <= 65536, !value.contains("\r"), !value.contains("\0"),
-                  value.unicodeScalars.allSatisfy({ $0.value >= 32 || $0.value == 10 }),
+                  value.unicodeScalars.allSatisfy({ ($0.value >= 32 && $0.value != 127) || $0.value == 10 || (key == "Description" && $0.value == 9) }),
                   (key == "Description" || !value.contains("\n")) else { throw Failure.invalid("Unsafe \(key) value") }
         }
         guard changes.package.range(of: "^[a-z0-9][a-z0-9+.-]*$", options: .regularExpression) != nil,
               changes.version.range(of: "^[0-9][A-Za-z0-9.+:~\\-]*$", options: .regularExpression) != nil,
-              !changes.description.hasPrefix("\n"), !changes.description.hasSuffix("\n"),
-              changes.description.split(separator: "\n", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty }) else {
+              let summary = changes.description.components(separatedBy: "\n").first,
+              !summary.trimmingCharacters(in: .whitespaces).isEmpty else {
             throw Failure.invalid("Invalid Package, Version or Description")
         }
         var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        // Debian control may end with blank separator lines, but must contain only one paragraph.
-        while lines.last == "" { lines.removeLast() }
+        // Retain legal trailing stanza separators and untouched field bytes.
+        var trailing = 0
+        while lines.last == "" { lines.removeLast(); trailing += 1 }
         var blocks = [(String, [String])](), currentName: String?
         for line in lines {
             if line.isEmpty { throw Failure.invalid("Multiple control paragraphs not supported") }
@@ -494,18 +569,31 @@ public enum DebControlEditor {
         for required in ["Package", "Version", "Description", "Maintainer"] {
             guard blocks.contains(where: { $0.0.lowercased() == required.lowercased() }) else { throw Failure.invalid("Missing \(required) field") }
         }
+        if let date = changes.releaseDate {
+            let originalPackage = blocks.first { $0.0.lowercased() == "package" }.map { blockValue($0.0, $0.1) } ?? ""
+            replacements.merge(try releaseFields(package: changes.package, originalPackage: originalPackage,
+                                                  version: changes.version, date: date, changelog: changes.changelog)) { _, new in new }
+        }
         for (field, value) in replacements {
+            let idx = blocks.firstIndex { $0.0.lowercased() == field.lowercased() }
+            if value.isEmpty {
+                if let idx { blocks.remove(at: idx) }
+                continue
+            }
+            if let idx, blockValue(field, blocks[idx].1) == value { continue }
             let first: String
             var continuation = [String]()
             if field == "Description" {
                 let pieces = value.components(separatedBy: "\n")
+                guard pieces.dropFirst().allSatisfy({ $0 != "." && ($0.isEmpty || !$0.trimmingCharacters(in: .whitespaces).isEmpty) }) else {
+                    throw Failure.invalid("Description 续行不能只有空白或单个点；空段落请使用空行")
+                }
                 first = pieces[0]
-                continuation = pieces.dropFirst().map { $0 == "." ? " ." : " " + $0 }
+                continuation = pieces.dropFirst().map { $0.isEmpty ? " ." : " " + $0 }
             } else { first = value }
-            let idx = blocks.firstIndex { $0.0.lowercased() == field.lowercased() }
-            if let idx = idx { blocks[idx].1 = [blocks[idx].0 + ": " + first] + continuation }
+            if let idx { blocks[idx].1 = [blocks[idx].0 + ": " + first] + continuation }
             else { blocks.append((field, [field + ": " + first] + continuation)) }
         }
-        return blocks.flatMap { $0.1 }.joined(separator: "\n") + "\n"
+        return blocks.flatMap { $0.1 }.joined(separator: "\n") + String(repeating: "\n", count: trailing)
     }
 }

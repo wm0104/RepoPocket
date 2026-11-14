@@ -7,7 +7,9 @@ struct ReadmeHTMLView: UIViewRepresentable {
     let baseURL: URL?
     var mediaBaseURL: URL? = nil
     var scrolling = false
+    var scale = 1.0
     @Binding var height: CGFloat
+    var onScaleChange: (Double) -> Void = { _ in }
     var onFailure: (String) -> Void = { _ in }
     var onReady: () -> Void = {}
     let openLink: (URL) -> Void
@@ -29,10 +31,18 @@ struct ReadmeHTMLView: UIViewRepresentable {
         web.scrollView.isScrollEnabled = scrolling; web.allowsLinkPreview = false
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.navigationDelegate = context.coordinator
+        if scrolling {
+            web.scrollView.pinchGestureRecognizer?.isEnabled = false
+            context.coordinator.pinch = ContentPinchGesture(view: web, scale: { [weak coordinator = context.coordinator] in coordinator?.parent.scale ?? 1 }) { [weak web, weak coordinator = context.coordinator] value in
+                if let web { coordinator?.applyScale(value, to: web) }
+                coordinator?.parent.onScaleChange(value)
+            }
+        }
         return web
     }
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.applyScale(scale, to: web)
         let identity = (baseURL?.absoluteString ?? "") + "\n" + (mediaBaseURL?.absoluteString ?? "") + "\n" + html
         guard context.coordinator.identity != identity else { return }
         context.coordinator.identity = identity
@@ -49,7 +59,7 @@ struct ReadmeHTMLView: UIViewRepresentable {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard message.frameInfo.isMainFrame, let number = message.body as? NSNumber,
                   number.doubleValue.isFinite, number.doubleValue >= 0 else { return }
-            let measured = min(max(44, CGFloat(number.doubleValue.rounded(.up))), ReadmeDocumentRules.inlineHeightLimit)
+            let measured = max(44, CGFloat(number.doubleValue.rounded(.up)))
             DispatchQueue.main.async { [weak coordinator = coordinator] in
                 guard let coordinator, abs(coordinator.parent.height - measured) > 0.5 else { return }
                 coordinator.parent.height = measured
@@ -59,8 +69,33 @@ struct ReadmeHTMLView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         var parent: ReadmeHTMLView
         var identity: String?
+        var pinch: ContentPinchGesture?
+        private var appliedScale: Double?
         init(_ parent: ReadmeHTMLView) { self.parent = parent }
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { parent.onReady() }
+        func applyScale(_ scale: Double, to web: WKWebView) {
+            guard parent.scrolling, !web.isLoading, appliedScale != scale, let document = identity else { return }
+            appliedScale = scale
+            // Zoom only the app-owned article; the viewport and page controls stay unchanged.
+            web.evaluateJavaScript("""
+                (() => {
+                  const article = document.getElementById('repopocket-readme');
+                  if (!article) return false;
+                  article.style.webkitTextSizeAdjust = 'auto';
+                  article.style.zoom = '\(ContentZoomRules.clamped(scale))';
+                  return true;
+                })()
+                """, completionHandler: { [weak self] value, error in
+                    guard let self, self.identity == document, self.appliedScale == scale else { return }
+                    if let error { self.parent.onFailure("正文缩放失败：" + error.localizedDescription) }
+                    else if value as? Bool != true { self.appliedScale = nil }
+                })
+        }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            appliedScale = nil
+            if parent.scrolling { webView.scrollView.pinchGestureRecognizer?.isEnabled = false }
+            applyScale(parent.scale, to: webView)
+            parent.onReady()
+        }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error) }
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error) }
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

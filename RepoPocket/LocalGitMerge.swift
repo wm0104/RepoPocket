@@ -41,17 +41,20 @@ struct LocalGitMergeView: View {
     let changed: () -> Void
     @StateObject private var state = LocalGitMergeState()
     @State private var method = "ordinary"
+    @State private var mergeCommitsExpanded = true
+    @State private var mergeFilesExpanded = true
     @State private var message = ""
     @State private var confirming = false
     @State private var confirmation: LocalGitMergePreview?
+    @State private var mergePending = false
     @State private var operation: Task<Void, Never>?
     @AppStorage("localGit.authorName") private var authorName = ""
     @AppStorage("localGit.authorEmail") private var authorEmail = ""
     private var valid: Bool { project.active && generation == AccountStore.generation && isValid() }
     private var canConfirm: Bool {
         guard valid, !state.busy, let preview = state.preview,
-              preview.conflicts.isEmpty, !preview.conflictsTruncated, preview.method == method else { return false }
-        return !preview.needsCommit || (!authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+              !preview.conflictsTruncated, preview.method == method else { return false }
+        return !preview.conflicts.isEmpty || !preview.needsCommit || (!authorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !authorEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
@@ -59,7 +62,7 @@ struct LocalGitMergeView: View {
     var body: some View {
         List {
             Section("仅在本地合并") {
-                SoftGroupRows {
+                SoftGroupRows(bottom: !mergePending && state.preview == nil) {
                     SoftGroupRow("source") { Text("来源本地分支：" + source.name).textSelection(.enabled) }
                     SoftGroupRow("method") {
                         Picker("合并方式", selection: $method) {
@@ -82,10 +85,17 @@ struct LocalGitMergeView: View {
                     if !state.failure.isEmpty { SoftGroupRow("error") { Text(state.failure).font(.caption).foregroundStyle(.red).textSelection(.enabled) } }
                     if !state.result.isEmpty { SoftGroupRow("result") { Text(state.result).textSelection(.enabled).accessibilityIdentifier("localgit.merge-result") } }
                 }
+            if mergePending {
+                SoftGroupRows(top: false, bottom: state.preview == nil) { SoftGroupRow("resolve-session") {
+                    NavigationLink("继续解决本地合并冲突…") {
+                        LocalGitConflictView(project: project, metadata: metadata, internalRoot: internalRoot,
+                            generation: generation, isValid: isValid, changed: changed)
+                    }.disabled(state.busy || !valid)
+                } }
             }
             if let preview = state.preview {
-                Section("合并方向") {
-                    SoftGroupRows {
+                    SoftGroupRows(top: false, bottom: false) {
+                        SoftGroupRow("direction-heading") { Text("合并方向").font(.subheadline).foregroundStyle(.secondary) }
                         SoftGroupRow("direction") { Text(preview.sourceName + " → " + preview.targetName).font(.headline).textSelection(.enabled) }
                         SoftGroupRow("pins") {
                             Text("当前：\(preview.head.prefix(7))\n来源：\(preview.sourceSHA.prefix(7))").font(.caption.monospaced()).textSelection(.enabled)
@@ -96,70 +106,90 @@ struct LocalGitMergeView: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                }
                 if !preview.conflicts.isEmpty || preview.conflictsTruncated {
-                    Section("存在冲突，无法合并") {
-                        SoftGroupRows {
+                        SoftGroupRows(top: false, bottom: false) {
+                            SoftGroupRow("conflicts-heading") { Text("存在冲突 · 可开始本地解决").font(.subheadline).foregroundStyle(.secondary) }
                             for path in preview.conflicts { SoftGroupRow("conflict:" + path) { Text(path).foregroundStyle(.red).textSelection(.enabled) } }
-                            SoftGroupRow("conflict-help") { Text("仅在内存中计算冲突，没有修改原文件或暂存区。请在桌面 Git 处理冲突后重新预览。最多列出 200 个冲突文件。" + (preview.conflictsTruncated ? "冲突列表未完整展示。" : "")).font(.caption).foregroundStyle(.secondary) }
+                            SoftGroupRow("conflict-help") { Text("仅在内存中计算冲突，尚未修改原文件或暂存区。确认后创建真实 Git 合并状态与冲突暂存记录，再逐文件解决；继续前不修改工作文件。最多 200 个冲突文件。" + (preview.conflictsTruncated ? "冲突列表未完整展示。" : "")).font(.caption).foregroundStyle(.secondary) }
                         }
-                    }
                 }
                 if preview.needsCommit {
-                    Section("提交作者（由你确认）") {
-                        SoftGroupRows {
+                        SoftGroupRows(top: false, bottom: false) {
+                            SoftGroupRow("author-heading") { Text("提交作者（由你确认）").font(.subheadline).foregroundStyle(.secondary) }
                             SoftGroupRow("message") { TextField("提交信息", text: $message).accessibilityIdentifier("localgit.merge-message") }
                             SoftGroupRow("author-name") { TextField("作者姓名", text: $authorName).accessibilityIdentifier("localgit.merge-author-name") }
                             SoftGroupRow("author-email") { TextField("作者邮箱（由你确认）", text: $authorEmail).accessibilityIdentifier("localgit.merge-author-email").textInputAutocapitalization(.never).autocorrectionDisabled() }
                         }.disabled(state.busy || !valid)
-                    }
                 }
-                Section("来源新增提交 · \(preview.commits.count)") {
-                    SoftGroupRows {
-                        for commit in preview.commits {
-                            SoftGroupRow("commit:" + commit.sha) {
-                                NavigationLink {
-                                    LocalProjectCommitView(project: project, metadata: metadata, internalRoot: internalRoot, sha: commit.sha)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(commit.message)
-                                        Text(commit.author + " · " + String(commit.sha.prefix(7))).font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }.disabled(state.busy || !valid)
-                            }
+                    SoftGroupRows(top: false, bottom: false) {
+                        SoftGroupRow("commits-heading") { Text("来源新增提交 · \(preview.commits.count)").font(.subheadline).foregroundStyle(.secondary) }
+                        SoftGroupRow("commits-disclosure") {
+                            Button {
+                                UIRules.withoutAnimation { mergeCommitsExpanded.toggle() }
+                            } label: {
+                                HStack {
+                                    Text(mergeCommitsExpanded ? "收起提交列表" : "查看提交列表")
+                                    Spacer()
+                                    Image(systemName: mergeCommitsExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                                }
+                            }.accessibilityValue(mergeCommitsExpanded ? "已展开" : "已折叠")
                         }
-                        if preview.commits.isEmpty { SoftGroupRow("no-commits") { Text("没有来源新增提交").foregroundStyle(.secondary) } }
-                        if preview.commitsTruncated { SoftGroupRow("commit-limit") { Text("仅展示前 100 个来源提交，列表未完整展示。").font(.caption).foregroundStyle(.secondary) } }
-                    }
-                }
-                Section("合并结果相对当前 HEAD 的文件变化") {
-                    SoftGroupRows {
-                        for file in preview.files {
-                            SoftGroupRow("file:" + file.id) {
-                                NavigationLink {
-                                    CommitPatchView(file: file, workingTree: false, comparisonLabel: "本地合并结果与预览时当前 HEAD 比较")
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(file.filename)
-                                        Text(file.patch == nil ? "二进制、非 UTF-8、冲突或超出差异预算；无文本预览" : "+\(file.additions)  −\(file.deletions)").font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }.disabled(state.busy || !valid)
+                        if mergeCommitsExpanded {
+                            for commit in preview.commits {
+                                SoftGroupRow("commit:" + commit.sha) {
+                                    NavigationLink {
+                                        LocalProjectCommitView(project: project, metadata: metadata, internalRoot: internalRoot, sha: commit.sha)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(commit.message)
+                                            Text(commit.author + " · " + String(commit.sha.prefix(7))).font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }.disabled(state.busy || !valid)
+                                }
                             }
+                            if preview.commits.isEmpty { SoftGroupRow("no-commits") { Text("没有来源新增提交").foregroundStyle(.secondary) } }
+                            if preview.commitsTruncated { SoftGroupRow("commit-limit") { Text("仅展示前 100 个来源提交，列表未完整展示。").font(.caption).foregroundStyle(.secondary) } }
                         }
-                        if preview.files.isEmpty { SoftGroupRow("no-files") { Text("没有可展示的文件变化").foregroundStyle(.secondary) } }
-                        if preview.truncated { SoftGroupRow("file-limit") { Text("预览未完整展示：最多 200 个文件、20,000 项比较、单文件 256 KiB、总差异 1 MiB。完整合并另有安全预算，超过即拒绝，不会只合并预览部分。").font(.caption).foregroundStyle(.secondary) } }
                     }
-                }
-                Section {
-                    SoftGroupRows {
+                    SoftGroupRows(top: false, bottom: false) {
+                        SoftGroupRow("files-heading") { Text("合并结果相对当前 HEAD 的文件变化").font(.subheadline).foregroundStyle(.secondary) }
+                        SoftGroupRow("files-disclosure") {
+                            Button {
+                                UIRules.withoutAnimation { mergeFilesExpanded.toggle() }
+                            } label: {
+                                HStack {
+                                    Text(mergeFilesExpanded ? "收起文件列表" : "查看文件列表")
+                                    Spacer()
+                                    Image(systemName: mergeFilesExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                                }
+                            }.accessibilityValue(mergeFilesExpanded ? "已展开" : "已折叠")
+                        }
+                        if mergeFilesExpanded {
+                            for file in preview.files {
+                                SoftGroupRow("file:" + file.id) {
+                                    NavigationLink {
+                                        CommitPatchView(file: file, workingTree: false, comparisonLabel: "本地合并结果与预览时当前 HEAD 比较")
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(file.filename)
+                                            Text(file.patch == nil ? "二进制、非 UTF-8、冲突或超出差异预算；无文本预览" : "+\(file.additions)  −\(file.deletions)").font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }.disabled(state.busy || !valid)
+                                }
+                            }
+                            if preview.files.isEmpty { SoftGroupRow("no-files") { Text("没有可展示的文件变化").foregroundStyle(.secondary) } }
+                            if preview.truncated { SoftGroupRow("file-limit") { Text("预览未完整展示：最多 200 个文件、20,000 项比较、单文件 256 KiB、总差异 1 MiB。完整合并另有安全预算，超过即拒绝，不会只合并预览部分。").font(.caption).foregroundStyle(.secondary) } }
+                        }
+                    }
+                    SoftGroupRows(top: false) {
                         SoftGroupRow("confirm") {
-                            Button(preview.alreadyContained ? "确认无需合并" : "确认本地合并…") {
+                            Button(preview.alreadyContained ? "确认无需合并" : (preview.conflicts.isEmpty ? "确认本地合并…" : "开始本地冲突解决…")) {
                                 guard canConfirm else { return }
                                 confirmation = preview; confirming = true
                             }.disabled(!canConfirm).accessibilityIdentifier("localgit.merge-confirm")
                         }
                     }
-                }
+            }
             }
         }
         .navigationTitle("合并本地分支").adaptiveWorkspaceLayout()
@@ -217,9 +247,14 @@ struct LocalGitMergeView: View {
             try Task.checkCancellation(); guard valid else { throw CancellationError() }
             var arguments = preview.arguments
             arguments["authorName"] = authorName; arguments["authorEmail"] = authorEmail; arguments["message"] = message
-            let result: LocalGitReply = try await LocalGitEngine.shared.run("mergeBranch", project: project,
+            let result: LocalGitReply = try await LocalGitEngine.shared.run(preview.conflicts.isEmpty ? "mergeBranch" : "mergeStart", project: project,
                 metadata: metadata, internalRoot: internalRoot, arguments: arguments, generation: generation)
             try Task.checkCancellation(); guard valid else { return }
+            mergePending = result.mergePending == true
+            if mergePending {
+                state.result = "已开始本地合并会话，冲突暂存区与恢复引用已保存。请进入冲突解决页逐文件标记，再明确继续或中止。工作文件尚未修改。"
+                return
+            }
             state.result = preview.alreadyContained ? "当前分支已包含来源，无需合并。" :
                 "已在本地完成\(method == "ordinary" ? "普通合并" : "压缩合并")：\(preview.sourceName) → \(preview.targetName)\n\(result.head ?? result.commit ?? "")\n尚未推送，来源分支保持不变。"
         } catch {

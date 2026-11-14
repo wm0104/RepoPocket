@@ -40,6 +40,9 @@ enum AccountStore {
     }
     static func remove(_ id: String) {
         CredentialStore.clear(account: id)
+        ContentSnapshotCache.shared.removeAccount(id)
+        RepositoryFavorites.removeAccount(id)
+        RemoteHistoryBackup.removeAccount(id)
         let list = accounts.filter { $0.id != id }
         if let data = try? JSONEncoder().encode(list) { UserDefaults.standard.set(data, forKey: accountsKey) }
         if activeID == id { activate(list.first?.id ?? "legacy") }

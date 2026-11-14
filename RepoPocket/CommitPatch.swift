@@ -34,10 +34,10 @@ enum CommitPatchParser {
             if short.count < text.count { result.limited = true }
             result.rows.append(CommitPatchRow(id: result.rows.count, kind: kind, old: o, new: n, text: short))
         }
-        for raw in bounded.split(separator: "\n", omittingEmptySubsequences: false) {
+        // Split at the LF scalar: CRLF is one Character, including in patch payloads.
+        for line in bounded.components(separatedBy: "\n") {
             try Task.checkCancellation()
             if result.rows.count >= rowLimit { result.limited = true; break }
-            let line = String(raw)
             if line.hasPrefix("@@") {
                 if remainingOld != 0 || remainingNew != 0 { result.malformed = true }
                 let ns = line as NSString
@@ -51,7 +51,8 @@ enum CommitPatchParser {
                 } else { old = nil; new = nil; remainingOld = 0; remainingNew = 0; result.malformed = true; add(.malformed, "区块位置无法解析：" + line) }
             } else if line == "\\ No newline at end of file" {
                 add(.note, "文件末尾没有换行")
-            } else if line.hasPrefix("--- ") || line.hasPrefix("+++ ") || line.hasPrefix("diff --git ") || line.hasPrefix("index ") {
+            } else if remainingOld == 0 && remainingNew == 0,
+                      line.hasPrefix("--- ") || line.hasPrefix("+++ ") || line.hasPrefix("diff --git ") || line.hasPrefix("index ") {
                 add(.note, line)
             } else if let o = old, let n = new, let marker = line.first, ["+", "-", " "].contains(marker) {
                 switch marker {

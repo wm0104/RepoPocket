@@ -1,0 +1,565 @@
+{
+  "language_products": [
+    "Astro",
+    "Bash",
+    "C",
+    "CSharp",
+    "CPP",
+    "CSS",
+    "Elixir",
+    "Elm",
+    "Go",
+    "Haskell",
+    "HTML",
+    "Java",
+    "JavaScript",
+    "JSON",
+    "JSON5",
+    "Julia",
+    "LaTeX",
+    "Lua",
+    "Markdown",
+    "OCaml",
+    "Perl",
+    "PHP",
+    "Python",
+    "R",
+    "Ruby",
+    "Rust",
+    "SCSS",
+    "SQL",
+    "Svelte",
+    "Swift",
+    "TOML",
+    "TSX",
+    "TypeScript",
+    "YAML"
+  ],
+  "files": [
+    {
+      "path": "Runestone-MIT.txt",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/LICENSE (engine and copied themes)",
+      "sha256": "b34c869efe68c5082708d220ec01e7a4531a92b4ab96bf50b7b1e323bdea53c2"
+    },
+    {
+      "path": "TreeSitter-runtime-MIT.txt",
+      "source": "tree-sitter/tree-sitter@10eb5ac119eec9cb4267a8e035066473983f5f3a/LICENSE",
+      "sha256": "c5cfb43042b6b72045f4ba997834d0a7786d2793d91680868b5815b39f14fc78"
+    },
+    {
+      "path": "TreeSitterLanguages/LICENSE",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/LICENSE",
+      "sha256": "b34c869efe68c5082708d220ec01e7a4531a92b4ab96bf50b7b1e323bdea53c2"
+    },
+    {
+      "path": "TreeSitterLanguages/FoldingQueries/sources.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/FoldingQueries/sources.json",
+      "sha256": "ad6de947ab2d8492cec31341e8ed89e92cde791cd39dc6911099222923053911"
+    },
+    {
+      "path": "TreeSitterLanguages/LANGUAGE_SOURCES.md",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/LANGUAGE_SOURCES.md",
+      "sha256": "83448ed69f66f97eadde4f2336cf6e077c4751fde6ed8fc53bca9d7bccc813ce"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Folding/Perl-LICENSE.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Folding/Perl-LICENSE.txt",
+      "sha256": "68a9a526ae357ed5a2f8ca5dabb14131b283554b69639bb04816088d4b1f2fa0"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Folding/Svelte.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Folding/Svelte.txt",
+      "sha256": "0eea8dc45e89deeb03c7799bbbc7b4688f365fb274562f4540ecfebdea82e727"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Folding/Swift.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Folding/Swift.txt",
+      "sha256": "3533cec129bb4bba015c0d61d86dd7c3b7e82110e4d2ff7837a01eff5bad5ccc"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Folding/nvim-treesitter-APACHE-2.0.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Folding/nvim-treesitter-APACHE-2.0.txt",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Astro.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Astro.txt",
+      "sha256": "9ec95a90150fa19e2cee78faf49138fc480f6f7a2354006a0ab150c44239447e"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Bash-LICENSE.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Bash-LICENSE.txt",
+      "sha256": "49bf33cf78ef5897e4e161ce1517df7de1ae5042a65b6bcfd44401e0fc606559"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/C.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/C.txt",
+      "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/CPP.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/CPP.txt",
+      "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/CSS.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/CSS.txt",
+      "sha256": "c5cfb43042b6b72045f4ba997834d0a7786d2793d91680868b5815b39f14fc78"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/CSharp.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/CSharp.txt",
+      "sha256": "778fb7d63b8c1844da315648c02f325c4713a6f4a5d19644fd413421422776d3"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Elixir-LICENSE.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Elixir-LICENSE.txt",
+      "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Elm-LICENSE.md.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Elm-LICENSE.md.txt",
+      "sha256": "26f7bf09693dd895ea64777316bad0133b131a8478a660b4785d4b9d1322f9a1"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Go.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Go.txt",
+      "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/HTML.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/HTML.txt",
+      "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Haskell-LICENSE.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Haskell-LICENSE.txt",
+      "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/JSON.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/JSON.txt",
+      "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/JSON5.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/JSON5.txt",
+      "sha256": "c91845be8393ab50c602041e1b1e96994ad40a1d28fec9b9ee3ffe0933e4e641"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Java.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Java.txt",
+      "sha256": "52ed137b039cd9c46409bc22e89938af911c95b157feae2d040b51e6084369a7"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/JavaScript.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/JavaScript.txt",
+      "sha256": "2e0110e07abef7c2548b26ec9d6969775617ca539a0dc8dbeeb14d6452c711d1"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Julia-LICENSE.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Julia-LICENSE.txt",
+      "sha256": "74f800107f200f4e28da33e9c3f86230d37d8f4c0a4916f7111e800c395ee3a2"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/LaTeX.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/LaTeX.txt",
+      "sha256": "7174d0c27fa92745f89c7e64bdf3cdc94eacac77915cad97790d993cdc24a010"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Lua.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Lua.txt",
+      "sha256": "9a32b02e4c917b1ce6b5e79d8ea81e25cefd7f27d89c7235f2afb262c06cf32e"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Markdown-nvim-treesitter.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Markdown-nvim-treesitter.txt",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Markdown.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Markdown.txt",
+      "sha256": "52ec8a1bf8256511e2a92613e0bb41ffefba3897f16fa958d7bb28c466dd4804"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/OCaml-LICENSE.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/OCaml-LICENSE.txt",
+      "sha256": "f977a20805dd6e275f14bc090a5f8e638401dad4df366841c1060f12c75b74ae"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/PHP.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/PHP.txt",
+      "sha256": "664764fabf40c0b318e06324a5a12379092a2df25b8cbf2415f71bc0bb352346"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Perl-LICENSE.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Perl-LICENSE.txt",
+      "sha256": "68a9a526ae357ed5a2f8ca5dabb14131b283554b69639bb04816088d4b1f2fa0"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Python.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Python.txt",
+      "sha256": "d724405ce238a22c0d35769c5a36b386ad5958192efe8bbb304fb2896254575f"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/R-LICENSE.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/R-LICENSE.txt",
+      "sha256": "de2e49529f03d573bc3fa229dc83acfe22c63a5ad1766b289563edfd45b72dea"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Ruby.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Ruby.txt",
+      "sha256": "ee006f02a3d856df282e409be2a86e24a65bb573a98b9c28343771141351bb6b"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Rust.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Rust.txt",
+      "sha256": "31d5b6f4243d5c7c6e1c4ebbbb9f6407bd1457a08bcc4f706521710341acba36"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/SCSS.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/SCSS.txt",
+      "sha256": "ad64f38da1571e9042cef6bea8f4232c2761c2f52ae93cbada9ae7aeaeeafa74"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/SQL-LICENSE.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/SQL-LICENSE.txt",
+      "sha256": "3b3e4e4252d5d7d1c18e1257005f23242bf0580ad619204fd093c99b8c56748d"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Svelte.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Svelte.txt",
+      "sha256": "0eea8dc45e89deeb03c7799bbbc7b4688f365fb274562f4540ecfebdea82e727"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/Swift.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/Swift.txt",
+      "sha256": "3533cec129bb4bba015c0d61d86dd7c3b7e82110e4d2ff7837a01eff5bad5ccc"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/TOML.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/TOML.txt",
+      "sha256": "b727eee929bee836e8102cecf749a795b199f291b58c885bcd81cae727ac5a46"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/TSX.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/TSX.txt",
+      "sha256": "49bf33cf78ef5897e4e161ce1517df7de1ae5042a65b6bcfd44401e0fc606559"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/TypeScript.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/TypeScript.txt",
+      "sha256": "49bf33cf78ef5897e4e161ce1517df7de1ae5042a65b6bcfd44401e0fc606559"
+    },
+    {
+      "path": "TreeSitterLanguages/Licenses/Updates/YAML.txt",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Licenses/Updates/YAML.txt",
+      "sha256": "2d181298822a124f6d106118dcc69c8d4d26ac668559be29682c452e712b0947"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Astro.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Astro.json",
+      "sha256": "3c7f589dfb6cedbe524475843cadabc5a7aca6ce3bc95b6b3822c00e2a32a187"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Bash.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Bash.json",
+      "sha256": "e0517a9eb75adafcfd5faf1cf6d056ebf4934f6354b6d5aec704f888f3f22ec2"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/C.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/C.json",
+      "sha256": "3f114c81d73b2ec37890ee6a498ef2a6631afdbb72ff0a39ecd9c95b833a5e12"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/CPP.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/CPP.json",
+      "sha256": "d4e6f94b57992850f354dfdf6b8447184cdd762f638974ded89a31e909b9a5f6"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/CSS.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/CSS.json",
+      "sha256": "3c128cdf290dca66e1485a9327c3c2533ba7cedf439b4488efb3c8c03d5b2b8e"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/CSharp.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/CSharp.json",
+      "sha256": "5e93a8d6fdf2595468810dd4d8f2e8789eaab6bf3055f176091c9f6b529a13a1"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Elixir.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Elixir.json",
+      "sha256": "da6e6d2dad10c79d13ccbf32bf30a5bfc586475261c3d31be220e19d0a0bb5bd"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Elm.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Elm.json",
+      "sha256": "e402a90eb685d4cf03dea92026c3416f95c58cb49e972eb69db0cab6dbcdb82a"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Go.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Go.json",
+      "sha256": "13900109efc87cb62a7ebf6819c206a3447478d58584be9bbf6d06aeac7fa053"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/HTML.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/HTML.json",
+      "sha256": "2e36b63f2c3745fd101cfa18212aeda5b35adeee69bc734d5df2edda9e5a5e16"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Haskell.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Haskell.json",
+      "sha256": "aefbfb4d26adda421d92074a2a8beec439b3efb9ab34e7b2c926aa964e14e0bb"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/JSON.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/JSON.json",
+      "sha256": "8a73f21f40fee4c6e45afd849d9a36fe19f52a3912f3ce4bad2c1f121e4bc99b"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/JSON5.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/JSON5.json",
+      "sha256": "546acd5c7cf41d1a8149a005dd5780899257df729c8f05b8affd386e6f906f0a"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Java.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Java.json",
+      "sha256": "095a2b08123020185cb1d7e7913187f634505494c1d1b07f4cd4f9d07208d40d"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/JavaScript.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/JavaScript.json",
+      "sha256": "54d77b6284bdf6e51b4b63732e2247dcf895a4b6ef92e22b874e2803a746f545"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Julia.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Julia.json",
+      "sha256": "c873261648a946da7f342203f33a7ed534e662aff29e41f93b0aa0e8fda81838"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/LaTeX.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/LaTeX.json",
+      "sha256": "e556922e9a917303d897ef5e0a51f52f199493c66955d0d8c0e1bda9e41ae9cc"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Lua.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Lua.json",
+      "sha256": "ba828d4b16e73fb908739c6fd920209b8c0c4978d3def5f91d7a0e22ca72926d"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Markdown.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Markdown.json",
+      "sha256": "076395c30b4c5e3d8380554057d73b6d5b6951fd29297535f14e27cbfd9dc709"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/OCaml.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/OCaml.json",
+      "sha256": "2e3dd4e4198e5e06f48d677f332fd8d50fa04539aaaf50a69f258fc62bea4146"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/PHP.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/PHP.json",
+      "sha256": "b4ceb8ab20497f750ea7baf407b9b35e0a3a20816c131d0eea56622da38c1735"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Perl.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Perl.json",
+      "sha256": "d4e66d523b1c74895d8480f267a94a2e5cd0b79ed0e9c84e5420df9e61c71c99"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Python.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Python.json",
+      "sha256": "de0e85e0fc464453ee2073fa0c33fa655477e60eafc833254f90ac0cd623ed7d"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/R.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/R.json",
+      "sha256": "e062740f3c2fd8e048702aeb04ca8084cb779708cf242daa2723bb6397ef3b6f"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Ruby.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Ruby.json",
+      "sha256": "25e375b69e5ba13b23b5ff4e4cc6453376b11196fd6d32c14329e4785b9dbe59"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Rust.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Rust.json",
+      "sha256": "1c1165398fcf189c4087b8471dd09208b21fb7fd5afe07fedc8ec5a84e1dabe0"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/SCSS.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/SCSS.json",
+      "sha256": "901708a26096d9da02e2fb7e22ff2774bde2006f9c071bf5c48a64a142258270"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/SQL.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/SQL.json",
+      "sha256": "bdac87cb096e766871f68bb18c236b13260201e68ed4a099554f01b70687469b"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Svelte.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Svelte.json",
+      "sha256": "cc0e4dcc62387c8ed8cdb45ad6fe3cad791d09dd7b46bbeb897a530d797ecf75"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/Swift.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/Swift.json",
+      "sha256": "1ba8a4057d0cf2615c78ca93af42e3abd44300efa8b7d321ba9b323b058a9dcd"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/TOML.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/TOML.json",
+      "sha256": "656bb5cd50a83d6f6dfb90885d86333f0993be9dcb50c11f144023e2991d758c"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/TSX.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/TSX.json",
+      "sha256": "b063eb488fc2b38a3b4354e741f7ce8594fdd30b4911946f7b1479e8d30a01d6"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/TypeScript.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/TypeScript.json",
+      "sha256": "7e3d730dc2632a63210e1251f78830057ce670fb65c1761809daa80010d6407b"
+    },
+    {
+      "path": "TreeSitterLanguages/Tests/Updates/YAML.json",
+      "source": "simonbs/TreeSitterLanguages@4442182303a00bf2764b10ead923a1066a0946f6/Tests/Updates/YAML.json",
+      "sha256": "208be6b3edb6a40f1358ac0e929eb9532fa3704159359a96df72660ebfffd12a"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/Contents.json",
+      "sha256": "0fd49ba3c3585c709678e0046a821c3c60685ec7063720d30d3a3448be3a208b"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkAqua.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkAqua.colorset/Contents.json",
+      "sha256": "01fe685a1dabc2300f598dbf27b8c38cbc5b7b783a144d9f3be2b7574f4f8009"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkBackground.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkBackground.colorset/Contents.json",
+      "sha256": "9ccca3fdeb664fa2d84ebdfabf4a1e2025ba2fedbcb9c9290f7b32078b6439c8"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkBlue.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkBlue.colorset/Contents.json",
+      "sha256": "164fb98157074c9a2ea6a50df57a88e486c5cb24dd0e8c69ad37c01b3789b7b9"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkComment.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkComment.colorset/Contents.json",
+      "sha256": "a0ffdaeb956a9a05e47fd691351774c6891a2ca17983604df20b6d386e9b049d"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkCurrentLine.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkCurrentLine.colorset/Contents.json",
+      "sha256": "e25f8b7c3d0036cd0e327cb01a429787801981c90b6584eb414e428ec9ff0279"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkForeground.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkForeground.colorset/Contents.json",
+      "sha256": "c0e336e3e0c0f211b8eec0b66c9a97a453f743d6d8074e6ade326d3441cc92f1"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkGreen.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkGreen.colorset/Contents.json",
+      "sha256": "9ccaad215ddec4fcdb9fc6adc2bcc83012ddf0b64e5c098aa12d421e640f2b7b"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkPurple.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkPurple.colorset/Contents.json",
+      "sha256": "dcfea8600ec99dc831ced3113d06d0952db42a1502e677040e6190462632c369"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkRed.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkRed.colorset/Contents.json",
+      "sha256": "a9e249b07650ccf5240bc68017868267b0cb11e544a3de6a8bb772ef8a4c3613"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkYellow.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkYellow.colorset/Contents.json",
+      "sha256": "f0311dfc5ab5ef6aa5b232eb6c2f05a06605c61fcc5d7f891f838e427c5057fe"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/OneDarkTheme.swift",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/OneDarkTheme.swift",
+      "sha256": "99071318945b7750c34a3ccdce82cd1da5c7f929fb23400df2d540c8b7d9ddc3"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneThemeCommon/EditorTheme.swift",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneThemeCommon/EditorTheme.swift",
+      "sha256": "06e1285edf085222e8f729dad7abd4c35f353ce96428d7ee21989661932fe29d"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneThemeCommon/HighlightName.swift",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneThemeCommon/HighlightName.swift",
+      "sha256": "ae5e3f04f4001724c4a2292b2693ea1d3ec9323177c485f861969856f25c7952"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/Contents.json",
+      "sha256": "0fd49ba3c3585c709678e0046a821c3c60685ec7063720d30d3a3448be3a208b"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowAqua.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowAqua.colorset/Contents.json",
+      "sha256": "760a7480d9d8df0c464eb23527a5018128f07b2b6dacc9ee55d2771ef67c907c"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowBackground.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowBackground.colorset/Contents.json",
+      "sha256": "0db2c11f5b01b8d2c56aa4720b820a224143747b1b5264e51fcd049584267878"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowBlue.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowBlue.colorset/Contents.json",
+      "sha256": "f8017584ae3e33d7ce5447abd26eb4d8cc1afc315c060d8cfd6a52bb09b01266"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowComment.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowComment.colorset/Contents.json",
+      "sha256": "fb24af4627f6df4423d9c09507032f76506f6fb97e76d20e14f6f4ef2bb08758"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowCurrentLine.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowCurrentLine.colorset/Contents.json",
+      "sha256": "fefb69941f8c4619b71f10b20589305bd7c1f32a9b006418a3e0679b68113f47"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowForeground.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowForeground.colorset/Contents.json",
+      "sha256": "81a2271117bf39e5a815c0195fa7cdfdb4fa5bf6080a3cd1779c788766a70aca"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowGreen.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowGreen.colorset/Contents.json",
+      "sha256": "2c88881db5f3eebc6bb9691f489c8c642c2015c023bd6cce63a556bfbe46d560"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowOrange.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowOrange.colorset/Contents.json",
+      "sha256": "90d44a500e070a25fe755bfd336b96ef5be943751706d8ff886a6710945f118a"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowPurple.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowPurple.colorset/Contents.json",
+      "sha256": "2af1cbfd324383d6624e341861a1563644c151ee45e8005f5e468d3b84b22e46"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowRed.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowRed.colorset/Contents.json",
+      "sha256": "80fc6fbf68b871e479a016647045bade512f34f29786a2d43865e75d87c266bc"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowYellow.colorset/Contents.json",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowYellow.colorset/Contents.json",
+      "sha256": "1faf01f44c8753bd0f9c975081e1166f736d35294dd8c73582a3e76fc205090b"
+    },
+    {
+      "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/TomorrowTheme.swift",
+      "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/TomorrowTheme.swift",
+      "sha256": "24262982fe61c2428fe9ff0843ad94838e2dd2faab818cd09ba6c419f8b58184"
+    }
+  ]
+}

@@ -5,7 +5,7 @@ options:
   bundleIdPrefix: com.wm0104
   developmentLanguage: zh-Hans
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "15.0"
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -13,9 +13,14 @@ settings:
     HEADER_SEARCH_PATHS: "$(SRCROOT)/Vendor/DebCodecs/xz"
     GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) XZ_USE_CRC64 XZ_USE_SHA256"
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "1.1.8"
-    CURRENT_PROJECT_VERSION: "1.1.8"
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "1.2.0"
 packages:
+  Yams:
+    url: https://github.com/jpsim/Yams.git
+    exactVersion: 5.1.3
+  RepoPocketSyntax:
+    path: Packages/RepoPocketSyntax
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui.git
     exactVersion: 2.4.1
@@ -34,6 +39,11 @@ packages:
 targets:
   RepoPocket:
     dependencies:
+      - package: Yams
+      - package: RepoPocketSyntax
+        product: RepoPocketLanguageSupport
+      - package: RepoPocketSyntax
+        product: RepoPocketThemeSupport
       - package: MarkdownUI
         product: MarkdownUI
       - package: ZIPFoundation

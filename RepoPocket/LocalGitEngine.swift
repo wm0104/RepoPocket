@@ -17,7 +17,7 @@ actor LocalGitEngine {
                     try job.check()
                     if let generation, generation != AccountStore.generation { throw CancellationError() }
                     let result: T = try LocalGitFileAccess.withRoot(project, internalRoot: internalRoot) { root in
-                        try LocalGitFileAccess.coordinate(root, writing: ["commit", "pull", "associate", "clone", "recover", "createBranch", "switchBranch", "deleteBranch", "renameBranch", "mergeBranch", "push"].contains(operation)) { coordinated in
+                        try LocalGitFileAccess.coordinate(root, writing: ["commit", "pull", "associate", "clone", "recover", "createBranch", "switchBranch", "deleteBranch", "renameBranch", "mergeBranch", "mergeStart", "conflictResolve", "conflictContinue", "conflictAbort", "push", "configureRemote", "historyPreview", "historyApply", "fetch", "stage", "unstage", "commitStaged"].contains(operation)) { coordinated in
                             guard try LocalGitFileAccess.identity(coordinated) == project.identity else { throw LocalGitError(text: "文件提供器切换了目录，请重新授权原目录。") }
                             var request = arguments
                             request["requestID"] = job.id
@@ -59,9 +59,32 @@ actor LocalGitEngine {
         return try await file(project: parent, internalRoot: internalRoot, generation: generation) { root in
             let target = root.appendingPathComponent(child, isDirectory: true)
             return LocalGitProject(id: UUID(), name: child,
-                bookmark: try target.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil),
-                identity: try LocalGitFileAccess.identity(target), metadataID: UUID(), usesPrivateGit: false)
+                bookmark: parent.directPath == nil ? try target.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil) : Data(),
+                identity: try LocalGitFileAccess.identity(target), metadataID: UUID(), usesPrivateGit: false,
+                directPath: parent.directPath == nil ? nil : target.resolvingSymlinksInPath().standardizedFileURL.path)
         }
+    }
+    func historyBackup(remote: String, branch: String, head: String, tree: String, count: Int,
+                       destination: URL, token: String, generation: UUID) async throws {
+        try Task.checkCancellation()
+        let job = LocalGitJob()
+        let _: HistoryBackupResult = try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                queue.async {
+                    continuation.resume(with: Result {
+                        try job.check()
+                        guard generation == AccountStore.generation else { throw CancellationError() }
+                        let result: HistoryBackupResult = try Self.invoke("historyBackup", request: [
+                            "requestID": job.id, "remote": remote, "branch": branch, "expectedHead": head,
+                            "expectedTree": tree, "expectedCount": count, "destination": destination.path, "token": token
+                        ])
+                        guard generation == AccountStore.generation else { throw CancellationError() }
+                        return result
+                    })
+                }
+            }
+        }, onCancel: { job.cancel() })
+        try Task.checkCancellation()
     }
     func importFiles(_ sources: LocalGitImportSources, project: LocalGitProject, internalRoot: URL,
                      directory: String = "", replaceExisting: Bool = false, generation: UUID) async throws -> LocalGitImportResult {
@@ -95,6 +118,7 @@ actor LocalGitEngine {
         return value
     }
 }
+private struct HistoryBackupResult: Decodable { let head: String; let tree: String; let commits: Int }
 private struct NativeEnvelope<T: Decodable>: Decodable { let ok: Bool; let result: T?; let error: String? }
 private final class LocalGitJob: @unchecked Sendable {
     let id = UUID().uuidString

@@ -15,9 +15,13 @@ ROOT = native_fixtures.ROOT
 class LocalBranchContracts(unittest.TestCase):
     def test_create_confirmation_is_a_plain_alert_button_and_reports_result(self):
         view = (ROOT / 'RepoPocket/LocalGitBranchManagement.swift').read_text()
-        alert = view.split('.alert("从当前 HEAD 新建并切换"', 1)[1].split('} message:', 1)[0]
-        # iOS 16's alert bridge must receive an unwrapped Button, not ModifiedContent.
-        confirm = next(line for line in alert.splitlines() if 'Button("新建并切换")' in line)
+        alert = view.split('.appTextInputAlert("从当前 HEAD 新建并切换"', 1)[1].split('.alert("切换分支？"', 1)[0]
+        self.assertIn('text: $newName, placeholder: "新分支名称", confirmTitle: "新建并切换"', alert)
+        self.assertIn('start("createBranch"', alert)
+        compat = (ROOT / 'RepoPocket/AppTextInputAlert.swift').read_text()
+        modern = compat.split('if #available(iOS 16.0, *) {', 1)[1].split('} else {', 1)[0]
+        # iOS 16's alert bridge still receives an unwrapped enabled Button.
+        confirm = next(line for line in modern.splitlines() if 'Button(confirmTitle)' in line)
         self.assertNotIn('.disabled(', confirm)
         self.assertIn('已创建并切换到本地分支', view)
         self.assertIn('SoftGroupRow("result")', view)

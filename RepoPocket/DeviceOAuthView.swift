@@ -46,10 +46,7 @@ import SwiftUI
                     }
                 }
                 if !controller.message.isEmpty { SoftGroupRow("message") { Text(controller.message).font(.callout) } }
-                }
-            }
-            Section("首次配置") {
-                SoftGroupRows {
+                SoftGroupRow("setup-heading") { Text("首次配置").font(.subheadline).foregroundStyle(.secondary) }
                 SoftGroupRow("setup") { Text("在自己的 GitHub 账号下创建 OAuth App 并启用 Device Flow，然后将 Client ID 填到这里。无需填写 Client Secret，也不需要部署服务器。") }
                 SoftGroupRow("apps") { InAppLinkButton(url: URL(string: "https://github.com/settings/developers")!, api: nil) { Text("管理自己的 OAuth Apps") } }
                 SoftGroupRow("docs") { InAppLinkButton(url: URL(string: "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow")!, api: nil) { Text("GitHub 官方设备授权说明") } }

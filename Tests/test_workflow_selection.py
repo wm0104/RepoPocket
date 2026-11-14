@@ -15,7 +15,11 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
     var finished = 0
     var failed: Set<Int> = []
     var running: Set<Int> = []
+    var readCalls = 0
     var onRequest: (@MainActor (Int) async throws -> Void)?
+    func workflowRuns(_ repo: String, branch: String, page: Int, failedOnly: Bool, headSHA: String) async throws -> [WorkflowRun] {
+        readCalls += 1; return []
+    }
     func communityMutate(_ repo: String, action: CommunityMutation) async throws -> Data {
         guard case .deleteRun(let id) = action else { preconditionFailure("deleteRun only") }
         precondition(repo == "owner/repo" && id > 0)
@@ -27,6 +31,18 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
     }
 }
 // PRODUCTION_CODE
+
+enum CommunityRules { static let pageSize = 30; static let pageLimit = 10 }
+@MainActor final class RefreshPage {
+    let api: GitHub
+    let selection: WorkflowRunSelection
+    let store = CommunityPageStore<WorkflowRun>()
+    var currentBranchOnly = false, failedOnly = false
+    var headSHA = "", displayedBranch = "main", repo = "owner/repo"
+    var deletionTarget: WorkflowRunDeletionTarget?
+    init(api: GitHub, selection: WorkflowRunSelection) { self.api = api; self.selection = selection }
+    // PRODUCTION_LOAD
+}
 
 @main struct Check {
     static func run(_ id: Int, status: String = "completed") -> WorkflowRun {
@@ -86,6 +102,25 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
         await settle(partial)
         precondition(partialAPI.calls == [1, 2, 3, 2, 3] && partial.selected.isEmpty)
 
+        let refreshingAPI = GitHub(), refreshing = state(rows)
+        var refreshPending: CheckedContinuation<Void, Never>?
+        refreshingAPI.onRequest = { id in
+            if id == 2 { await withCheckedContinuation { refreshPending = $0 } }
+        }
+        refreshing.remove(refreshing.target(rows, repo: "owner/repo", api: refreshingAPI)!, api: refreshingAPI) { _ in }
+        while refreshPending == nil { await Task.yield() }
+        let page = RefreshPage(api: refreshingAPI, selection: refreshing)
+        page.load(reset: true, preserveItems: true)
+        page.load(reset: true, preserveItems: true)
+        precondition(refreshing.busy && refreshingAPI.calls == [1, 2] && refreshingAPI.readCalls == 0,
+            "Visible pull/foreground reads must not cancel the second pending deletion")
+        refreshPending!.resume(); await settle(refreshing)
+        precondition(refreshingAPI.calls == [1, 2, 3] && refreshing.result == "已删除 3 条，失败 0 条。")
+        page.load(reset: true, preserveItems: true); await page.store.waitForLoad()
+        precondition(refreshing.active && refreshing.result == "已删除 3 条，失败 0 条。",
+            "A subsequent read must retain the batch feedback")
+        print("PASS production visible refresh preserves in-flight deletion and completed feedback")
+
         let switchedAPI = GitHub(), switched = state(rows)
         var switchedPending: CheckedContinuation<Void, Never>?
         switchedAPI.onRequest = { _ in await withCheckedContinuation { switchedPending = $0 } }
@@ -138,7 +173,7 @@ class WorkflowSelectionTests(unittest.TestCase):
         source = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text()
         runs = source.split('for run in store.items', 1)[1].split('if selection.busy ||', 1)[0]
         self.assertIn('if store.more { SoftGroupRow("page-next")', runs)
-        self.assertIn('if store.busy { SoftGroupRow("page-loading")', runs)
+        self.assertIn('if store.busy && store.items.isEmpty { SoftGroupRow("page-loading")', runs)
         self.assertNotIn('WorkflowListSpacing', source)
         self.assertNotIn('listSectionSpacing', source)
         self.assertNotIn('UICollectionView.appearance()', source)
@@ -168,14 +203,14 @@ class WorkflowSelectionTests(unittest.TestCase):
 
     def test_repository_more_uses_existing_disclosure_and_visible_row_boundaries(self):
         source = (ROOT/'RepoPocket/CollaborationViews.swift').read_text(encoding='utf-8').split('struct RepositoryCommunitySection: View {', 1)[1].split('struct CollaborationListView:', 1)[0]
-        self.assertIn('SoftGroupRows(animateBackground: false)', source)
+        self.assertIn('SoftGroupRows(animateBackground: false, spacingBefore: connected ? 10 : 0)', source)
         self.assertIn('UIRules.withoutAnimation { expanded.toggle() }', source)
         self.assertEqual(source.count('RepositoryFeatureLabel(title: "更多"'), 1)
         self.assertIn('if expanded {', source)
         self.assertIn('if let owner {', source)
         self.assertNotIn('.softGroupedRow(', source)
         groups = (ROOT/'RepoPocket/WorkspaceSelectionUI.swift').read_text(encoding='utf-8')
-        self.assertIn('top: row.id == rows.first?.id, bottom: row.id == rows.last?.id', groups)
+        self.assertIn('top: top && row.id == rows.first?.id, bottom: bottom && row.id == rows.last?.id', groups)
 
     def test_uses_guarded_transport_and_snapshot_lifetime(self):
         source = (ROOT/'RepoPocket/WorkflowRunSelection.swift').read_text(encoding='utf-8')
@@ -196,10 +231,15 @@ class WorkflowSelectionTests(unittest.TestCase):
                          'Production Swift/Combine regression requires macOS; Windows runs the transport/lifetime static check')
     def test_production_selection_and_deletion_lifecycle(self):
         github = (ROOT/'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
-        user = github[github.index('struct User: Decodable {'):github.index('struct RepoAccess: Decodable {')]
+        user = github[github.index('struct User:'):github.index('struct RepoAccess: Decodable {')]
         production = user + '\n' + '\n'.join((ROOT/'RepoPocket'/name).read_text(encoding='utf-8') for name in [
-            'NativeRepositoryModels.swift', 'WorkspaceSelection.swift', 'WorkflowRunSelection.swift'])
+            'NativeRepositoryModels.swift', 'WorkspaceSelection.swift', 'WorkflowRunSelection.swift', 'CommunityPaging.swift'])
         source = HARNESS.replace('// PRODUCTION_CODE', production)
+        view = (ROOT/'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8')
+        load = view.split('    private func load(', 1)[1].split('\n    }\n}', 1)[0]
+        # The fixture host is a class, whereas the shipping SwiftUI view is a value.
+        load = load.replace('{ try await api.workflowRuns(', '{ [self] in try await api.workflowRuns(', 1)
+        source = source.replace('// PRODUCTION_LOAD', 'func load(' + load + '\n    }')
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/'main.swift'; path.write_text(source, encoding='utf-8')
             executable = str(Path(folder)/'test')

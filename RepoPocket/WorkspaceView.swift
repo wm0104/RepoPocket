@@ -377,6 +377,7 @@ struct WorkspaceView: View {
     @State private var pull: WorkspacePull?
     @State private var pullChoices: [String: Bool] = [:]
     @State private var resolvingPull = false
+    @State private var conflictScale = 1.0
     @State private var checkPending: WorkspacePull?
     @State private var pendingDelete: URL?
     @State private var pendingDetach: URL?
@@ -390,11 +391,12 @@ struct WorkspaceView: View {
     @State private var showRemoteImport = false
     @State private var showAssociation = false
     @State private var showDetails = false
+    @State private var technicalDetailsExpanded = false
     @State private var publishing = false
     private enum Field: Hashable { case remoteRepo, remoteBranch, associationRepo, associationBranch, baselineRevision, commitMessage }
     @FocusState private var focusedField: Field?
     var body: some View {
-        NavigationStack { workspaceAlerts }
+        AppNavigationStack { workspaceAlerts }
     }
 
     // Bound each opaque view expression without changing modifier order,
@@ -412,18 +414,18 @@ struct WorkspaceView: View {
         .navigationTitle("本地工作区")
         .adaptiveWorkspaceLayout()
         .refreshable { await scan() }
-        .scrollDismissesKeyboard(.interactively)
+        .appScrollDismissesKeyboard(.interactively)
         .onSubmit { focusedField = nil }
         .onChange(of: importRequest?.id) { _ in focusedField = nil }
         .onChange(of: folder) { _ in focusedField = nil }
         .onDisappear { focusedField = nil }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button("下载远端建立可靠基线") { showRemoteImport = true }
-                    Button("导入一个或多个文件夹") { importRequest = WorkspaceImportRequest(kind: .folder) }
-                    Button("导入一个或多个 ZIP") { importRequest = WorkspaceImportRequest(kind: .zip) }
-                } label: { Image(systemName: "plus") }.disabled(busy)
+                NativeActionMenu(title: "添加工作区", symbol: "plus", enabled: !busy && api.isCurrentSession, items: [
+                    NativeMenuItem(id: "download", title: "下载远端建立可靠基线", perform: { guard !busy, api.isCurrentSession else { return }; showRemoteImport = true }),
+                    NativeMenuItem(id: "folder", title: "导入一个或多个文件夹", perform: { guard !busy, api.isCurrentSession else { return }; importRequest = WorkspaceImportRequest(kind: .folder) }),
+                    NativeMenuItem(id: "zip", title: "导入一个或多个 ZIP", perform: { guard !busy, api.isCurrentSession else { return }; importRequest = WorkspaceImportRequest(kind: .zip) })
+                ])
             }
             ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("完成") { focusedField = nil } } }
     }
@@ -431,13 +433,13 @@ struct WorkspaceView: View {
     private var workspacePresentations: some View {
         workspaceContent
         .sheet(isPresented: $showRemoteImport) {
-            NavigationStack { List { remoteSection }.navigationTitle("导入远端").toolbar { Button("关闭") { showRemoteImport = false }.disabled(busy) } }
+            AppNavigationStack { List { remoteSection }.navigationTitle("导入远端").toolbar { Button("关闭") { showRemoteImport = false }.disabled(busy) } }
         }
         .sheet(isPresented: $showAssociation) {
-            NavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("关联仓库 / 分支").toolbar { Button("关闭") { showAssociation = false }.disabled(busy) } }
+            AppNavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("关联仓库 / 分支").toolbar { Button("关闭") { showAssociation = false }.disabled(busy) } }
         }
         .sheet(isPresented: $showDetails) {
-            NavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("工作区详情").toolbar { Button("关闭") { showDetails = false } } }
+            AppNavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("工作区详情").toolbar { Button("关闭") { showDetails = false } } }
         }
         .sheet(isPresented: $publishing) { ReleaseEntryView(api: api, initialRepo: binding?.repo ?? "", initialBranch: binding?.branch ?? "") }
         .confirmationDialog("检查远端更新？此操作不会修改本地文件；检查完成后仍需确认才会拉取。", isPresented: $confirmPull, titleVisibility: .visible) {
@@ -486,22 +488,21 @@ struct WorkspaceView: View {
 
     private var workspaceAlerts: some View {
         workspaceConfirmations
-        .alert("重命名实际工作区目录", isPresented: $confirmingRename) {
-            TextField("可读目录名", text: $renameName)
-            Button("重命名") { Task { await renameCurrentWorkspace() } }
-            Button("取消", role: .cancel) {}
-        } message: { Text("将同步移动文件及基线记录，保留勾选。不会修改远端；请勿同时在文件 App 移动目录。") }
+        .appTextInputAlert("重命名实际工作区目录",
+            message: "将同步移动文件及基线记录，保留勾选。不会修改远端；请勿同时在文件 App 移动目录。",
+            isPresented: $confirmingRename, text: $renameName, placeholder: "可读目录名", confirmTitle: "重命名",
+            verbatimInput: false) { Task { await renameCurrentWorkspace() } }
         .alert("提示", isPresented: Binding(get: { !message.isEmpty }, set: { if !$0 { message = "" } })) {
             Button("好", role: .cancel) { message = "" }
         } message: { Text(message) }
         .sheet(item: $checkPending, onDismiss: { discardCheck() }) { pending in
-            NavigationStack {
+            AppNavigationStack {
                 List {
                     if pending.binding.head == binding?.head { Text("远端无新提交，本地更改保持不变。").softGroupedRow(top: true, bottom: true) }
                     else {
                         Text("下列路径是远端相对当前基线的实际变更；拉取会按三方合并，冲突另行逐项确认。").softGroupedRow(top: true)
                         ForEach(WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot), id: \.path) { change in
-                            LabeledContent(change.path, value: change.kind).softGroupedRow(bottom: change.path == WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).last?.path)
+                            AppLabeledContent(change.path, value: change.kind).softGroupedRow(bottom: change.path == WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).last?.path)
                         }
                         if WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).isEmpty { Text("提交改变，但文件内容未变。").softGroupedRow(bottom: true) }
                     }
@@ -509,8 +510,10 @@ struct WorkspaceView: View {
                 .navigationTitle("远端更新检查")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("稍后") { discardCheck() } }
-                    if pending.binding.head != binding?.head {
-                        ToolbarItem(placement: .confirmationAction) { Button("确认拉取") { Task { await pullChecked() } }.disabled(busy) }
+                    ToolbarItem(placement: .confirmationAction) {
+                        if pending.binding.head != binding?.head {
+                            Button("确认拉取") { Task { await pullChecked() } }.disabled(busy)
+                        }
                     }
                 }
             }.interactiveDismissDisabled(busy)
@@ -563,18 +566,27 @@ Section("本地工作目录") {
         let linked = (try? LinkedWorkspaces.identifier(folder)) != nil
         return Section {
             if let binding { Text(binding.repo + " / " + binding.branch).font(.headline).softGroupedRow(top: true) }
-            Menu("工作区…") {
-                if !linked {
-                    Button("检查远端更新") { focusedField = nil; confirmPull = true }.disabled(busy || binding == nil)
-                }
-                Button("关联仓库 / 分支") { showAssociation = true }
-                if !linked {
-                    Button("重命名实际目录") { renameName = folder.lastPathComponent; confirmingRename = true }
-                }
-                Button("工作区详情") { showDetails = true }
-                Button("发布为发行版") { publishing = true }
-                Button("删除本地工作区", role: .destructive) { pendingDelete = folder; confirmDelete = true }
-            }.disabled(busy).softGroupedRow(top: binding == nil, bottom: !linked)
+            NativeActionMenu(title: "工作区…", symbol: nil, enabled: !busy && api.isCurrentSession, items:
+                (linked ? [] : [NativeMenuItem(id: "check-remote", title: "检查远端更新", symbol: "arrow.clockwise", enabled: binding != nil, perform: {
+                    guard !busy, api.isCurrentSession, self.folder == folder, binding != nil else { return }
+                    focusedField = nil; confirmPull = true
+                })]) + [
+                    NativeMenuItem(id: binding == nil ? "associate" : "details", title: binding == nil ? "关联仓库 / 分支" : "工作区详情", symbol: binding == nil ? "arrow.triangle.branch" : "info.circle", perform: {
+                        guard !busy, api.isCurrentSession, self.folder == folder else { return }
+                        if binding == nil { showAssociation = true } else { showDetails = true }
+                    }),
+                    NativeMenuItem(id: "publish", title: "发布为发行版", symbol: "tag", perform: {
+                        guard !busy, api.isCurrentSession, self.folder == folder else { return }; publishing = true
+                    }),
+                    .submenu("管理", symbol: "gearshape", children: (linked ? [] : [NativeMenuItem(id: "rename", title: "重命名实际目录", symbol: "pencil", perform: {
+                        guard !busy, api.isCurrentSession, self.folder == folder else { return }
+                        renameName = folder.lastPathComponent; confirmingRename = true
+                    })]) + [NativeMenuItem(id: "delete", title: "删除本地工作区", symbol: "trash", destructive: true, perform: {
+                        guard !busy, api.isCurrentSession, self.folder == folder else { return }
+                        pendingDelete = folder; confirmDelete = true
+                    })])
+                ]
+            ).softGroupedRow(top: binding == nil, bottom: !linked)
             if linked {
                 Text("直接使用苹果‘文件’中的原目录。重命名请在‘文件’中操作后重新关联；关联目录暂不支持拉取覆盖。").font(.caption).softGroupedRow(bottom: true)
             }
@@ -584,36 +596,58 @@ Section("本地工作目录") {
     private func bindingSection(_ folder: URL) -> some View {
         let linked = (try? LinkedWorkspaces.identifier(folder)) != nil
         return Section("关联仓库 / 分支") {
-                        Text("实际工作目录：" + folder.path)
-                            .font(.caption).textSelection(.enabled).softGroupedRow(top: true)
-                        Button("复制实际工作目录路径") { UIPasteboard.general.string = folder.path }.softGroupedRow()
-                        Text("包含隐藏文件，仅扫描时忽略 .git；拒绝符号链接。ZIP：最多 20,000 项、单文件 512 MiB、总计 1 GiB。").font(.caption2).softGroupedRow()
-                        Text("绝对路径：" + folder.path).font(.caption2).textSelection(.enabled).softGroupedRow()
-                        if !linked { Button("重命名实际目录") {
+            SoftGroupRows {
+                SoftGroupRow("location") { Label(folder.lastPathComponent, systemImage: "folder") }
+                if let binding {
+                    SoftGroupRow("repository") { Text(binding.repo + " · " + binding.branch) }
+                }
+                SoftGroupRow("technical-details") {
+                    Button {
+                        UIRules.withoutAnimation { technicalDetailsExpanded.toggle() }
+                    } label: {
+                        HStack {
+                            Text("技术详情")
+                            Spacer()
+                            Image(systemName: technicalDetailsExpanded ? "chevron.up" : "chevron.down").font(.caption)
+                        }
+                    }.accessibilityValue(technicalDetailsExpanded ? "已展开" : "已折叠")
+                }
+                if technicalDetailsExpanded {
+                    SoftGroupRow("path") { Text("实际工作目录：" + folder.path).font(.caption).textSelection(.enabled) }
+                    SoftGroupRow("copy-path") { Button("复制实际工作目录路径") { UIPasteboard.general.string = folder.path } }
+                    SoftGroupRow("scan-rules") { Text("包含隐藏文件，仅扫描时忽略 .git；拒绝符号链接。ZIP：最多 20,000 项、单文件 512 MiB、总计 1 GiB。").font(.caption2) }
+                    if let binding {
+                        SoftGroupRow("baseline") { Text("基线 " + String(binding.head.prefix(12))).font(.caption) }
+                        if let d = binding.remoteAuthorDate { SoftGroupRow("author-date") { Text("最新提交 author：" + ChinaDate.dateTime(d)).font(.caption) } }
+                        if let d = binding.remoteCommitterDate { SoftGroupRow("committer-date") { Text("最新提交 committer：" + ChinaDate.dateTime(d)).font(.caption) } }
+                        if let d = binding.lastChecked { SoftGroupRow("last-checked") { Text("上次检查：" + ChinaDate.dateTime(d)).font(.caption) } }
+                        if let d = binding.lastPulled { SoftGroupRow("last-pulled") { Text("上次拉取：" + ChinaDate.dateTime(d)).font(.caption) } }
+                    }
+                }
+                if !linked {
+                    SoftGroupRow("rename") {
+                        Button("重命名实际目录") {
                             renameName = binding?.repo.replacingOccurrences(of: "/", with: "-") ?? folder.lastPathComponent
                             focusedField = nil; confirmingRename = true
-                        }.disabled(busy).softGroupedRow() }
-                        if let binding = binding {
-                            Text(binding.repo + " · " + binding.branch).softGroupedRow()
-                            Text("基线 " + String(binding.head.prefix(12))).font(.caption).softGroupedRow()
-                            if let d = binding.remoteAuthorDate { Text("最新提交 author：" + ChinaDate.dateTime(d)).font(.caption).softGroupedRow() }
-                            if let d = binding.remoteCommitterDate { Text("最新提交 committer：" + ChinaDate.dateTime(d)).font(.caption).softGroupedRow() }
-                            if let d = binding.lastChecked { Text("上次检查：" + ChinaDate.dateTime(d)).font(.caption).softGroupedRow() }
-                            if let d = binding.lastPulled { Text("上次拉取：" + ChinaDate.dateTime(d)).font(.caption).softGroupedRow() }
-                            if !linked { Button("检查更新") { focusedField = nil; confirmPull = true }
-                                .buttonStyle(.borderless)
-                                .disabled(busy).softGroupedRow() }
-                            Button("删除本地工作区", role: .destructive) { pendingDelete = folder; confirmDelete = true }
-                                .buttonStyle(.borderless)
-                                .disabled(busy).softGroupedRow(bottom: true)
-                        } else {
-                            TextField("仓库链接", text: $repo).focused($focusedField, equals: .associationRepo).submitLabel(.done).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
-                            TextField("分支（空白为默认分支）", text: $branch).focused($focusedField, equals: .associationBranch).submitLabel(.done).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
-                            TextField("原始 ZIP 历史 commit（可选，如 9230587）", text: $baselineRevision).focused($focusedField, equals: .baselineRevision).submitLabel(.done).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
-                            Button("验证副本并关联当前远端") { focusedField = nil; Task { await associate(folder) } }.disabled(busy).softGroupedRow()
-                            Text("验证原始导入哈希，不使用编辑后的文件作基线。旧 ZIP 请填写确切历史 commit；关联保留当前编辑和删除。分支已前进时须手动检查／拉取后提交。") .font(.caption).softGroupedRow(bottom: true)
-                        }
+                        }.disabled(busy)
                     }
+                }
+                if binding != nil {
+                    if !linked {
+                        SoftGroupRow("check") { Button("检查更新") { focusedField = nil; confirmPull = true }.buttonStyle(.borderless).disabled(busy) }
+                    }
+                    SoftGroupRow("delete") {
+                        Button("删除本地工作区", role: .destructive) { pendingDelete = folder; confirmDelete = true }.buttonStyle(.borderless).disabled(busy)
+                    }
+                } else {
+                    SoftGroupRow("repository-input") { TextField("仓库链接", text: $repo).focused($focusedField, equals: .associationRepo).submitLabel(.done).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    SoftGroupRow("branch-input") { TextField("分支（空白为默认分支）", text: $branch).focused($focusedField, equals: .associationBranch).submitLabel(.done).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    SoftGroupRow("baseline-input") { TextField("原始 ZIP 历史 commit（可选，如 9230587）", text: $baselineRevision).focused($focusedField, equals: .baselineRevision).submitLabel(.done).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                    SoftGroupRow("associate") { Button("验证副本并关联当前远端") { focusedField = nil; Task { await associate(folder) } }.disabled(busy) }
+                    SoftGroupRow("association-help") { Text("验证原始导入哈希，不使用编辑后的文件作基线。旧 ZIP 请填写确切历史 commit；关联保留当前编辑和删除。分支已前进时须手动检查／拉取后提交。").font(.caption) }
+                }
+            }
+        }
     }
 
     private var changesSection: some View {
@@ -657,15 +691,16 @@ Section("本地变更预览 / 勾选提交") {
     }
 
     private var conflictSheet: some View {
-                NavigationStack {
+                AppNavigationStack {
                     List {
                         if let pending = pull, let binding = binding {
                             Text("同文件双改或删除/修改冲突不会自动覆盖。请逐项选择；取消不会改变工作区。二进制或大文本仅显示哈希。").softGroupedRow(top: true, bottom: true)
+                            ContentZoomControls(scale: $conflictScale).frame(maxWidth: .infinity, alignment: .trailing).softGroupedRow(top: true, bottom: true)
                             ForEach(pending.conflicts, id: \.self) { path in
                                 Section(path) {
-                                    ScrollView(.horizontal) { Text("基线：" + (binding.snapshot.texts[path] ?? binding.snapshot.hashes[path] ?? "已删除")).fixedSize(horizontal: true, vertical: false) }.softGroupedRow(top: true)
-                                    ScrollView(.horizontal) { Text("本地：" + (pending.local.texts[path] ?? pending.local.hashes[path] ?? "已删除")).fixedSize(horizontal: true, vertical: false) }.softGroupedRow()
-                                    ScrollView(.horizontal) { Text("远端：" + (pending.binding.snapshot.texts[path] ?? pending.binding.snapshot.hashes[path] ?? "已删除")).fixedSize(horizontal: true, vertical: false) }.softGroupedRow()
+                                    ScrollView(.horizontal) { Text("基线：" + (binding.snapshot.texts[path] ?? binding.snapshot.hashes[path] ?? "已删除")).font(Font(CodeMetrics.font(scale: conflictScale))).fixedSize(horizontal: true, vertical: false) }.contentPinchZoom(scale: $conflictScale).softGroupedRow(top: true)
+                                    ScrollView(.horizontal) { Text("本地：" + (pending.local.texts[path] ?? pending.local.hashes[path] ?? "已删除")).font(Font(CodeMetrics.font(scale: conflictScale))).fixedSize(horizontal: true, vertical: false) }.contentPinchZoom(scale: $conflictScale).softGroupedRow()
+                                    ScrollView(.horizontal) { Text("远端：" + (pending.binding.snapshot.texts[path] ?? pending.binding.snapshot.hashes[path] ?? "已删除")).font(Font(CodeMetrics.font(scale: conflictScale))).fixedSize(horizontal: true, vertical: false) }.contentPinchZoom(scale: $conflictScale).softGroupedRow()
                                     Button { pullChoices[path] = false } label: { Label("保留本地", systemImage: pullChoices[path] == false ? "checkmark.circle.fill" : "circle") }.softGroupedRow()
                                     Button { pullChoices[path] = true } label: { Label("采用远端", systemImage: pullChoices[path] == true ? "checkmark.circle.fill" : "circle") }.softGroupedRow(bottom: true)
                                 }.font(.system(.caption, design: .monospaced))

@@ -6,24 +6,29 @@ import Combine
     @Published private(set) var value: Value?
     @Published private(set) var loading = false
     @Published private(set) var error = ""
+    @Published private(set) var updatedAt: Date?
     private var key: String?
     private var completed = false
+    private var revalidationID: UUID?
     private var request: Task<Value, Error>?
     private var requestID: UUID?
 
     func identityChanged() {}
 
-    func load(key: String, refresh: Bool = false,
+    func load(key: String, refresh: Bool = false, revalidationID: UUID? = nil,
+              cached: (() -> (Value, Date)?)? = nil,
               operation: @escaping @MainActor () async throws -> Value,
               isValid: @escaping @MainActor () -> Bool = { true },
               errorText: @escaping (Error) -> String = { $0.localizedDescription }) async {
         if self.key != key {
             request?.cancel(); request = nil; requestID = nil
             identityChanged()
-            self.key = key; value = nil; error = ""; completed = false; loading = false
+            self.key = key; value = nil; updatedAt = nil; error = ""; completed = false; loading = false
+            if let snapshot = cached?() { value = snapshot.0; updatedAt = snapshot.1 }
         }
         guard isValid() else { return }
-        if completed && !refresh { return }
+        if completed && !refresh && self.revalidationID == revalidationID { return }
+        self.revalidationID = revalidationID
         let pending: Task<Value, Error>, token: UUID
         if let running = request, let currentID = requestID {
             pending = running; token = currentID
@@ -46,7 +51,7 @@ import Combine
                 request = nil; requestID = nil; loading = false
                 return
             }
-            value = result; completed = true; error = ""
+            value = result; updatedAt = Date(); completed = true; error = ""
         } catch {
             guard requestID == token, self.key == key else { return }
             if isValid(), !(error is CancellationError), (error as NSError).code != NSURLErrorCancelled {

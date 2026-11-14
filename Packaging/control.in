@@ -1,0 +1,11 @@
+Package: com.wm0104.repopocket
+Name: RepoPocket
+Version: {version}
+Architecture: {architecture}
+Maintainer: wm0104
+Section: Utilities
+Priority: optional
+Depends: firmware (>= 15.0), uikittools
+Installed-Size: {installed_size}
+Description: 测试
+X-RepoPocket-Changelog: 1.2.0 | 2026-11-11 | 测试

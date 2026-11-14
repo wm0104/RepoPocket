@@ -17,17 +17,28 @@ struct CommitPatchView: View {
     @State private var failure = ""
     @State private var colored: [Int: AttributedString] = [:]
     @State private var codeWidth: CGFloat = 0
+    @State private var scale = 1.0
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var origin: String { "patch-leading:" + file.id }
+    private var codeFont: UIFont { CodeMetrics.font(scale: scale) }
+    private var numberWidth: CGFloat { 40 * codeFont.pointSize / 12 }
+    private var markerWidth: CGFloat { 10 * codeFont.pointSize / 12 }
     private var renderKey: String { file.id + ":" + String(whitespace) + ":" + (colorScheme == .dark ? "dark" : "light") + ":" + String(describing: dynamicTypeSize) }
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(file.filename).font(.caption).frame(maxWidth: .infinity, alignment: .leading).padding(8)
+                HStack {
+                    Text(file.filename).font(.caption).frame(maxWidth: .infinity, alignment: .leading).lineLimit(2)
+                    ContentZoomControls(scale: $scale)
+                }.padding(.horizontal, 8)
                 Text(comparisonLabel ?? (workingTree ? "显示工作区相对当前提交的变化" : (pullRequest ? "显示此 PR 的文件变化" : "仅显示本次提交的变化"))).font(.caption).padding(8)
                 Toggle("显示空白（· 空格 / ⇥ Tab）", isOn: $whitespace).padding(8)
                 Toggle("原始 patch", isOn: $raw).padding(8)
+                if file.patch?.contains("\\ No newline at end of file") == true {
+                    Text("行尾换行变化也可能显示删/增。")
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.bottom, 8)
+                }
                 if file.patch == nil {
                     Text("二进制或大文件未提供 patch，无法预览；不代表没有改动。").padding(8)
                 } else if let result {
@@ -41,7 +52,7 @@ struct CommitPatchView: View {
                           VStack(alignment: .leading, spacing: 0) {
                             Color.clear.frame(width: 1, height: 1).id(origin)
                             Text(String(decoding: (file.patch ?? "").utf8.prefix(CommitPatchParser.byteLimit), as: UTF8.self))
-                                .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                                .font(Font(codeFont)).textSelection(.enabled)
                                 .fixedSize(horizontal: true, vertical: false).padding(8)
                                 .frame(minWidth: viewport.size.width, minHeight: viewport.size.height, alignment: .topLeading)
                           }
@@ -54,22 +65,23 @@ struct CommitPatchView: View {
                             raw || !(row.kind == .note && ["diff --git ", "index ", "--- ", "+++ "].contains(where: row.text.hasPrefix))
                         }) { row in
                             HStack(alignment: .top, spacing: 6) {
-                                Text(row.old.map(String.init) ?? "").frame(width: 40, alignment: .trailing).foregroundColor(.secondary)
-                                Text(row.new.map(String.init) ?? "").frame(width: 40, alignment: .trailing).foregroundColor(.secondary)
-                                Text(row.marker).frame(width: 10)
+                                Text(row.old.map(String.init) ?? "").frame(width: numberWidth, alignment: .trailing).foregroundColor(.secondary)
+                                Text(row.new.map(String.init) ?? "").frame(width: numberWidth, alignment: .trailing).foregroundColor(.secondary)
+                                Text(row.marker).frame(width: markerWidth)
                                 Text(colored[row.id] ?? AttributedString(row.text))
                                     .textSelection(.enabled).fixedSize(horizontal: true, vertical: false)
-                            }.font(.system(.caption, design: .monospaced))
+                            }.font(Font(codeFont))
                             .padding(.vertical, 3).padding(.horizontal, 6)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(row.kind == .addition ? Color.green.opacity(0.12) : (row.kind == .deletion ? Color.red.opacity(0.12) : Color.clear))
                         }
-                       }.frame(width: max(viewport.size.width, codeWidth), alignment: .leading)
+                       }.frame(width: max(viewport.size.width, (codeWidth - 30) * CGFloat(scale) + 30), alignment: .leading)
                         .frame(minHeight: viewport.size.height, alignment: .topLeading)
                       }
                     }
                     }
                     .environment(\.layoutDirection, .leftToRight)
+                    .contentPinchZoom(scale: $scale)
                     .task(id: renderKey + ":" + String(raw) + ":" + String(describing: codeWidth)) {
                         // iOS 16 can retain a centered offset when a pushed
                         // view receives its final long-line width. Set the
@@ -87,6 +99,9 @@ struct CommitPatchView: View {
         .task(id: renderKey) {
             guard let patch = file.patch else { return }
             let name = file.filename, dark = colorScheme == .dark, spaces = whitespace
+            // Measure once at 100%; continuous pinches only scale the measured width.
+            let font = CodeMetrics.font(scale: 1)
+            let leadingWidth = 90 * font.pointSize / 12 + 30
             let worker = Task.detached(priority: .utility) {
                 let parsed = try CommitPatchParser.parse(patch)
                 var colors: [Int: NSAttributedString] = [:]
@@ -97,13 +112,18 @@ struct CommitPatchView: View {
                     colors[row.id] = [.context,.addition,.deletion].contains(row.kind)
                         ? SourceHighlighter.highlight(value, filename: name, dark: dark)
                         : NSAttributedString(string: value)
-                    width = max(width, CodeMetrics.monospacedWidth(value) + 120)
+                    width = max(width, CodeMetrics.monospacedWidth(value, font: font) + leadingWidth)
                 }
                 return (parsed, colors, width)
             }
             do {
                 let (parsed, colors, width) = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
-                try Task.checkCancellation(); codeWidth = width; result = parsed; colored = colors.mapValues { AttributedString($0) }
+                try Task.checkCancellation(); codeWidth = width; result = parsed
+                colored = colors.mapValues { value in
+                    let text = NSMutableAttributedString(attributedString: value)
+                    text.removeAttribute(.font, range: NSRange(location: 0, length: text.length))
+                    return AttributedString(text)
+                }
             } catch { if !RefreshFailure.isCancellation(error) { failure = error.localizedDescription } }
         }
     }

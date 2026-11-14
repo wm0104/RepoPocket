@@ -39,7 +39,7 @@ class ReadmeRenderingTests(unittest.TestCase):
         self.assertEqual(sum(tag == 'html' for tag, _ in parsed.tags), 1)
         self.assertEqual(sum(tag == 'main' for tag, _ in parsed.tags), 1)
         self.assertTrue(any(tag == 'meta' and attrs.get('name') == 'viewport' and
-                            attrs.get('content') == 'width=device-width, initial-scale=1'
+                        attrs.get('content') == 'width=device-width, initial-scale=1'
                             for tag, attrs in parsed.tags))
         self.assertTrue(any(attrs.get('id') == 'end-marker' for _, attrs in parsed.tags))
         self.assertEqual(html.count('完整正文，不截断。'), 400)
@@ -178,12 +178,17 @@ assert.deepEqual(messages, [124, 171, 20000, 21000]);
     @unittest.skipUnless(shutil.which('swiftc'), 'Swift regression runs on macOS')
     def test_production_readme_formats_and_html_transport(self):
         api = (ROOT / 'RepoPocket/GitHub.swift').read_text()
-        models = api[api.index('struct User: Decodable'):api.index('struct Release: Decodable')]
+        models = api[api.index('struct User:'):api.index('struct Release: Decodable')]
         gateway = api[api.index('    func communityReadmeHTML('):api.index('    // Native collaboration transport')]
         source = r'''
 import Foundation
 struct AppError: LocalizedError { let text:String; var errorDescription:String? {text} }
 enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is CancellationError } }
+final class ContentSnapshotCache {
+ static let shared = ContentSnapshotCache()
+ var values: [String: Data] = [:]
+ func save(_ body: Data, accountID: String, key: String) { values[accountID + "\n" + key] = body }
+}
 final class Fixture: URLProtocol {
  static let lock=NSLock(); static var seen:[URLRequest]=[]; static var status=200
  static var payload=Data("<h1>README</h1><img alt='version' src='https://img.shields.io/badge/version-1-blue.svg'>".utf8)
@@ -199,10 +204,16 @@ final class Fixture: URLProtocol {
 }
 @MainActor final class GitHub {
  let session:URLSession
+ let accountID = "readme-fixture"
  var active=true
  var entry=Entry(name:"README.rst",path:"README.rst",type:"file",sha:"x",size:7,download_url:nil,content:Data("Title\n=".utf8).base64EncodedString(),encoding:"base64")
  init(){let config=URLSessionConfiguration.ephemeral;config.protocolClasses=[Fixture.self];session=URLSession(configuration:config)}
  var isCurrentSession:Bool {active}
+ func cachedContent<T: Decodable>(_ type: T.Type, key: String) -> (value: T, savedAt: Date)? {
+   guard active, let bytes = ContentSnapshotCache.shared.values[accountID + "\n" + key],
+         let value = try? JSONDecoder().decode(type, from: bytes) else { return nil }
+   return (value, Date())
+ }
  func ensureActiveAccount() throws {guard active else {throw CancellationError()}}
  static func repoPath(_ repo:String)throws->String {"/repos/" + (try RepositoryInput.parse(repo))}
  func url(_ path:String,query:[URLQueryItem]=[])throws->URL {
@@ -273,6 +284,8 @@ GATEWAY
    let api=GitHub();defer{api.session.invalidateAndCancel()}
    let loaded=try await api.repositoryReadmeDocument("owner/repo",branch:"feature/#x")
    precondition(loaded.entry.name=="README.rst" && loaded.source=="Title\n=" && loaded.html!.contains("shields.io"))
+   precondition(api.cachedReadmeDocument("owner/repo",branch:"feature/#x")?.value.html == loaded.html)
+   precondition(api.cachedReadmeDocument("owner/repo",branch:"other") == nil)
    Fixture.lock.lock();let request=Fixture.seen.last!;Fixture.lock.unlock()
    precondition(request.httpMethod=="GET" && request.url!.host=="api.github.com" && request.url!.path=="/repos/owner/repo/readme")
    precondition(request.value(forHTTPHeaderField:"Accept")=="application/vnd.github.html+json")

@@ -41,7 +41,7 @@ class UpdateNotificationTests(unittest.TestCase):
         self.assertIn('!automatic { showTransient(AppUpdateRules.conciseCheckError(error)) }', feature)
 
     def test_tab_dot_is_driven_by_has_update(self):
-        self.assertIn('UpdateTabBadge(tabIndex: 3, isVisible: updateChecker.hasUpdate)', app)
+        self.assertIn('UpdateTabBadge(tabIndex: 2, isVisible: updateChecker.hasUpdate)', app)
         self.assertIn('var hasUpdate: Bool { release != nil }', feature)
         self.assertIn('width: 10, height: 10', badge)
         self.assertIn('backgroundColor = .systemBackground', badge)

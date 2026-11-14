@@ -22,9 +22,9 @@ struct NativeFileHistoryView: View {
                         }
                     }
                     if store.loaded && store.items.isEmpty { SoftGroupRow("empty") { Text("暂无文件历史") } }
+                    CommunityPageFooter(store: store, next: { load() }).rows
                 }
             }
-            CommunityPageFooter(store: store, next: { load() })
         }.navigationTitle("文件历史").task { if !store.loaded { load() } }.onDisappear { store.cancel() }
     }
     private func load() {

@@ -26,7 +26,7 @@ struct LocalProjectDebEditor: View {
                     changed()
                 })
             } else {
-                NavigationStack {
+                AppNavigationStack {
                     VStack(spacing: 12) {
                         if failure.isEmpty { ProgressView("读取本地 DEB…") }
                         else { Text(failure); Button("重试") { Task { await load() } } }

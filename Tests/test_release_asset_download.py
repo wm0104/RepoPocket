@@ -5,8 +5,9 @@ ROOT = Path(__file__).resolve().parents[1]
 class ReleaseAssetDownloadTests(unittest.TestCase):
     def test_compact_actions_inline_progress_and_request_identity(self):
         ui=(ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
-        row=ui.split('ForEach(state.assets) { asset in',1)[1].split('if state.assets.isEmpty',1)[0]
-        self.assertEqual(row.count('.softGroupedRow('),1)
+        row=ui.split('for asset in state.assets {',1)[1].split('if state.assets.isEmpty',1)[0]
+        self.assertEqual(row.count('SoftGroupRow("asset-\\(asset.id)")'),1)
+        self.assertNotIn('.softGroupedRow(',row)
         for token in ['LocalGitFileLabel(', 'Menu {', 'assetActions(asset)', 'if state.canWrite', 'ReleaseAssetDownloadStatusView(']: self.assertIn(token,row)
         self.assertIn('self.assetDownload?.request == initial.request',ui)
         self.assertIn('self.assetDownload?.stage == .connecting || self.assetDownload?.stage == .downloading',ui)

@@ -112,11 +112,11 @@ let logFile = base.appendingPathComponent("logs.zip")
 let logs = try WorkflowLogArchiveRules.read(logFile, job:"build", steps:[1,63,64])
 precondition(logs.steps[1]!.text.utf8.count > 256*1024)
 precondition(logs.steps[63]!.text.contains("error: 中文失败详情"))
-precondition(!logs.steps[63]!.text.contains("wrong job") && !logs.steps[63]!.text.contains("\\u{1B}"))
+precondition(!logs.steps[63]!.text.contains("wrong job") && logs.steps[63]!.text.contains("\\u{1B}[31merror: 中文失败详情\\u{1B}[0m"))
 precondition(logs.steps[64]!.limited && logs.steps.count == 3)
 do { _ = try WorkflowLogArchiveRules.read(base.appendingPathComponent("logs-duplicate.zip"),job:"build",steps:[1]);preconditionFailure("ambiguous step accepted") } catch {}
 do { _ = try WorkflowLogArchiveRules.read(logFile,job:"missing",steps:[1]);preconditionFailure("missing job accepted") } catch {}
-print("PASS: exact per-step logs beyond old prefix limit, job isolation, ANSI, oversized steps and duplicate rejection")
+print("PASS: exact per-step logs beyond old prefix limit, job isolation, original ANSI retained, oversized steps and duplicate rejection")
 print("PASS: real ZIPFoundation extraction; zip slip, absolute, backslash, symlink and duplicate rejection before writes")
 '''
  log_rules=Path(REPO_ROOT,'RepoPocket/WorkflowLogArchive.swift').read_text().split('/// Reuse the existing credential-stripping redirect policy',1)[0]

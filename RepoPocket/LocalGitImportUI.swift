@@ -70,7 +70,7 @@ struct LocalGitImportPresentation: ViewModifier {
             Button("仅补入新文件，保留同名文件") { start(replaceExisting: false) }
             Button("取消", role: .cancel) { importer.discardFolder() }
         } message: {
-            Text("包含全部文件和子文件夹，保留目录结构，不需要逐个勾选。更新同名文件只在当前本地项目生效，未选的其他文件保留；之后仍需确认提交、推送。")
+            Text("目标：" + (directory.isEmpty ? "根目录" : directory) + "\n包含全部文件和子文件夹，保留目录结构，不需要逐个勾选。更新同名文件只在当前本地项目生效，未选的其他文件保留；之后仍需确认提交、推送。")
         }
     }
     private var testDirectory: URL? {

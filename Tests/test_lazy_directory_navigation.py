@@ -42,9 +42,12 @@ class DirectoryNavigationTests(unittest.TestCase):
         self.assertNotIn('NavigationLink { LazyView { FileView', browser)
         self.assertNotIn('NavigationLink(value:', browser)
 
-    def test_history_keeps_plain_closure(self):
+    def test_history_uses_existing_stack_state_destination(self):
         browser = self.browser()
-        self.assertIn('NavigationLink("提交历史") { HistoryView(api: api, repo: repo, branch: activeBranch) }', browser)
+        self.assertIn('.appNavigationDestination(isPresented: $showingHistory)', browser)
+        self.assertIn('HistoryView(api: api, repo: repo, branch: activeBranch)', browser)
+        self.assertIn('showingHistory = true', browser)
+        self.assertNotIn('NavigationStack', browser)
 
     def test_destination_file_defers_construction(self):
         self.assertTrue(DEST.exists())
@@ -58,11 +61,14 @@ class DirectoryNavigationTests(unittest.TestCase):
         self.assertFalse((ROOT / 'RepoPocket' / 'LazyView.swift').exists())
         self.assertFalse((ROOT / 'RepoPocket' / 'BrowserRoute.swift').exists())
 
-    def test_browser_load_resets_repository_info_once(self):
+    def test_browser_load_preserves_summary_and_revalidates_write_authority(self):
         browser = self.browser()
         load = browser[browser.index('private func load() async'):]
         load = load[:load.index('private func deleteRemote')]
-        self.assertEqual(load.count('repositoryInfo = nil'), 1)
+        self.assertNotIn('repositoryInfo = nil', load)
+        self.assertIn('metadataFresh = false', load)
+        self.assertIn('repositoryInfo = info; metadataFresh = true', load)
+        self.assertIn('loadID == token', load)
 
 
 if __name__ == '__main__':

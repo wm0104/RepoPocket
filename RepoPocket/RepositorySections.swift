@@ -12,14 +12,25 @@ struct RepositoryHomeLinksSection: View {
     let owned: [Repository]
     let starred: [Repository]
     let loaded: Bool
+    var connected = false
     var body: some View {
-        Section("我的仓库") {
+        Group {
+            if connected { content }
+            else { Section("我的仓库") { content } }
+        }
+    }
+    private var content: some View {
             SoftGroupRows {
+                if connected { SoftGroupRow("heading") { Text("我的仓库").font(.subheadline).foregroundStyle(.secondary) } }
                 for section in RepositoryHomeSection.allCases {
                     SoftGroupRow(section.id) {
                         NavigationLink {
-                            RepositoryCollectionView(api: api, section: section,
-                                initialRepositories: loaded ? (section == .owned ? owned : starred) : nil)
+                            if section == .starred {
+                                StarListsView(api: api, initialRepositories: loaded ? starred : nil)
+                            } else {
+                                RepositoryCollectionView(api: api, section: section,
+                                    initialRepositories: loaded ? (section == .owned ? owned : starred) : nil)
+                            }
                         } label: {
                             HStack {
                                 Label(section.title, systemImage: section.systemImage)
@@ -30,8 +41,8 @@ struct RepositoryHomeLinksSection: View {
                         }.accessibilityIdentifier("home-collection-" + section.id)
                     }
                 }
+                SoftGroupRow("favorites") { RepositoryFavoritesHomeLink(api: api, favorites: api.favorites) }
             }
-        }
     }
 }
 
@@ -46,31 +57,42 @@ struct RepositoryCollectionView: View {
     var initialRepositories: [Repository]? = nil
     @State private var query = ""
     @State private var searchVisible = false
-    @State private var attempted = false
+    @State private var updatedAt: Date?
+    @State private var loadError = ""
     private var filteredRepositories: [Repository] {
         repositories.filter { HomeListSearch.matches(query, fields: [$0.name, $0.full_name, $0.description ?? ""]) }
     }
     var body: some View {
         List {
-            if searchVisible {
-                Section { ListSearchField(query: $query, title: section.title).softGroupedRow(top: true, bottom: true) }
-            }
-            if busy && repositories.isEmpty && !refreshing { ProgressView().frame(maxWidth: .infinity).softGroupedRow(top: true, bottom: true) }
-            else if loaded && repositories.isEmpty { Text("暂无仓库").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
-            else if !loaded && !busy { Text("请登录后刷新").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
-            else if loaded && filteredRepositories.isEmpty { Text("没有匹配仓库").foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true) }
-            ForEach(filteredRepositories) { repository in
+            Section {
+                SoftGroupRows {
+            if searchVisible { SoftGroupRow("search") { ListSearchField(query: $query, title: section.title) } }
+            if busy && repositories.isEmpty && !refreshing { SoftGroupRow("loading") { ProgressView().frame(maxWidth: .infinity) } }
+            else if loaded && repositories.isEmpty { SoftGroupRow("empty") { Text("暂无仓库").foregroundStyle(.secondary) } }
+            else if !loaded && !busy { SoftGroupRow("login") { Text("请登录后刷新").foregroundStyle(.secondary) } }
+            else if loaded && filteredRepositories.isEmpty { SoftGroupRow("no-match") { Text("没有匹配仓库").foregroundStyle(.secondary) } }
+            for repository in filteredRepositories {
+                SoftGroupRow("repository-\(repository.id)") {
                 NavigationLink { BrowserView(api: api, repo: repository.full_name, path: "", branch: repository.default_branch ?? "") }
-                label: { RepositoryCard(repository: repository, account: api.login, api: api) }
-                // Same full-width separators and card spacing as the home list;
-                // boundaries follow the filtered result, not the unfiltered cache.
-                .softGroupedRow(top: repository.id == filteredRepositories.first?.id,
-                                bottom: repository.id == filteredRepositories.last?.id)
+                label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        RepositoryCard(repository: repository, account: api.login, api: api)
+                        if section == .starred, let date = ChinaDate.parse(repository.updated_at) {
+                            RepositoryUpdatedText(date: date)
+                        }
+                    }
+                }
                 .accessibilityIdentifier("collection-repository-\(repository.id)")
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     if !RepositoryGroupRules.isOwned(repository.full_name, login: api.login) {
                         Button("复刻") { pendingFork = repository }.tint(.accentColor).disabled(busy)
                     }
+                }
+                }
+            }
+            if updatedAt != nil {
+                SoftGroupRow("freshness") { ContentFreshnessText(updatedAt: updatedAt, updating: busy, error: loadError) }
+            }
                 }
             }
         }
@@ -81,11 +103,11 @@ struct RepositoryCollectionView: View {
         }
         .refreshable { refreshing = true; defer { refreshing = false }; await load() }
         .task {
-            guard !attempted else { return }; attempted = true
             if !loaded, let cached = initialRepositories ?? api.cachedCollection(section) {
                 repositories = cached; loaded = true
+                updatedAt = api.cachedContent([Repository].self, key: "collection:" + section.rawValue)?.savedAt
             }
-            if !loaded && !CredentialStore.read().isEmpty { await load() }
+            if !CredentialStore.read().isEmpty { await load() }
         }
         .onChange(of: api.starRevision) { _ in
             guard api.isCurrentSession else { return }
@@ -101,6 +123,7 @@ struct RepositoryCollectionView: View {
         guard !busy else { return }
         let generation = AccountStore.generation
         busy = true; defer { busy = false }
+        loadError = ""
         do {
             try await api.identify()
             let result: [Repository]
@@ -109,8 +132,8 @@ struct RepositoryCollectionView: View {
             } else { result = try await api.starredRepositories() }
             try Task.checkCancellation()
             guard generation == AccountStore.generation else { return }
-            repositories = result; api.cacheCollection(result, section: section); loaded = true
-        } catch { if !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
+            repositories = result; api.cacheCollection(result, section: section); loaded = true; updatedAt = Date()
+        } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { loadError = error.localizedDescription; api.message = loadError } }
     }
     private func fork(_ repository: Repository) async {
         guard !busy else { return }

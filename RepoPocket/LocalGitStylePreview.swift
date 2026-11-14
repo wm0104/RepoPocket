@@ -11,7 +11,7 @@ struct LocalGitStylePreview: View {
     @State private var failure = ""
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Group {
                 if let project {
                     LocalProjectView(api: api, store: store, project: project)

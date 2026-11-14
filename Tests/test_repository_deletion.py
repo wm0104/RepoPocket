@@ -14,7 +14,7 @@ app = Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text()
 
 class DeletionTests(unittest.TestCase):
     def test_production_wiring(self):
-        self.assertIn('repositoryInfo?.permissions?.admin != true', app)
+        self.assertIn('enabled: repositoryInfo?.permissions?.admin == true && !deleting', app)
         self.assertIn('confirmation == repository.full_name', ui)
         self.assertIn('interactiveDismissDisabled(busy)', ui)
         self.assertIn('guard !busy else { return }', ui)
@@ -39,7 +39,8 @@ class DeletionTests(unittest.TestCase):
         self.assertIn('init(api: GitHub, repository: Repository, context: RepositoryDeletionContext,', ui)
         self.assertIn('_confirmation = State(initialValue: repository.full_name)', ui)
         self.assertNotIn('Section("输入完整 owner/repo 确认")', ui)
-        self.assertIn('Section("已预填所选仓库，无需输入")', ui)
+        self.assertIn('Text("已预填所选仓库，无需输入").font(.subheadline).foregroundStyle(.secondary).softGroupedRow()', ui)
+        self.assertEqual(ui.count('Section('), 1)
         self.assertIn('confirmation = ""', ui)
         self.assertIn('.accessibilityLabel("清空仓库删除确认")', ui)
         self.assertIn('.disabled(busy || confirmation.isEmpty)', ui)

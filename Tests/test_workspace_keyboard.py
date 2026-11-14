@@ -9,7 +9,7 @@ for name in ['remoteRepo', 'remoteBranch', 'associationRepo', 'associationBranch
 assert w.count('.focused($focusedField, equals:') == 6
 assert '.onSubmit { focusedField = nil }' in w
 assert 'Button("完成") { focusedField = nil }' in w
-assert '.scrollDismissesKeyboard(.interactively)' in w
+assert '.appScrollDismissesKeyboard(.interactively)' in w
 assert '.onChange(of: importRequest?.id) { _ in focusedField = nil }' in w
 assert '.onChange(of: folder) { _ in focusedField = nil }' in w
 assert '.onDisappear { focusedField = nil }' in w

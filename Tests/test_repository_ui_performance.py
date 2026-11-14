@@ -62,16 +62,18 @@ class RepositoryUIPerformanceTests(unittest.TestCase):
         self.assertLess(UI.index('Text("复刻自'), UI.index('if let repository {', UI.index('Text("复刻自')))
         self.assertIn('frame(width: 44, height: 44)', (ROOT/'RepoPocket/ListSearchField.swift').read_text())
         self.assertNotIn('Color.clear.frame(height: 8)', section)
-        self.assertIn('bottom: repository.id == filteredRepositories.last?.id', section)
+        self.assertIn(r'SoftGroupRow("repository-\(repository.id)")', section)
         self.assertIn('SoftGroupRows {', section)
         self.assertNotIn('expanded', section)
         for field in ('HomeListSearch.matches(query', '$0.name', '$0.full_name', '$0.description ?? ""'):
             self.assertIn(field, section)
         self.assertIn('initialRepositories ?? api.cachedCollection(section)', section)
-        self.assertIn('ForEach(filteredRepositories)', section)
+        self.assertIn('for repository in filteredRepositories', section)
         self.assertNotIn('api.searchRepositories', section)
         home = APP[APP.index('struct RepositoriesView'):APP.index('struct BrowserView')]
-        self.assertIn('guard !attempted, !CredentialStore.read().isEmpty', home)
+        self.assertIn('guard !CredentialStore.read().isEmpty', home)
+        self.assertIn('api.cachedCollection(.owned)', home)
+        self.assertIn('api.cachedCollection(.starred)', home)
         self.assertNotIn('.onAppear', home)
         self.assertNotIn('.id(showSearch)', home)
 

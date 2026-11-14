@@ -22,7 +22,7 @@ class UpdateTests(unittest.TestCase):
         self.assertIn('不经过 RepoPocket 的本地 SHA256 校验', feature)
         for value in ['downloadTask?.cancel()', 'snapshotFileSHA256', 'archive.extract', 'HTTPURLResponse', 'https://github.com/wm0104/RepoPocket/releases']:
             self.assertIn(value, feature)
-        self.assertIn('AppUpdateSection(api: api, checker: updateChecker)', Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text())
+        self.assertIn('AppUpdateSection(api: api, checker: updateChecker, connected: true)', Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text())
         api = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
         update = api.split('func officialAppUpdateData()', 1)[1].split('func descriptionContext', 1)[0]
         self.assertEqual(update.count('try ensureActiveAccount()'), 2)

@@ -49,6 +49,9 @@ enum WorkspaceAssociationDiagnostics {
 struct WorkspaceWrite {
     let path: String
     let bytes: Data?
+    var file: URL? = nil
+    var size: Int64 = 0
+    var sha256: String? = nil
 }
 struct WorkspaceBlob: Decodable { let content: String; let encoding: String; let size: Int }
 struct GitObject: Decodable { let sha: String }
@@ -95,19 +98,18 @@ extension LocalStore {
     static func prepare(_ folder: URL, paths: Set<String>, expected: LocalSnapshot) throws -> [WorkspaceWrite] {
         let current = try snapshot(folder)
         guard current.hashes == expected.hashes else { throw AppError(text: "扫描后文件已变化，请刷新并重新勾选") }
+        var totalBytes: Int64 = 0
         return try paths.sorted().map { path in
             guard !path.isEmpty, path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }), !path.contains("\\") else { throw AppError(text: "无效工作区路径") }
             guard current.hashes[path] != nil else { return WorkspaceWrite(path: path, bytes: nil) }
             let url = folder.appendingPathComponent(path)
-            guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max) <= 10 * 1024 * 1024 else {
-                throw AppError(text: "\(path) 超过普通提交 10 MiB 限制，请取消勾选并使用 Release 附件")
+            let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
+            totalBytes = try RepoQueue.addingUploadBytes(size, to: totalBytes)
+            guard try snapshotFileSHA256(url) == current.hashes[path] else {
+                throw AppError(text: "读取期间文件已变化或超限，请刷新；普通提交必须小于 100 MiB")
             }
-            let bytes = try Data(contentsOf: url)
-            guard bytes.count <= 10 * 1024 * 1024,
-                  SHA256.hash(data: bytes).map({ String(format: "%02x", $0) }).joined() == current.hashes[path] else {
-                throw AppError(text: "读取期间文件已变化或超限，请刷新")
-            }
-            return WorkspaceWrite(path: path, bytes: bytes)
+            // The encoder rechecks this snapshot hash before any network write.
+            return WorkspaceWrite(path: path, bytes: nil, file: url, size: size, sha256: current.hashes[path])
         }
     }
     static func finish(_ folder: URL, binding: WorkspaceBinding, snapshot: LocalSnapshot, paths: Set<String>) throws {

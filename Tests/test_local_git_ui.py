@@ -9,6 +9,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LocalGitUITests(unittest.TestCase):
+    def test_branch_and_bulk_selection_labels_have_explicit_hit_regions(self):
+        page = (ROOT / 'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
+        summary = page.split('    private func summarySection(', 1)[1].split('    private func pullResultSection(', 1)[0]
+        branches, files = summary.split('SoftGroupRow("files")', 1)
+        for label in (branches, files):
+            self.assertIn('.frame(maxWidth: .infinity, minHeight: 44', label)
+            self.assertIn('.contentShape(Rectangle())', label)
+        selection = page.split('SoftGroupRow("selection") {', 1)[1].split('for row in LocalGitChangeTree.rows', 1)[0]
+        self.assertIn('.frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())', selection)
+        self.assertIn('state.toggleSelection(paths)', selection)
+        self.assertIn('.disabled(busy || paths.isEmpty)', selection)
+
+    def test_folder_label_includes_the_spacer_in_a_full_width_hit_region(self):
+        page = (ROOT / 'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
+        folder = page.split('            if row.folder {', 1)[1].split('            } else if let file', 1)[0]
+        self.assertIn('.frame(maxWidth: .infinity, minHeight: 44)', folder)
+        self.assertIn('.contentShape(Rectangle())', folder)
     def test_compact_project_keeps_metadata_and_imports_in_the_project_menu(self):
         page = (ROOT / 'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
         summary = page.split('    private func summarySection(', 1)[1].split('    private func pullResultSection(', 1)[0]
@@ -16,24 +33,34 @@ class LocalGitUITests(unittest.TestCase):
         self.assertNotIn('SoftGroupRow("remote")', summary)
         self.assertIn('工作区干净', summary)
         self.assertIn('localgit.branches', summary)
-        self.assertIn('Button("项目信息")', page)
-        self.assertEqual(page.count('Button("导入文件")'), 1)
+        self.assertIn('title: "项目信息"', page)
+        menu = (ROOT / 'RepoPocket/LocalGitAddAction.swift').read_text(encoding='utf-8')
+        self.assertEqual(menu.count('return "导入文件"'), 1)
+        self.assertEqual(menu.count('return "导入文件夹"'), 1)
+        self.assertIn('.submenu("添加到根目录"', page)
+        self.assertIn('LocalGitAddAction.items', page)
         self.assertIn('if !snapshot.status.files.isEmpty || !snapshot.status.canCommit', page)
         actions = page.split('    private func actionsSection(', 1)[1].split('    private func historySection(', 1)[0]
         self.assertNotIn('SoftGroupRow("import-', actions)
-        self.assertIn('SoftGroupRow("sync")', actions)
-        self.assertEqual(actions.count('.contentShape(Rectangle())'), 2, 'Both button labels need the full half-row hit area')
+        for operation in ('fetch', 'pull', 'push'):
+            self.assertIn('SoftGroupRow("sync-' + operation + '")', actions)
+        self.assertEqual(actions.count('.contentShape(Rectangle())'), 3, 'Fetch/pull/push each need a full-width label hit area')
 
     def test_current_project_exposes_file_import_and_bulk_selection(self):
         page = (ROOT / 'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
-        for label in ['导入文件', '导入文件夹', '全选', '取消全选']:
-            self.assertTrue(label in page, 'Missing local Git action: ' + label)
+        menu = (ROOT / 'RepoPocket/LocalGitAddAction.swift').read_text(encoding='utf-8')
+        self.assertIn('LocalGitAddAction.items', page)
+        for label in ['导入文件', '导入文件夹']:
+            self.assertIn(label, menu)
+        for label in ['全选', '取消全选']:
+            self.assertIn(label, page)
 
     def test_pull_result_is_separate_from_uncommitted_workspace_changes(self):
         page = (ROOT/'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
         self.assertIn('if let pullSummary { pullResultSection(pullSummary) }', page)
         summary = page.split('    private func pullResultSection(', 1)[1].split('    private func changesSection(', 1)[0]
-        for text in ['Section("本次拉取结果")', 'SoftGroupRows(animateBackground: false)',
+        self.assertNotIn('Section("本次拉取结果")', summary)
+        for text in ['Text("本次拉取结果")', 'SoftGroupRows(animateBackground: false, spacingBefore: 10)',
                      '远端没有新提交', 'summary.commits', 'summary.added', 'summary.modified',
                      'summary.deleted', 'summary.totalFiles', 'summary.files.prefix(1000)',
                      'if pullFilesExpanded', 'summary.truncated', 'UIRules.withoutAnimation']:

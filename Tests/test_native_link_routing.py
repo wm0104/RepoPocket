@@ -21,7 +21,7 @@ class NativeLinkWiringTests(unittest.TestCase):
         self.assertIn('if let api, GitHubLinkRules.isGitHub(url) {', DESTINATION)
         self.assertIn('ContainedWebPage(url: url, onClose: onClose).ignoresSafeArea()', DESTINATION)
         self.assertEqual(DESTINATION.count('ContainedWebPage('), 1)
-        self.assertIn('NavigationStack {', DESTINATION)
+        self.assertIn('AppNavigationStack {', DESTINATION)
         self.assertIn('ToolbarItem(placement: .cancellationAction) { Button("完成", action: onClose) }', DESTINATION)
 
     def test_web_only_github_pages_bypass_native_routing_and_the_reading_open_url_handler(self):

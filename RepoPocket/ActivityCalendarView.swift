@@ -56,22 +56,19 @@ struct ActivityCalendarView: View {
     }
 }
 
-struct ActivityDayEvents: View {
+@MainActor struct ActivityDayEvents {
     @ObservedObject var api: GitHub
     let day: ActivityDay
-    var body: some View {
-        Section(day.title + " · 公开活动") {
-            SoftGroupRows {
-                SoftGroupRow("summary") { Text(day.detail).font(.caption).foregroundStyle(.secondary) }
-                for event in day.events {
-                    SoftGroupRow(event.id) {
-                        NavigationLink { BrowserView(api: api, repo: event.repo.name, path: "", branch: "") } label: {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(event.summary).foregroundStyle(.primary)
-                                Text(event.repo.name).font(.subheadline)
-                                Text(ChinaDate.dateTime(event.created_at)).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
+    @SoftGroupRowsBuilder var rows: [SoftGroupRow] {
+        SoftGroupRow("selected-day-heading") { Text(day.title + " · 公开活动").font(.subheadline).foregroundStyle(.secondary) }
+        SoftGroupRow("selected-day-summary") { Text(day.detail).font(.caption).foregroundStyle(.secondary) }
+        for event in day.events {
+            SoftGroupRow(event.id) {
+                NavigationLink { BrowserView(api: api, repo: event.repo.name, path: "", branch: "") } label: {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(event.summary).foregroundStyle(.primary)
+                        Text(event.repo.name).font(.subheadline)
+                        Text(ChinaDate.dateTime(event.created_at)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }

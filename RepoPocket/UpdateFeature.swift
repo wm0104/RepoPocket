@@ -171,6 +171,7 @@ final class UpdateDownloadDelegate: NSObject, URLSessionDownloadDelegate {
 struct AppUpdateSection: View {
     @ObservedObject var api: GitHub
     @ObservedObject var checker: UpdateChecker
+    var connected = false
     @State private var share: SharedFile?
     @State private var authorizing = false
     @State private var expanded = false
@@ -194,7 +195,7 @@ struct AppUpdateSection: View {
                     }
                     if checker.downloaded != nil { Button("重新下载") { authorizeDownload() }.disabled(authorizing || checker.checking || checker.downloading || openingTrollStore) }
                 } label: { Image(systemName: "ellipsis") }
-            }.softGroupedRow(top: true)
+            }.softGroupedRow(top: !connected)
             if !checker.message.isEmpty { Text(checker.message).font(.caption).textSelection(.enabled).softGroupedRow() }
             if checker.downloading {
                 ProgressView(value: checker.progress).softGroupedRow()

@@ -7,7 +7,7 @@ struct ReleaseDownloadStylePreview: View {
     @State private var error = ""
     var body: some View {
         Group {
-            if let state { NavigationStack { ReleaseDetailView(state: state, id: 7) } }
+            if let state { AppNavigationStack { ReleaseDetailView(state: state, id: 7) } }
             else if !error.isEmpty { Text(error) }
             else { ProgressView("准备下载测试") }
         }.task {

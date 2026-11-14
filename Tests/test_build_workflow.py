@@ -47,6 +47,17 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertNotIn('  pull_request:', self.source)
         self.assertIn('  workflow_dispatch:', self.source)
 
+    def test_release_flags_inherit_package_conditions_in_both_modes(self):
+        import shlex
+        command = next(line for line in self.source.splitlines() if 'xcodebuild ' in line and '-configuration Release' in line)
+        expression = "${{ inputs.fork_people_only && 'FORK_PEOPLE_ONLY' || '' }}"
+        self.assertIn("SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) ", command)
+        for flag in ('', 'FORK_PEOPLE_ONLY'):
+            with self.subTest(flag=flag):
+                arguments = shlex.split(command.replace(expression, flag))
+                setting = next(arg for arg in arguments if arg.startswith('SWIFT_ACTIVE_COMPILATION_CONDITIONS='))
+                self.assertEqual(setting, 'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) ' + flag)
+
     def test_checks_run_only_for_pull_requests_or_manual_dispatch(self):
         import re
         expected = {'local-git-check.yml': {'pull_request', 'workflow_dispatch'},
@@ -68,13 +79,13 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertNotIn('gh release', self.source)
         self.assertNotIn('softprops/action-gh-release', self.source)
         self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "4"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.1.8"', self.source)
-        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "1.1.8"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$EXT/Info.plist")" = "1.1.8"', self.source)
-        self.assertIn('Print :CFBundleVersion\' "$EXT/Info.plist")" = "1.1.8"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.2.0"', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "1.2.0"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$EXT/Info.plist")" = "1.2.0"', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$EXT/Info.plist")" = "1.2.0"', self.source)
         project = (REPO_ROOT / 'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.1.8"', project)
-        self.assertIn('CURRENT_PROJECT_VERSION: "1.1.8"', project)
+        self.assertIn('MARKETING_VERSION: "1.2.0"', project)
+        self.assertIn('CURRENT_PROJECT_VERSION: "1.2.0"', project)
 
     def test_release_version_is_readable_by_installed_1_0_5(self):
         import re
@@ -103,7 +114,10 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertEqual({REPO_ROOT / command for command in commands}, scripts)
         self.assertTrue(all(command.startswith('Tests/test_') for command in commands))
         self.assertFalse(list(REPO_ROOT.glob('test_*.py')))
-        self.assertTrue((REPO_ROOT / 'tests/MetadataTextFixture.swift').is_file())
+        self.assertFalse((REPO_ROOT / 'tests/MetadataTextFixture.swift').exists())
+        self.assertTrue((REPO_ROOT / 'tests/RepositoryUploadLimitsFixture.swift').is_file())
+        self.assertTrue((REPO_ROOT / 'Tests/workflow_inputs_support.py').is_file())
+        self.assertTrue((REPO_ROOT / 'Tests/Fixtures/FlowIntegrationHarness.swift').is_file())
         self.assertTrue((REPO_ROOT / 'tests/WorkspaceZIP-original.swift.txt').is_file())
         self.assertIn('sh DebControlEditorTests/run-macos.sh', self.source)
 

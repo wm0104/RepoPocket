@@ -14,6 +14,7 @@ struct TargetPickerView: View {
     let branch: String
     let path: String
     var filesOnly = false
+    var foldersOnly = false
     let selected: (String, Entry?) -> Void
     @State private var entries: [Entry] = []
     @State private var busy = false
@@ -21,27 +22,40 @@ struct TargetPickerView: View {
     var body: some View {
         List {
             Section {
-                Text(repo).font(.caption).softGroupedRow(top: true)
-                Text(path.isEmpty ? "根目录 /" : path).font(.caption).softGroupedRow(bottom: filesOnly)
-                if !filesOnly { Button("上传到此文件夹") { selected(path, nil) }.softGroupedRow(bottom: true) }
-            }
-            if busy { ProgressView().softGroupedRow(top: true, bottom: error.isEmpty) }
-            if !error.isEmpty {
-                Text(error).foregroundColor(.red).softGroupedRow(top: !busy)
-                Button("重试") { Task { await load() } }.softGroupedRow(bottom: true)
-            }
-            Section("文件夹") {
-                ForEach(entries.filter { $0.type == "dir" }) { e in
-                    NavigationLink {
-                        TargetPickerView(api: api, repo: repo, branch: branch, path: e.path, filesOnly: filesOnly, selected: selected)
-                    } label: { Label(e.name, systemImage: "folder") }.softGroupedRow(top: e.id == entries.filter { $0.type == "dir" }.first?.id, bottom: e.id == entries.filter { $0.type == "dir" }.last?.id)
-                }
-            }
-            Section(filesOnly ? "选择删除文件" : "替换已有文件") {
-                ForEach(entries.filter { $0.type == "file" }) { e in
-                    Button { selected((e.path as NSString).deletingLastPathComponent, e) } label: {
-                        Label(e.name, systemImage: "doc")
-                    }.softGroupedRow(top: e.id == entries.filter { $0.type == "file" }.first?.id, bottom: e.id == entries.filter { $0.type == "file" }.last?.id)
+                SoftGroupRows {
+                    SoftGroupRow("repository") { Text(repo).font(.caption) }
+                    SoftGroupRow("path") { Text(path.isEmpty ? "根目录 /" : path).font(.caption) }
+                    if !path.isEmpty {
+                        SoftGroupRow("parent") {
+                            NavigationLink("上级目录") {
+                                TargetPickerView(api: api, repo: repo, branch: branch, path: (path as NSString).deletingLastPathComponent, filesOnly: filesOnly, foldersOnly: foldersOnly, selected: selected)
+                            }
+                        }
+                    }
+                    if !filesOnly { SoftGroupRow("select-folder") { Button("上传到此文件夹") { selected(path, nil) } } }
+                    if busy { SoftGroupRow("busy") { ProgressView() } }
+                    if !error.isEmpty {
+                        SoftGroupRow("error") { Text(error).foregroundColor(.red) }
+                        SoftGroupRow("retry") { Button("重试") { Task { await load() } } }
+                    }
+                    SoftGroupRow("folders-title") { Text("文件夹").font(.caption).foregroundStyle(.secondary) }
+                    for e in entries.filter({ $0.type == "dir" }) {
+                        SoftGroupRow("folder-" + e.path) {
+                            NavigationLink {
+                                TargetPickerView(api: api, repo: repo, branch: branch, path: e.path, filesOnly: filesOnly, foldersOnly: foldersOnly, selected: selected)
+                            } label: { Label(e.name, systemImage: "folder") }
+                        }
+                    }
+                    if !foldersOnly {
+                        SoftGroupRow("files-title") { Text(filesOnly ? "选择删除文件" : "替换已有文件").font(.caption).foregroundStyle(.secondary) }
+                        for e in entries.filter({ $0.type == "file" }) {
+                            SoftGroupRow("file-" + e.path) {
+                                Button { selected((e.path as NSString).deletingLastPathComponent, e) } label: {
+                                    Label(e.name, systemImage: "doc")
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

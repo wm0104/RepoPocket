@@ -143,8 +143,9 @@ struct SocialAccountsView: View {
 
     var body: some View {
         Form {
-            Section(api.login.isEmpty ? "公开链接" : "@" + api.login + " · 公开链接") {
-                SoftGroupRows {
+            Section {
+                SoftGroupRows(bottom: false) {
+                    SoftGroupRow("links-heading") { Text(api.login.isEmpty ? "公开链接" : "@" + api.login + " · 公开链接").font(.subheadline).foregroundStyle(.secondary) }
                     if state.loading { SoftGroupRow("loading") { ProgressView("正在加载…") } }
                     for account in state.accounts {
                         SoftGroupRow("social-" + account.id) {
@@ -174,10 +175,10 @@ struct SocialAccountsView: View {
                     if state.loaded && state.accounts.isEmpty {
                         SoftGroupRow("empty") { Text("尚无公开链接，轻点右上角添加。").foregroundStyle(.secondary) }
                     }
+                    SocialAccountFeedback(api: api, state: state).rows
                 }
+                SocialAccountsAuthorizationSection(api: api)
             }
-            SocialAccountFeedback(api: api, state: state)
-            SocialAccountsAuthorizationSection(api: api)
         }
         .disabled(state.busy)
         .navigationTitle("社交账号").adaptiveWorkspaceLayout()
@@ -220,10 +221,10 @@ private struct SocialAccountEditor: View {
     @FocusState private var editingLink: Bool
 
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
                 Section {
-                    SoftGroupRows {
+                    SoftGroupRows(bottom: state.error.isEmpty) {
                         SoftGroupRow("url") {
                             TextField("社交账号或网站链接", text: $state.draft)
                                 .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -246,14 +247,15 @@ private struct SocialAccountEditor: View {
                                 Button("删除这个社交账号", role: .destructive) { editingLink = false; pendingDeletion = current }
                             }
                         }
+                        SoftGroupRow("scope") {
+                            Text(state.editingURL == nil ? "支持社交平台及个人网站，保存后显示在 GitHub 公开资料。" : "先添加新链接，再移除旧链接；数量已满时需先手动删除。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        SocialAccountFeedback(api: api, state: state).rows
                     }
-                } footer: {
-                    Text(state.editingURL == nil ? "支持社交平台及个人网站，保存后显示在 GitHub 公开资料。" : "先添加新链接，再移除旧链接；数量已满时需先手动删除。")
-                        .font(.footnote)
+                    .disabled(state.loading || !state.loaded || !api.isCurrentSession)
+                    if !state.error.isEmpty { SocialAccountsAuthorizationSection(api: api, managesAccounts: false) }
                 }
-                .disabled(state.loading || !state.loaded || !api.isCurrentSession)
-                SocialAccountFeedback(api: api, state: state)
-                if !state.error.isEmpty { SocialAccountsAuthorizationSection(api: api, managesAccounts: false) }
             }
             .disabled(state.busy)
             .navigationTitle(state.editingURL == nil ? "添加社交账号" : "编辑社交账号")
@@ -280,20 +282,14 @@ private struct SocialAccountEditor: View {
     }
 }
 
-private struct SocialAccountFeedback: View {
+@MainActor private struct SocialAccountFeedback {
     @ObservedObject var api: GitHub
     @ObservedObject var state: SocialAccountsState
-    var body: some View {
-        if state.busy || !state.error.isEmpty || !state.message.isEmpty || !api.isCurrentSession {
-            Section {
-                SoftGroupRows {
-                    if state.busy { SoftGroupRow("saving") { ProgressView("正在保存…") } }
-                    if !state.error.isEmpty { SoftGroupRow("error") { Text(state.error).font(.callout).foregroundStyle(.red).accessibilityIdentifier("social-account-error") } }
-                    if !state.message.isEmpty { SoftGroupRow("message") { Text(state.message).font(.callout).foregroundStyle(.secondary) } }
-                    if !api.isCurrentSession { SoftGroupRow("session") { Text("账号已切换，请返回后重新打开。").font(.callout) } }
-                }
-            }
-        }
+    @SoftGroupRowsBuilder var rows: [SoftGroupRow] {
+        if state.busy { SoftGroupRow("saving") { ProgressView("正在保存…") } }
+        if !state.error.isEmpty { SoftGroupRow("error") { Text(state.error).font(.callout).foregroundStyle(.red).accessibilityIdentifier("social-account-error") } }
+        if !state.message.isEmpty { SoftGroupRow("message") { Text(state.message).font(.callout).foregroundStyle(.secondary) } }
+        if !api.isCurrentSession { SoftGroupRow("session") { Text("账号已切换，请返回后重新打开。").font(.callout) } }
     }
 }
 
@@ -302,23 +298,22 @@ private struct SocialAccountsAuthorizationSection: View {
     @EnvironmentObject private var accountPresentation: AccountPresentation
     var managesAccounts = true
     var body: some View {
-        Section(managesAccounts ? "授权与账号" : "授权") {
-            SoftGroupRows {
-                if api.profileWriteAuthorization == true {
-                    SoftGroupRow("authorized") { Label("已授权社交账号管理", systemImage: "checkmark.circle").foregroundStyle(.secondary) }
-                } else {
-                    if api.profileWriteAuthorization == false {
-                        SoftGroupRow("permission") { Text("当前授权缺少资料写入权限。").font(.caption).foregroundStyle(.secondary) }
-                    }
-                    SoftGroupRow("authorize") {
-                        NavigationLink("授权社交账号管理") { DeviceOAuthView(api: api, writeProfile: true) }
-                            .disabled(!api.isCurrentSession)
-                            .accessibilityIdentifier(managesAccounts ? "social-account-authorize-main" : "social-account-authorize-editor")
-                    }
+        SoftGroupRows(top: false) {
+            SoftGroupRow("authorization-heading") { Text(managesAccounts ? "授权与账号" : "授权").font(.subheadline).foregroundStyle(.secondary) }
+            if api.profileWriteAuthorization == true {
+                SoftGroupRow("authorized") { Label("已授权社交账号管理", systemImage: "checkmark.circle").foregroundStyle(.secondary) }
+            } else {
+                if api.profileWriteAuthorization == false {
+                    SoftGroupRow("permission") { Text("当前授权缺少资料写入权限。").font(.caption).foregroundStyle(.secondary) }
                 }
-                if managesAccounts {
-                    SoftGroupRow("accounts") { Button("账号管理") { accountPresentation.showing = true } }
+                SoftGroupRow("authorize") {
+                    NavigationLink("授权社交账号管理") { DeviceOAuthView(api: api, writeProfile: true) }
+                        .disabled(!api.isCurrentSession)
+                        .accessibilityIdentifier(managesAccounts ? "social-account-authorize-main" : "social-account-authorize-editor")
                 }
+            }
+            if managesAccounts {
+                SoftGroupRow("accounts") { Button("账号管理") { accountPresentation.showing = true } }
             }
         }
     }

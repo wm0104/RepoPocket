@@ -1,11 +1,28 @@
 """Export native UI regression screenshots from xcresult bundles."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 bundle, output = sys.argv[1:3]
 scope = sys.argv[3] if len(sys.argv) > 3 else 'all'
+group = os.environ.get('RP_STYLE_TEST_GROUP', 'selected')
+editor_extensions = {'source-fila-find-replace', 'settings-compact-native-menu',
+                     'workflow-log-highlighted-context', 'workflow-log-raw-original'}
+repository_operations = {'remote-version-history-preview', 'pr-three-merge-methods-native-menu', 'pr-merge-blocked-reason', 'workflow-refresh-preserves-and-updates'}
+repository_collections = {'home-favorites-entry', 'favorites-native-management', 'favorites-persisted-repositories',
+                          'star-lists-official-home', 'star-list-member-preserves-other-lists', 'star-list-deleted-still-starred'}
+regression_recheck = {'local-branch-create-confirmation', 'local-folder-selection', 'local-file-sheet-dismissed',
+                      'editor-zoom-keyboard', 'readme-zoom-100', 'readme-zoom-200-before-size-check',
+                      'readme-zoom-200', 'settings-compact-native-menu'}
+regression_recheck.update('workflow-filter-dispatch-' + str(cycle) for cycle in range(3))
+regression_recheck.update({'workflow-pagination-compact-gap', 'workflow-refresh-preserves-and-updates'})
+regression_recheck.update({'workflow-runs-normal', 'workflow-runs-selection', 'mobile-editor-create-menu',
+                           'mobile-editor-saved-preview', 'long-patch-leading',
+                           'patch-highlight-left', 'patch-highlight-right', 'patch-raw-left', 'patch-raw-right'})
+editor_extensions.update(repository_operations)
+editor_extensions.update(repository_collections)
 destination = Path(output)
 destination.mkdir(parents=True, exist_ok=True)
 pending = [None]
@@ -48,7 +65,25 @@ maintenance.update(prefix + mode for prefix in ('upstream-commits-expanded-', 'u
                    for mode in ('single', 'many', 'truncated'))
 branch_merge = {'local-branch-merge-preview', 'remote-branch-merge-preview',
                 'remote-branch-squash-confirm', 'remote-branch-squash-result'}
-if scope == 'branch-merge':
+release_editor = {'release-editor-filled', 'release-editor-inbox', 'release-editor-attached',
+                  'release-editor-scrolled', 'release-editor-confirmation',
+                  'release-editor-account-changed', 'release-editor-denied'}
+upload_viewer = {'deb-first-open-common-fields', 'upload-inherited-preview', 'deb-original-expanded',
+                 'deb-more-fields-expanded', 'upload-explicit-replacement', 'upload-multiple-independent-targets',
+                 'source-zoom-200', 'editor-zoom-keyboard', 'commit-highlight-zoom-200', 'commit-raw-zoom-200',
+                 'local-diff-zoom-200', 'local-original-zoom-200', 'local-budget-original',
+                 'readme-zoom-200', 'markdown-reader-zoom-200', 'local-project-compact', 'local-project-information'}
+if scope == 'repository-collections':
+    expected = repository_collections
+elif scope == 'repository-operations':
+    expected = repository_operations
+elif scope == 'regression-recheck':
+    expected = regression_recheck
+elif scope == 'upload-viewer':
+    expected = upload_viewer
+elif scope == 'release-editor':
+    expected = release_editor
+elif scope == 'branch-merge':
     expected = branch_merge
 elif scope == 'profiles':
     expected = profiles
@@ -68,6 +103,8 @@ elif scope == 'review-regressions':
 elif scope == 'maintenance-regressions':
     expected = maintenance
 elif scope == 'all':
+    expected.update(upload_viewer)
+    expected.update(release_editor)
     expected.update(branch_merge)
     expected.update(profiles)
     expected.update(actions)
@@ -75,6 +112,15 @@ elif scope == 'all':
     expected.update(download_lifecycle)
     expected.update(file_edit)
     expected.update(maintenance)
+    expected.update(editor_extensions)
+    editor_screenshots = (upload_viewer - {'local-project-compact', 'local-project-information'}) | release_editor | editor_extensions
+    boundary_a = maintenance | branch_merge | profiles | actions
+    if group == 'editors':
+        expected = editor_screenshots
+    elif group == 'boundaries-a':
+        expected = boundary_a
+    elif group == 'boundaries-b':
+        expected -= editor_screenshots | boundary_a
 else:
     raise ValueError('Unknown UI test scope')
 

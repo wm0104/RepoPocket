@@ -38,9 +38,12 @@ precondition(partial.snapshot.hashes["gone.txt"] == first.hashes["gone.txt"] && 
 try Data(repeating: 65, count: 11 * 1024 * 1024).write(to: root.appendingPathComponent("big.bin"))
 let big = try LocalStore.snapshot(root)
 precondition(big.hashes["big.bin"] != nil && big.texts["big.bin"] == nil)
+let bigWrites = try LocalStore.prepare(root, paths: ["big.bin"], expected: big)
+precondition(bigWrites.count == 1 && bigWrites[0].bytes == nil)
+precondition(bigWrites[0].file == root.appendingPathComponent("big.bin"))
+precondition(bigWrites[0].size == 11 * 1024 * 1024 && bigWrites[0].sha256 == big.hashes["big.bin"])
+// The old 11MiB disk-backed acceptance is now a file-backed write, not an in-memory payload.
 var refused = false
-do { _ = try LocalStore.prepare(root, paths: ["big.bin"], expected: big) } catch { refused = true }
-precondition(refused)
 for path in ["../escape", "/absolute", "a//b", "a\\b", "a/./b"] {
  refused = false
  do { _ = try LocalStore.prepare(root, paths: [path], expected: big) } catch { refused = true }
@@ -174,11 +177,11 @@ let actualGit = try LocalStore.gitHashes(hashRoot)
 precondition(actualGit == ["中文.bin":expectedGit])
 print("PASS production association diagnostics: equal/changed/missing/extra/prefix/branch/head and binary Git blob SHA1")
 print("PASS actual import lifecycle: fresh copies, hidden files, source deletion isolation, copied deletion/rescan/recreation, pre-copy symlink refusal")
-print("PASS: 27 three-way matrix cases; both conflict choices; staged filesystem merge; stale apply rejection; selective baseline; SHA256; scan add/modify/delete; hidden/.git; 11MiB rejection; symlink; unsafe paths")
+print("PASS: 27 three-way matrix cases; both conflict choices; staged filesystem merge; stale apply rejection; selective baseline; SHA256; scan add/modify/delete; hidden/.git; 11MiB disk-backed acceptance; symlink; unsafe paths")
 '''
 # Swift precondition autoclosures do not throw.
 tests = tests.replace('precondition(try LocalStore.binding(checkout).snapshot.hashes == latest.snapshot.hashes)', 'let saved = try LocalStore.binding(checkout)\nprecondition(saved.snapshot.hashes == latest.snapshot.hashes)')
 with tempfile.TemporaryDirectory() as d:
  p = Path(d) / 'tests.swift'
- p.write_text('import Foundation\nimport CryptoKit\nstruct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }\n'+core+remote+Path(REPO_ROOT, 'RepoPocket/WorkspaceSelection.swift').read_text()+tests)
+ p.write_text('import Foundation\nimport CryptoKit\nstruct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }\n'+core+Path(REPO_ROOT, 'RepoPocket/RepoQueue.swift').read_text()+remote+Path(REPO_ROOT, 'RepoPocket/WorkspaceSelection.swift').read_text()+tests)
  subprocess.run(['swift', str(p)], check=True)

@@ -58,7 +58,11 @@ assert 'if succeeded { await scan() }' in commit and 'commitSucceeded(committing
 sections = Path(REPO_ROOT, 'RepoPocket/RepositorySections.swift').read_text()
 assert 'if busy && repositories.isEmpty && !refreshing' in sections and 'if busy && entries.isEmpty && !refreshing' in a
 assert '.refreshable { refreshing = true; defer { refreshing = false }; await load() }' in sections
-assert '.task { if !loaded' in a and '.task { if !hasScanned' in w
+home_task = a[a.index('.task {', a.index('.refreshable { refreshing = true; await refresh()')):a.index('.onChange(of: api.starRevision)')]
+assert 'guard !CredentialStore.read().isEmpty else { return }' in home_task
+assert 'await refresh(); loadPersonalIssues()' in home_task and '!loaded' not in home_task
+assert 'api.cachedCollection(.owned)' in a and 'api.cachedCollection(.starred)' in a
+assert '.task { if !hasScanned' in w
 assert 'guard !busy else { return }' in a and 'guard !busy else { return }' in scan
 assert 'commits = []' not in h and 'if refresh { commits = batch }' in h
 assert 'verticalSizeClass == .compact ? .inline : .large' in u

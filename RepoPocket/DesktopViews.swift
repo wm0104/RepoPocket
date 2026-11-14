@@ -8,30 +8,54 @@ struct HistoryView: View {
     @State private var page = 1
     @State private var more = true
     @State private var busy = false
+    @State private var canManageHistory = false
+    @State private var showingHistoryCleanup = false
     @ScaledMetric(relativeTo: .body) private var messageSize: CGFloat = 16
     var body: some View {
         List {
-            Section { Text(repo).softGroupedRow(top: true); Text("分支：" + branch).softGroupedRow(bottom: true) }.font(.caption)
-            ForEach(commits) { c in
-                NavigationLink { CommitDetailView(api: api, repo: repo, sha: c.sha) } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(c.commit.message.components(separatedBy: "\n").first ?? c.sha)
-                            .font(.system(size: messageSize, weight: .medium))
-                            .lineLimit(2)
-                        Text((c.commit.author?.name ?? "未知作者") + " · " + String(c.sha.prefix(7))).font(.caption).foregroundColor(.secondary).lineLimit(1)
-                        if let date = c.commit.author?.date { Text(CommitDatePresentation.local(date)).font(.caption2).foregroundColor(.secondary) }
+            Section {
+                SoftGroupRows {
+                    SoftGroupRow("repository") { Text(repo).font(.caption) }
+                    SoftGroupRow("branch") { Text("分支：" + branch).font(.caption) }
+                    for c in commits {
+                        SoftGroupRow("commit-" + c.sha) {
+                            NavigationLink { CommitDetailView(api: api, repo: repo, sha: c.sha) } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(c.commit.message.components(separatedBy: "\n").first ?? c.sha)
+                                        .font(.system(size: messageSize, weight: .medium))
+                                        .lineLimit(2)
+                                    Text((c.commit.author?.name ?? "未知作者") + " · " + String(c.sha.prefix(7))).font(.caption).foregroundColor(.secondary).lineLimit(1)
+                                    if let date = c.commit.author?.date { Text(CommitDatePresentation.local(date)).font(.caption2).foregroundColor(.secondary) }
+                                }
+                                .padding(.vertical, 7)
+                                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                        }
                     }
-                    .padding(.vertical, 7)
-                    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }.softGroupedRow(top: c.id == commits.first?.id, bottom: c.id == commits.last?.id && !more)
+                    if busy && commits.isEmpty { SoftGroupRow("loading") { ProgressView() } }
+                    if commits.isEmpty && !busy { SoftGroupRow("empty") { Text("暂无提交，或加载失败；可下拉重试。") } }
+                    if more { SoftGroupRow("more") { Button("加载更多提交") { Task { await load() } }.disabled(busy) } }
+                }
             }
-            if busy && commits.isEmpty { ProgressView().softGroupedRow(top: true, bottom: !more) }
-            if commits.isEmpty && !busy { Text("暂无提交，或加载失败；可下拉重试。").softGroupedRow(top: true, bottom: !more) }
-            if more { Button("加载更多提交") { Task { await load() } }.disabled(busy).softGroupedRow(top: false, bottom: true) }
         }
         .navigationTitle("提交历史")
         .adaptiveWorkspaceLayout()
-        .task { if commits.isEmpty { await load() } }
+        .task {
+            if commits.isEmpty { await load() }
+            let access = try? await api.repository(repo)
+            guard !Task.isCancelled, api.isCurrentSession else { return }
+            canManageHistory = access?.permissions?.push == true
+        }
+        .toolbar {
+            NativeActionMenu(title: "提交历史操作", items: [
+                NativeMenuItem(id: "organize", title: "整理已推送提交历史", symbol: "list.bullet", enabled: canManageHistory && !busy) { showingHistoryCleanup = true }
+            ])
+        }
+        .sheet(isPresented: $showingHistoryCleanup) { AppNavigationStack { RemoteHistoryView(api: api, repo: repo, branch: branch).toolbar { Button("关闭") { showingHistoryCleanup = false } } }.appSheetCornerRadius() }
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryHistoryChanged)) { notice in
+            if notice.userInfo?["repo"] as? String == repo, notice.userInfo?["account"] as? String == api.accountID,
+               notice.userInfo?["generation"] as? UUID == AccountStore.generation { Task { await load(refresh: true) } }
+        }
         .refreshable { await load(refresh: true) }
     }
     private func load(refresh: Bool = false) async {
@@ -63,37 +87,41 @@ struct CommitDetailView: View {
     @State private var messageExpanded = false
     var body: some View {
         List {
-            if let d = detail {
-                Section("提交") {
-                    Text(d.commit.message)
-                        .font(.system(size: messageSize, weight: .regular))
-                        .lineLimit(messageExpanded ? nil : 4)
-                        .textSelection(.enabled)
-                        .padding(.vertical, 6).softGroupedRow(top: true)
-                    Button(messageExpanded ? "收起说明" : "展开完整说明") { messageExpanded.toggle() }.softGroupedRow()
-                    Text(sha).font(.caption).textSelection(.enabled).softGroupedRow()
-                    Text(d.commit.author?.name ?? "未知作者").softGroupedRow(bottom: d.stats == nil && d.commit.author?.date == nil)
-                    if let date = d.commit.author?.date { Text(CommitDatePresentation.local(date)).font(.caption).softGroupedRow(bottom: d.stats == nil) }
-                    if let s = d.stats { Text("总计 +\(s.additions) / −\(s.deletions)").softGroupedRow(bottom: true) }
-                }
-                Section("变更文件") {
-                    ForEach(files) { f in
-                        NavigationLink {
-                            CommitPatchDestination(file: f)
-                        } label: {
-                            VStack(alignment: .leading) {
-                                Text(f.filename)
-                                Text("\(f.status) · +\(f.additions) / −\(f.deletions)").font(.caption)
-                                if let old = f.previous_filename { Text("原路径：" + old).font(.caption) }
-                            }
-                        }.softGroupedRow(top: f.id == files.first?.id)
-                    }
-                    Text("Patch 由 GitHub 提供；二进制及部分大文件不可预览，不代表无变化。GitHub 最多返回 3,000 个文件。").font(.caption).foregroundColor(.secondary).softGroupedRow(top: files.isEmpty, bottom: true)
-                }
-            }
             Section {
-                if busy { ProgressView().softGroupedRow(top: true, bottom: !more) }
-                if more { Button(detail == nil ? "加载详情" : "加载更多文件") { Task { await load() } }.disabled(busy).softGroupedRow(top: !busy, bottom: true) }
+                SoftGroupRows {
+                    if let d = detail {
+                        SoftGroupRow("commit-title") { Text("提交").font(.caption).foregroundStyle(.secondary) }
+                        SoftGroupRow("message") {
+                            Text(d.commit.message)
+                                .font(.system(size: messageSize, weight: .regular))
+                                .lineLimit(messageExpanded ? nil : 4)
+                                .textSelection(.enabled)
+                                .padding(.vertical, 6)
+                        }
+                        SoftGroupRow("message-toggle") { Button(messageExpanded ? "收起说明" : "展开完整说明") { messageExpanded.toggle() } }
+                        SoftGroupRow("sha") { Text(sha).font(.caption).textSelection(.enabled) }
+                        SoftGroupRow("author") { Text(d.commit.author?.name ?? "未知作者") }
+                        if let date = d.commit.author?.date { SoftGroupRow("date") { Text(CommitDatePresentation.local(date)).font(.caption) } }
+                        if let s = d.stats { SoftGroupRow("stats") { Text("总计 +\(s.additions) / −\(s.deletions)") } }
+                        SoftGroupRow("files-title") { Text("变更文件").font(.caption).foregroundStyle(.secondary) }
+                        for f in files {
+                            SoftGroupRow("file-" + f.id) {
+                                NavigationLink {
+                                    CommitPatchDestination(file: f)
+                                } label: {
+                                    VStack(alignment: .leading) {
+                                        Text(f.filename)
+                                        Text("\(f.status) · +\(f.additions) / −\(f.deletions)").font(.caption)
+                                        if let old = f.previous_filename { Text("原路径：" + old).font(.caption) }
+                                    }
+                                }
+                            }
+                        }
+                        SoftGroupRow("patch-note") { Text("Patch 由 GitHub 提供；二进制及部分大文件不可预览，不代表无变化。GitHub 最多返回 3,000 个文件。").font(.caption).foregroundColor(.secondary) }
+                    }
+                    if busy { SoftGroupRow("loading") { ProgressView() } }
+                    if more { SoftGroupRow("more") { Button(detail == nil ? "加载详情" : "加载更多文件") { Task { await load() } }.disabled(busy) } }
+                }
             }
         }.listStyle(.insetGrouped).navigationTitle("提交详情").adaptiveWorkspaceLayout()
         .task { if detail == nil { await load() } }
@@ -130,41 +158,40 @@ struct BranchPickerView: View {
     @State private var merging: DesktopBranch?
     @State private var renameName = ""
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             Form {
-                switcherSection
-                createSection
-                if !deletionMessage.isEmpty {
-                    Section { SoftGroupRows { SoftGroupRow("deletion-result") { Text(deletionMessage).font(.footnote).textSelection(.enabled) } } }
+                Section {
+                    switcherSection
+                    createSection
+                    if !deletionMessage.isEmpty {
+                        Text(deletionMessage).font(.footnote).textSelection(.enabled).softGroupedRow(bottom: !busy)
+                    }
+                    if busy { ProgressView().softGroupedRow(bottom: true) }
                 }
-                if busy { Section { ProgressView().softGroupedRow(top: true, bottom: true) } }
             }
             .navigationTitle("分支").adaptiveWorkspaceLayout()
             .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
             .task { await load(); await captureHead(); await captureDefaultBranch() }
             .onDisappear { deletion?.cancel() }
             .sheet(item: $merging) { source in
-                NavigationStack {
+                AppNavigationStack {
                     RemoteBranchMergeView(api: api, repo: repo, source: source.name)
                 }.appSheetCornerRadius()
             }
             .confirmationDialog("从 \(current) @ \(head.prefix(7)) 创建 \(name)？", isPresented: $confirm, titleVisibility: .visible) {
                 Button("确认创建远端分支") { Task { await create() } }
             }
-            .alert("重命名 GitHub 远端分支", isPresented: Binding(
-                get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { target in
-                TextField("新分支名称", text: $renameName).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Button("取消", role: .cancel) { renaming = nil }
-                Button("重命名") {
-                    let name = renameName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    renaming = nil
-                    guard DesktopRules.validBranch(name), name != target.name else {
-                        deletionMessage = "新分支名无效或与原名称相同，未做修改。"; return
-                    }
-                    deletion = Task { await rename(target, to: name) }
+            .appTextInputAlert("重命名 GitHub 远端分支",
+                message: repo + "\n" + (renaming?.name ?? "") + " → 新名称\n会在 GitHub 上新建同名分支并删除旧分支，提交不会丢失；默认分支、受保护分支会拒绝。打开中的 Pull Request 可能被关闭，本地 Git 跟踪不会自动改名。",
+                isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }),
+                text: $renameName, placeholder: "新分支名称", confirmTitle: "重命名") { [renaming] in
+                guard let target = renaming else { return }
+                let name = renameName.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.renaming = nil
+                guard DesktopRules.validBranch(name), name != target.name else {
+                    deletionMessage = "新分支名无效或与原名称相同，未做修改。"; return
                 }
-            } message: { target in
-                Text(repo + "\n" + target.name + " → 新名称\n会在 GitHub 上新建同名分支并删除旧分支，提交不会丢失；默认分支、受保护分支会拒绝。打开中的 Pull Request 可能被关闭，本地 Git 跟踪不会自动改名。")
+                deletion = Task { await rename(target, to: name) }
             }
             .confirmationDialog("删除 GitHub 远端分支？", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { target in
                 Button("删除远端分支", role: .destructive) { deletion = Task { await remove(target) } }
@@ -175,9 +202,11 @@ struct BranchPickerView: View {
         }
     }
     private var switcherSection: some View {
-        Section("切换远端浏览分支") {
-            Text("当前：" + current).font(.caption).softGroupedRow(top: true, bottom: branches.isEmpty && !more)
-            ForEach(branches) { b in
+        SoftGroupRows(bottom: !(canWrite && api.isCurrentSession) && deletionMessage.isEmpty && !busy) {
+            SoftGroupRow("switcher-title") { Text("切换远端浏览分支").font(.caption).foregroundStyle(.secondary) }
+            SoftGroupRow("current") { Text("当前：" + current).font(.caption) }
+            for b in branches {
+              SoftGroupRow("branch-" + b.name) {
                 Button { select(b.name); dismiss() } label: {
                     HStack { Text(b.name); if b.name == current { Image(systemName: "checkmark") } }
                 }.disabled(busy)
@@ -193,18 +222,19 @@ struct BranchPickerView: View {
                             .disabled(!canDelete(b))
                     }
                 }
-                .softGroupedRow(bottom: b.id == branches.last?.id && !more)
+              }
             }
-            if more { Button("加载更多分支") { Task { await load() } }.disabled(busy).softGroupedRow(bottom: true) }
+            if more { SoftGroupRow("more") { Button("加载更多分支") { Task { await load() } }.disabled(busy) } }
         }
     }
     @ViewBuilder private var createSection: some View {
         if canWrite && api.isCurrentSession {
-            Section("从当前分支创建") {
-                TextField("新分支名，例如 feature/mobile", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
-                Text("来源：" + current + " @ " + String(head.prefix(7))).font(.caption).softGroupedRow()
-                Text("只创建新的远端引用，不覆盖已有分支；不切换本地工作区或上传队列的目标。").font(.caption).softGroupedRow()
-                Button("创建并切换") { confirm = true }.disabled(busy || head.isEmpty || !DesktopRules.validBranch(name)).softGroupedRow(bottom: true)
+            SoftGroupRows(top: false, bottom: deletionMessage.isEmpty && !busy) {
+                SoftGroupRow("create-title") { Text("从当前分支创建").font(.caption).foregroundStyle(.secondary) }
+                SoftGroupRow("name") { TextField("新分支名，例如 feature/mobile", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled() }
+                SoftGroupRow("source") { Text("来源：" + current + " @ " + String(head.prefix(7))).font(.caption) }
+                SoftGroupRow("help") { Text("只创建新的远端引用，不覆盖已有分支；不切换本地工作区或上传队列的目标。").font(.caption) }
+                SoftGroupRow("create") { Button("创建并切换") { confirm = true }.disabled(busy || head.isEmpty || !DesktopRules.validBranch(name)) }
             }
         }
     }

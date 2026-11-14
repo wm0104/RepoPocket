@@ -11,13 +11,15 @@ struct ShareInboxView: View {
     @State private var error = ""
     @State private var deleting: ShareInboxItem?
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             List {
                 Section {
-                    Text("从其他 App 分享到 RepoPocket 的文件保存在这里。选择文件后仍需确认仓库和上传目标。").font(.caption).softGroupedRow(top: true, bottom: true)
-                }
-                Section {
-                    ForEach(items) { item in
+                    SoftGroupRows {
+                    SoftGroupRow("notice") {
+                        Text("从其他 App 分享到 RepoPocket 的文件保存在这里。选择文件后仍需确认仓库和上传目标。").font(.caption)
+                    }
+                    for item in items {
+                        SoftGroupRow("file-" + item.id.uuidString) {
                         Button {
                             if selection.contains(item.id) { selection.remove(item.id) }
                             else { if !multiple { selection.removeAll() }; selection.insert(item.id) }
@@ -30,12 +32,13 @@ struct ShareInboxView: View {
                                 }
                             }
                         }.contextMenu { Button("删除此导入副本", role: .destructive) { deleting = item } }
-                        .softGroupedRow(top: item.id == items.first?.id, bottom: item.id == items.last?.id)
+                        }
                     }
-                    if items.isEmpty && !busy && error.isEmpty { Text("暂无待上传文件，请在其他 App 的分享菜单选择 RepoPocket。").softGroupedRow(top: true, bottom: true) }
+                    if items.isEmpty && !busy && error.isEmpty { SoftGroupRow("empty") { Text("暂无待上传文件，请在其他 App 的分享菜单选择 RepoPocket。") } }
+                    if busy { SoftGroupRow("loading") { ProgressView("正在读取文件…") } }
+                    if !error.isEmpty { SoftGroupRow("error") { Text(error).foregroundStyle(.secondary) } }
+                    }
                 }
-                if busy { ProgressView("正在读取文件…") }
-                if !error.isEmpty { Text(error).foregroundStyle(.secondary) }
             }.navigationTitle("待上传文件")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) }

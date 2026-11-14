@@ -227,7 +227,7 @@ struct RepositoryCard: View {
         .repositoryCopyNotice(copyFeedback)
         .repositoryForkConfirmation(forkMenu, api: api)
         .sheet(isPresented: $showOwnerProfile) {
-            NavigationStack {
+            AppNavigationStack {
                 UserRepositoriesView(api: api, user: ownerProfile)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showOwnerProfile = false } } }
             }.appSheetCornerRadius()
@@ -239,7 +239,7 @@ struct RepositoryCard: View {
         }
         .sheet(isPresented: $showParent) {
             if let source = repository.parent ?? parent {
-                NavigationStack {
+                AppNavigationStack {
                     BrowserView(api: api, repo: source.full_name, path: "", branch: source.default_branch ?? "")
                         .toolbar { Button("关闭") { showParent = false } }
                 }

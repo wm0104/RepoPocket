@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class UpstreamWatchTests(unittest.TestCase):
     def test_home_entry_and_no_implicit_repository_writes(self):
         app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
-        self.assertIn('UpstreamUpdatesSection(api: api, store: upstreamUpdates)', app)
+        self.assertIn('UpstreamUpdatesSection(api: api, store: upstreamUpdates, connected: true)', app)
         path = ROOT/'RepoPocket/UpstreamUpdates.swift'
         self.assertTrue(path.exists())
         source = path.read_text()
@@ -34,7 +34,7 @@ class UpstreamWatchTests(unittest.TestCase):
         section = source.split('struct UpstreamUpdatesSection: View {', 1)[1].split('struct UpstreamWatchAddView:', 1)[0]
         self.assertIn('@StateObject private var upstreamUpdates = UpstreamUpdatesStore()', home)
         self.assertIn('@State private var showUpstreamWatch = false', home)
-        self.assertIn('UpstreamUpdatesSection(api: api, store: upstreamUpdates)', home)
+        self.assertIn('UpstreamUpdatesSection(api: api, store: upstreamUpdates, connected: true)', home)
         self.assertIn('showUpstreamWatch = true', home)
         self.assertIn('        }\n        .sheet(isPresented: $showUpstreamWatch)', home)
         self.assertIn('UpstreamWatchAddView(api: api)', home)
@@ -75,7 +75,7 @@ class UpstreamWatchTests(unittest.TestCase):
         self.assertIn('UpstreamSyncRules.initialSource(', feature)
         app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
         self.assertTrue('Button("上游同步") { showingUpstreamSync = true }' in app)
-        self.assertTrue('.navigationDestination(isPresented: $showingUpstreamSync)' in app)
+        self.assertTrue('.appNavigationDestination(isPresented: $showingUpstreamSync)' in app)
         self.assertFalse('NavigationLink { UpstreamSyncView(' in app)
         self.assertIn('repository?.fork != false', view)
         self.assertIn('$0.default_branch ?? ""', view)

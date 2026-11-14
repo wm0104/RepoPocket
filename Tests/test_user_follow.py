@@ -21,7 +21,7 @@ class UserFollowTests(unittest.TestCase):
         self.assertIn('delegate: OfficialUpdateRedirectPolicy()', transport)
         self.assertNotIn('requireWriteAccess', transport)
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
-        attachment = ui.split('ForEach(state.assets) { asset in',1)[1].split('if state.assets.isEmpty',1)[0]
+        attachment = ui.split('for asset in state.assets {',1)[1].split('if state.assets.isEmpty',1)[0]
         self.assertEqual(attachment.count('Menu {'),1)
         self.assertNotIn('ellipsis', attachment)
         self.assertNotIn('assetAction', ui.replace('assetActions', ''))

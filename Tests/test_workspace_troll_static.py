@@ -37,22 +37,20 @@ class WorkspaceTrollStaticTests(unittest.TestCase):
         self.assertNotIn(".swipeActions", self.workspace)
         self.assertIn(".contextMenu", self.workspace)
 
-    def test_troll_form_and_index_preservation(self):
-        for field in ("trollName", "trollVersion", "trollDescription", "trollBundleID", "trollAuthor", "trollPreview"):
-            self.assertIn(field, self.upload)
-        self.assertIn('URLComponents(url: parsed, resolvingAgainstBaseURL: false)?.percentEncodedPath == targetURLPath', self.github)
-        self.assertIn("for (key, value) in package { packages[i][key] = value }", self.github)
-        self.assertNotIn("packages = packages.filter", self.github)
+    def test_plugin_routes_are_removed_without_touching_workspace_safety(self):
+        for token in ('trollName', 'trollVersion', 'trollDescription', 'trollPreview', 'TrollFools'):
+            self.assertNotIn(token, self.upload)
+        self.assertNotIn('func trollPublish(', self.github)
+        self.assertNotIn('trollpackages.json', self.github)
         self.assertIn('"force": false', self.github)
         self.assertIn('"parents": [head]', self.github)
 
-    def test_troll_upload_is_bounded_and_streamed(self):
-        self.assertIn('maximumTrollPluginBytes', self.upload)
-        self.assertIn('if trollMode {', self.upload)
-        troll = self.github.split('func trollPublish(', 1)[1].split('func metadataSnapshot(', 1)[0]
-        self.assertNotIn('Data(contentsOf: file', troll)
-        self.assertIn('uploadGitBlobFile(', troll)
+    def test_common_upload_stays_bounded_and_streamed(self):
+        self.assertNotIn('maximumTrollPluginBytes', self.upload)
+        self.assertIn('RepoQueue.addingUploadBytes', self.upload)
+        self.assertIn('DebControlEditor.prepareForUpload', self.upload)
         self.assertIn('session.upload(for: uploadRequest, fromFile: bodyFile)', self.github)
+        self.assertIn('uploadGitBlobFile(', self.github)
 
 
 if __name__ == "__main__":

@@ -22,14 +22,15 @@ class StarTests(unittest.TestCase):
         self.assertNotIn('api.stars.status',card)
         self.assertIn('.task(id: name)',ui)
         self.assertIn('正在查询星标',ui)
-        self.assertIn('.disabled(true)',ui)
+        self.assertIn('title: "正在查询星标…", symbol: "hourglass", enabled: false', ui)
+        self.assertIn('.disabled(!action.enabled)', ui)
         self.assertIn('请登录账号',ui)
         self.assertIn('star.fill',ui)
         self.assertIn('fixed.generation == AccountStore.generation',ui)
         self.assertNotIn('confirmationDialog',ui)
         self.assertNotIn('isOwned',ui)
         for source in [app,sections]: self.assertIn('.onChange(of: api.starRevision)',source)
-        self.assertIn('CURRENT_PROJECT_VERSION: "1.1.8"',(ROOT/'project.yml').read_text())
+        self.assertIn('CURRENT_PROJECT_VERSION: "1.2.0"',(ROOT/'project.yml').read_text())
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Production Swift mocks run on macOS CI')
     def test_production_store_network_free(self):

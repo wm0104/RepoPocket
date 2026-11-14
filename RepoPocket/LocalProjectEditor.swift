@@ -21,7 +21,7 @@ struct LocalProjectEditor: View {
     @State private var confirmingClose = false
     private var dirty: Bool { !deleting && text != originalText }
     var body: some View {
-        NavigationStack {
+        AppNavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 if deleting {
                     Form { Section {
@@ -41,10 +41,12 @@ struct LocalProjectEditor: View {
             }.navigationTitle(deleting ? (deletion?.directory == true ? "删除文件夹" : "删除文件") : (path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("关闭") { if dirty { confirmingClose = true } else { dismiss() } }.disabled(busy) }
-                if !deleting { ToolbarItem(placement: .confirmationAction) {
-                    Button(editing ? "保存" : "编辑") { if editing { save() } else { editing = true } }
-                        .disabled(busy || fingerprint.isEmpty || (editing && text == originalText))
-                } }
+                ToolbarItem(placement: .confirmationAction) {
+                    if !deleting {
+                        Button(editing ? "保存" : "编辑") { if editing { save() } else { editing = true } }
+                            .disabled(busy || fingerprint.isEmpty || (editing && text == originalText))
+                    }
+                }
             }
             .task { guard !attempted else { return }; attempted = true; await open() }
             .onDisappear { task?.cancel() }
@@ -114,7 +116,9 @@ struct LocalProjectFilesView: View {
     let internalRoot: URL
     var directory = ""
     var imported: (([String]) -> Void)? = nil
+    var initialAction: LocalGitAddAction? = nil
     let changed: () -> Void
+    @State private var initialActionPerformed = false
     @StateObject private var importer = LocalGitImportState()
     @State private var generation = AccountStore.generation
     @State private var entries: [LocalFileEntry] = []
@@ -130,10 +134,7 @@ struct LocalProjectFilesView: View {
     var body: some View {
         List {
           SoftGroupRows {
-            if !directory.isEmpty {
-                SoftGroupRow("import-files") { Button("导入文件") { importer.picker = WorkspaceImportRequest(kind: .files) }.disabled(importer.busy || filePresentation.locked) }
-                SoftGroupRow("import-folder") { Button("导入文件夹") { importer.picker = WorkspaceImportRequest(kind: .folder) }.disabled(importer.busy || filePresentation.locked) }
-            }
+            SoftGroupRow("target-directory") { Text("添加目标：" + (directory.isEmpty ? "根目录" : directory)).font(.caption).foregroundStyle(.secondary) }
             if importer.busy { SoftGroupRow("import-busy") { ProgressView("导入中…") } }
             if !importer.message.isEmpty { SoftGroupRow("import-message") { Text(importer.message).font(.caption).foregroundStyle(.secondary) } }
             for entry in entries {
@@ -164,33 +165,34 @@ struct LocalProjectFilesView: View {
             if !error.isEmpty { SoftGroupRow("failure") { Text(error).font(.caption).foregroundStyle(.red) } }
           }
         }.disabled(creating).listStyle(.insetGrouped).navigationTitle(directory.isEmpty ? "项目文件" : (directory as NSString).lastPathComponent).adaptiveWorkspaceLayout()
-        .task { guard !loaded else { return }; await load() }
+        .task {
+            if !loaded { await load() }
+            if !initialActionPerformed, let initialAction {
+                initialActionPerformed = true
+                add(initialAction)
+            }
+        }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 NavigationLink {
                     LocalProjectSearchView(api: api, project: project, internalRoot: internalRoot, imported: imported, changed: changed)
                 } label: { Image(systemName: "magnifyingglass").accessibilityLabel("搜索项目文件") }
                     .disabled(creating || importer.busy || filePresentation.locked || !api.isCurrentSession || generation != AccountStore.generation)
-                Menu {
-                    Button("新建文件") { newFolder = false; newName = ""; showCreate = true }
-                    Button("新建文件夹") { newFolder = true; newName = ""; showCreate = true }
-                } label: { Image(systemName: "plus").accessibilityLabel("新建文件或文件夹") }
-                    .disabled(creating || importer.busy || filePresentation.locked)
+                NativeActionMenu(title: "添加到" + (directory.isEmpty ? "根目录" : directory), symbol: "plus", accessibilityIdentifier: "localgit.add", enabled: !creating && !importer.busy && !filePresentation.locked && api.isCurrentSession && generation == AccountStore.generation, items: LocalGitAddAction.items(perform: add))
                 Button("刷新列表") { Task { await load() } }.disabled(creating || importer.busy || filePresentation.locked)
             }
         }
-        .alert(newFolder ? "新建文件夹" : "新建文件", isPresented: $showCreate) {
-            TextField("名称", text: $newName).textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("创建") { create() }
-            Button("取消", role: .cancel) {}
-        } message: { Text(newFolder ? "在当前目录创建。Git 不记录空文件夹，添加文件后才能提交。" : "在当前目录创建空的 UTF-8 文本文件，请包含扩展名，例如 code.swift。") }
+        .appTextInputAlert(newFolder ? "新建文件夹" : "新建文件",
+            message: newFolder ? "在当前目录创建。Git 不记录空文件夹，添加文件后才能提交。" : "在当前目录创建空的 UTF-8 文本文件，请包含扩展名，例如 code.swift。",
+            isPresented: $showCreate, text: $newName, placeholder: "名称", confirmTitle: "创建",
+            confirmAction: { create() })
         .refreshable { guard !creating, !importer.busy, !filePresentation.locked else { return }; await load() }
         .modifier(LocalGitImportPresentation(importer: importer, project: project, internalRoot: internalRoot,
                                               directory: directory, generation: generation) { paths in
             if let imported { imported(paths) } else { changed() }
             Task { await load() }
         })
-        .navigationDestination(isPresented: Binding(get: { openDirectory != nil }, set: { if !$0 { openDirectory = nil } })) {
+        .appNavigationDestination(isPresented: Binding(get: { openDirectory != nil }, set: { if !$0 { openDirectory = nil } })) {
             if let path = openDirectory {
                 LocalProjectFilesView(api: api, project: project, internalRoot: internalRoot, directory: path, imported: imported, changed: changed)
             }
@@ -206,6 +208,15 @@ struct LocalProjectFilesView: View {
                     LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
                 }
             }.id(file.id)
+        }
+    }
+    private func add(_ action: LocalGitAddAction) {
+        guard !creating, !importer.busy, !filePresentation.locked, importer.picker == nil,
+              !importer.confirmFolder, api.isCurrentSession, generation == AccountStore.generation else { return }
+        switch action {
+        case .newFile, .newFolder: newFolder = action == .newFolder; newName = ""; showCreate = true
+        case .importFiles: importer.picker = WorkspaceImportRequest(kind: .files)
+        case .importFolder: importer.picker = WorkspaceImportRequest(kind: .folder)
         }
     }
     private func openFile(_ path: String, deleting: Bool = false) {
@@ -275,8 +286,10 @@ struct LocalProjectSearchView: View {
     var body: some View {
         let results = matches
         List {
-            Section { searchStatus(count: results.count) }
-            Section { searchRows(results) }
+            Section {
+                searchStatus(count: results.count)
+                searchRows(results)
+            }
         }.listStyle(.insetGrouped).navigationTitle("搜索项目文件").adaptiveWorkspaceLayout()
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "文件或文件夹名称 / 路径")
             .task { if !loaded { await load() } }
@@ -300,7 +313,7 @@ struct LocalProjectSearchView: View {
     }
     private func searchStatus(count: Int) -> some View {
         let message = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "输入名称开始搜索。" : (count > 200 ? "找到 \(count) 项，显示前 200 项，请缩小搜索范围。" : "找到 \(count) 项。")
-        return SoftGroupRows {
+        return SoftGroupRows(bottom: count == 0) {
             SoftGroupRow("scope") { Text("整个项目：" + project.name).font(.caption) }
             SoftGroupRow("hint") { Text("搜索整个项目的文件、文件夹名称与路径，不搜索正文，不跟随符号链接或访问 Git 元数据。").font(.caption).foregroundStyle(.secondary) }
             if loading { SoftGroupRow("loading") { ProgressView("加载项目目录…") } }
@@ -313,7 +326,7 @@ struct LocalProjectSearchView: View {
         }
     }
     private func searchRows(_ results: [LocalGitSearchEntry]) -> some View {
-        SoftGroupRows {
+        SoftGroupRows(top: false) {
             for entry in results.prefix(200) {
                 SoftGroupRow(entry.id) {
                     if entry.directory {

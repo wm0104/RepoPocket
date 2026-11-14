@@ -21,8 +21,9 @@ class RepositoryStatisticsTests(unittest.TestCase):
             self.assertNotIn(f'repository.{field} ?? 0', ui)
         self.assertIn('RepositoryStatistics(repository: repository)', ui)
         self.assertIn('RepositoryCard(repository: repositoryInfo, account: api.login, api: api, descriptionLineLimit: nil, copyLinkContextMenu: false, openOwner:', app)
-        self.assertIn('let info = try await api.repository(repo)', app)
-        self.assertIn('repositoryInfo = nil', app)
+        self.assertIn('async let metadata = api.repository(repo)', app)
+        self.assertIn('let info = try await metadata', app)
+        self.assertIn('metadataFresh && RepositoryWriteRules.canWrite', app)
         self.assertIn('try await decoded(Repository.self, Self.repoPath(repo))', github)
 
     def test_language_date_and_profile_contracts(self):

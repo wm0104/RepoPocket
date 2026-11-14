@@ -26,7 +26,7 @@ class IssueDeletionTests(unittest.TestCase):
         harness = ROOT/'Tests/Fixtures/IssueDeletionHarness.swift'
         self.assertTrue(harness.exists())
         github = (ROOT/'RepoPocket/GitHub.swift').read_text()
-        models = github[github.index('struct User: Decodable'):github.index('struct Release: Decodable')]
+        models = github[github.index('struct User:'):github.index('struct Release: Decodable')]
         source = harness.read_text().replace('// PRODUCTION_MODELS', models)
         transport = github.split('    func issueDeletionGraphQL(',1)[1].split('    @Published private(set) var starRevision',1)[0]
         source = source.replace('// PRODUCTION_TRANSPORT', 'func issueDeletionGraphQL(' + transport)

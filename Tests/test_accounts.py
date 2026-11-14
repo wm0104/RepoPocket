@@ -16,6 +16,19 @@ enum CredentialStore {
     static var tokens: [String: String] = [:]
     static func clear(account: String) { tokens.removeValue(forKey: account) }
 }
+final class ContentSnapshotCache {
+    static let shared = ContentSnapshotCache()
+    var removed: [String] = []
+    func removeAccount(_ id: String) { removed.append(id) }
+}
+enum RemoteHistoryBackup {
+    static var removed: [String] = []
+    static func removeAccount(_ id: String) { removed.append(id) }
+}
+enum RepositoryFavorites {
+    static var removed: [String] = []
+    static func removeAccount(_ id: String) { removed.append(id) }
+}
 ''' + store + models + r'''
 UserDefaults.standard.removeObject(forKey: AccountStore.accountsKey)
 UserDefaults.standard.removeObject(forKey: AccountStore.activeKey)
@@ -36,6 +49,8 @@ let metadata = String(data: UserDefaults.standard.data(forKey: AccountStore.acco
 precondition(!metadata.contains("fixture-alpha") && !metadata.contains("fixture-beta"))
 AccountStore.remove(second.id)
 precondition(AccountStore.activeID == first.id && CredentialStore.tokens[second.id] == nil)
+precondition(ContentSnapshotCache.shared.removed == [second.id] && RemoteHistoryBackup.removed == [second.id])
+precondition(RepositoryFavorites.removed == [second.id])
 precondition(CredentialStore.tokens[first.id] == "fixture-alpha")
 let raw = #"{"id":7,"full_name":"organization/tool","name":"tool","description":null,"default_branch":"main","html_url":"https://github.com/organization/tool","private":true,"updated_at":"2026-10-10T00:00:00Z","owner":{"id":9,"login":"organization","avatar_url":"https://avatars.githubusercontent.com/u/9"}}"#
 let repo = try JSONDecoder().decode(Repository.self, from: Data(raw.utf8))

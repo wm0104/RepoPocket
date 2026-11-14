@@ -10,7 +10,12 @@ class FinalPublishTests(unittest.TestCase):
         self.assertIn('CFBundleDevelopmentRegion: zh-Hans', project)
         self.assertIn('CFBundleLocalizations: [zh-Hans]', project)
         surface = (ROOT/'RepoPocket/SourceTextSurface.swift').read_text()
-        self.assertIn('UIFindInteraction', surface)
+        self.assertIn('SourceFindBar', surface)
+        bar = (ROOT/'RepoPocket/SourceFindBar.swift').read_text()
+        for label in ['查找', '替换为', '区分大小写', '上一处', '下一处', '关闭查找', '替换全部']:
+            self.assertIn(label, bar)
+        self.assertIn('UIMenu(children:', bar)
+        self.assertIn('UIAction(title:', bar)
         self.assertNotIn('AppleLanguages', surface)
         self.assertNotIn('method_exchangeImplementations', surface)
 
@@ -28,14 +33,17 @@ class FinalPublishTests(unittest.TestCase):
         self.assertLess(publish.index('draft.draft = true'), publish.index('uploadManagedAsset'))
         self.assertLess(publish.index('plan.mayFinalize'), publish.rindex('saveManagedRelease'))
         self.assertNotIn('deleteManaged', publish)
-        self.assertIn('ReleaseEntryView(api: api', upload)
+        self.assertNotIn('ReleaseEntryView(api: api', upload)
+        self.assertIn('ReleaseEntryView(api: api', (ROOT/'RepoPocket/ExternalFileActions.swift').read_text())
         self.assertIn('ReleaseEntryView(api: api', workspace)
         self.assertIn('ReleaseEditorView(api: api', entry)
-        self.assertIn('requireWriteAccess(canonical)', entry)
-        self.assertIn('generation == AccountStore.generation', entry)
+        self.assertIn('requireWriteAccess(canonical)', ui)
+        self.assertNotIn('.sheet', entry)
+        self.assertIn('allowsRepositorySelection: true', entry)
+        self.assertIn('generation == AccountStore.generation', ui)
         self.assertIn('showCancel: !request.isZIP', picker)
         self.assertNotIn('let label = UILabel()', picker)
-        for token in ['Menu("工作区…")', 'if !selected.isEmpty', 'Text("暂无变更")', '复制实际工作目录路径', '发布为发行版']:
+        for token in ['NativeActionMenu(title: "工作区…"', 'if !selected.isEmpty', 'Text("暂无变更")', '复制实际工作目录路径', '发布为发行版']:
             self.assertIn(token, workspace)
         self.assertIn('await updateChecker.appEntryCheck(api: api)', app)
         self.assertNotIn('.badge(updateChecker.hasUpdate', app)
@@ -50,11 +58,26 @@ class FinalPublishTests(unittest.TestCase):
         for path in ROOT.joinpath('RepoPocket').glob('*.swift'):
             text = path.read_text()
             self.assertNotIn('willEnterForegroundNotification', text)
-            # Root update checks and the foreground-only cancellation receipt poll
-            # are the only lifecycle observers; no workspace scanning on resume.
-            self.assertEqual('scenePhase' in text, path.name in ('RepoPocketApp.swift', 'WorkflowViews.swift'), path.name)
+            # External local Git edits need a guarded recheck; other workspaces stay inert.
+            self.assertEqual('scenePhase' in text, path.name in ('RepoPocketApp.swift', 'WorkflowViews.swift', 'LocalProjectView.swift', 'LocalGitStageView.swift'), path.name)
+            if path.name == 'LocalGitStageView.swift':
+                foreground = text.split('.onChange(of: scenePhase)', 1)[1].split('.refreshable', 1)[0]
+                self.assertIn('if phase == .active, valid, !busy { refresh() }', foreground)
+                self.assertIn('task?.cancel(); snapshot = nil; confirming = false', foreground)
+                self.assertNotIn('mutate(', foreground)
+                load = text.split('@MainActor private func load()', 1)[1].split('private func mutate(', 1)[0]
+                self.assertIn('LocalGitEngine.shared.run("stageStatus"', load)
+                self.assertNotIn('commitStaged', load)
+                self.assertNotIn('sync(', load)
+            if path.name == 'LocalProjectView.swift':
+                refresh = text.split('private func refreshExternalChanges()', 1)[1].split('private func check(', 1)[0]
+                for guard in ('externalRefreshPending', 'visible', 'scenePhase == .active', '!busy', 'sheet == nil', '!pendingCommit', 'syncing == nil', 'valid'):
+                    self.assertIn(guard, refresh)
+                self.assertIn('await check(force: true)', refresh)
+                self.assertNotIn('sync(', refresh)
+                self.assertNotIn('configureRemote', refresh)
             if path.name == 'WorkflowViews.swift':
-                self.assertEqual(text.count('scenePhase'), 4)
+                self.assertEqual(text.split('struct WorkflowRunView:', 1)[1].count('scenePhase'), 4)
                 self.assertIn('@Environment(\\.scenePhase) private var scenePhase', text)
                 polling = text.split('.task(id: cancellation.waiting && scenePhase == .active) {', 1)[1].split('        .task {', 1)[0]
                 for token in ('guard cancellation.waiting, scenePhase == .active', 'for _ in 0..<60',
