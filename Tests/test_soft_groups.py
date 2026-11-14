@@ -337,6 +337,13 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
     if file == 'WorkspaceSelectionUI.swift':
         # Separator implementation may change; 1.0.4 shape and layout stay exact.
         assert current.split('extension View {\n    ///')[0] == baseline(file).split('extension View {\n    ///')[0]
+    elif file == 'RepositoryUI.swift':
+        # Approved star/fork navigation changes only this rendering block.
+        old = baseline(file)
+        begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
+        assert current.split(begin)[0] == old.split(begin)[0]
+        assert current.split(end)[1] == old.split(end)[1]
+        assert 'repositorySocialAPI' in current and 'RepositorySocialView' in current
     elif file == 'RepositoryStarUI.swift':
         # The home action adds retryable status reads. Preserve the complete
         # mutation/captured-account branch and the existing statistics view.
@@ -475,6 +482,17 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'downloadNotice =' in body
             assert 'api.isCurrentSession' in body
             assert 'SharedFile' not in body
+            continue
+        if file == 'ReleaseManagementUI.swift' and signature == 'private func stage(_ result: Result<[URL], Error>)':
+            # Inbox selections add cleanup after the existing attachment copy.
+            changed = current.get(signature, '')
+            assert 'ShareSelectionCleanup.remove(urls)' in changed
+            assert changed.replace('ShareSelectionCleanup.remove(urls); ', '') == body
+            continue
+        if file == 'ReleaseManagementUI.swift' and signature == 'private func upload(_ file: URL, to r: ManagedRelease)':
+            changed = current.get(signature, '')
+            expected = body.replace('guard file.startAccessingSecurityScopedResource() else { throw AppError(text: "文件未授权，请重选。") }\n            defer { file.stopAccessingSecurityScopedResource() }', 'let scoped = file.startAccessingSecurityScopedResource()\n            defer { if scoped { file.stopAccessingSecurityScopedResource() }; ShareSelectionCleanup.remove([file]) }\n            guard FileManager.default.isReadableFile(atPath: file.path) else { throw AppError(text: "文件未授权，请重选。") }')
+            assert changed == expected, signature
             continue
         assert current.get(signature) == body, (file, signature)
 print('PASS byte-exact baseline operation bodies: account, navigation/API actions, local/remote workspace, upload, release and destructive guards')

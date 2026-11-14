@@ -14,7 +14,15 @@ class BrowserRollbackTests(unittest.TestCase):
         if subprocess.run(['git', 'cat-file', '-e', BASE+'^{commit}'], cwd=ROOT, capture_output=True).returncode:
             subprocess.run(['git', 'fetch', '--depth=1', 'origin', BASE], cwd=ROOT, check=True)
         for file in ('RepoPocket/ReleaseAssetRedirectPolicy.swift','RepoPocket/RepositoryStar.swift','RepoPocket/RepositoryUI.swift'):
-            self.assertEqual((ROOT/file).read_text(), subprocess.check_output(['git','show',f'{BASE}:{file}'],cwd=ROOT,text=True))
+            current = (ROOT/file).read_text()
+            historic = subprocess.check_output(['git','show',f'{BASE}:{file}'],cwd=ROOT,text=True)
+            if file.endswith('/RepositoryUI.swift'):
+                # Only the newly approved star/fork count destinations differ.
+                begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
+                self.assertEqual(current.split(begin)[0], historic.split(begin)[0])
+                self.assertEqual(current.split(end)[1], historic.split(end)[1])
+                self.assertIn('RepositorySocialView', current)
+            else: self.assertEqual(current, historic)
         # RepoPocketApp.swift is not compared byte-for-byte: the directory-nav
         # freeze fix intentionally changes BrowserView's destination form. Its
         # release-removal and menu contracts are asserted below instead.

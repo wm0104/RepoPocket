@@ -24,7 +24,14 @@ enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error
  var calls: [(String, [URLQueryItem])] = []
  var payload = Data("[]".utf8)
  var added: [String] = []
- func addAccount(token: String) async throws { try Task.checkCancellation(); guard isCurrentSession else { throw CancellationError() }; added.append(token) }
+ var accountErrors: [Error] = []
+ var accountAttempts = 0
+ func addAccount(token: String) async throws {
+   try Task.checkCancellation(); guard isCurrentSession else { throw CancellationError() }
+   accountAttempts += 1
+   if !accountErrors.isEmpty { throw accountErrors.removeFirst() }
+   added.append(token)
+ }
  static func component(_ text: String) -> String { text.addingPercentEncoding(withAllowedCharacters: .alphanumerics)! }
  static func repoPath(_ repo: String) throws -> String { "/repos/" + (try RepositoryInput.parse(repo)) }
  func communityRead(_ path: String, query: [URLQueryItem]) async throws -> Data {
@@ -48,6 +55,9 @@ final class OAuthFixtureProtocol: URLProtocol {
  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
  override func startLoading() {
    let data=Self.next(request)
+   if let code = Int(String(decoding:data,as:UTF8.self)) {
+     client?.urlProtocol(self,didFailWithError:URLError(URLError.Code(rawValue:code))); return
+   }
    client?.urlProtocol(self,didReceive:HTTPURLResponse(url:request.url!,statusCode:200,httpVersion:nil,headerFields:["Content-Type":"application/json"])!,cacheStoragePolicy:.notAllowed)
    client?.urlProtocol(self,didLoad:data); client?.urlProtocolDidFinishLoading(self)
  }
@@ -174,6 +184,62 @@ final class OAuthFixtureProtocol: URLProtocol {
    for _ in 0..<30 { await Task.yield() }
    precondition(oauthAPI.added.count == 1 && completions == 1 && !cancelController.busy && cancelController.userCode.isEmpty)
    precondition(OAuthFixtureProtocol.requests().count == 1)
+   // Reproduce the video: browser succeeds while a polling connection is lost.
+   let success = #"{"access_token":"recovered-token","token_type":"bearer"}"#
+   let recoveryAPI = GitHub(); var recoveryDelays: [UInt64] = []; var recovered = 0
+   let recovery = DeviceOAuthController(session:session,wait:{ recoveryDelays.append($0) })
+   OAuthFixtureProtocol.reset([device,"-1005",success])
+   recovery.start(clientID:"testclient",privateRepositories:false,api:recoveryAPI) { recovered += 1 }
+   await drainOAuth(recovery)
+   precondition(recoveryAPI.added == ["recovered-token"] && recovered == 1,
+                "A temporary lost connection must not discard an authorized device flow")
+   precondition(recoveryDelays == [5_000_000_000,10_000_000_000])
+   precondition(OAuthFixtureProtocol.requests().count == 3)
+
+   // Once a token arrives, retry account validation with the same token, never exchange it twice.
+   let validationAPI = GitHub(); validationAPI.accountErrors = [URLError(.networkConnectionLost)]
+   var validationDelays: [UInt64] = []; var validated = 0
+   let validation = DeviceOAuthController(session:session,wait:{ validationDelays.append($0) })
+   OAuthFixtureProtocol.reset([device,success])
+   validation.start(clientID:"testclient",privateRepositories:false,api:validationAPI) { validated += 1 }
+   await drainOAuth(validation)
+   precondition(validationAPI.added == ["recovered-token"] && validated == 1)
+   precondition(validationAPI.accountAttempts == 2 && OAuthFixtureProtocol.requests().count == 2)
+   precondition(validationDelays == [5_000_000_000,2_000_000_000])
+
+   // Bound recovery, and do not retry permanent login/permission failures.
+   let boundedAPI = GitHub(); var boundedDelays: [UInt64] = []
+   let bounded = DeviceOAuthController(session:session,wait:{ boundedDelays.append($0) })
+   OAuthFixtureProtocol.reset([device,"-1005","-1005","-1005","-1005",success])
+   bounded.start(clientID:"testclient",privateRepositories:false,api:boundedAPI) { preconditionFailure() }
+   await drainOAuth(bounded)
+   precondition(boundedAPI.added.isEmpty && OAuthFixtureProtocol.requests().count == 5)
+   precondition(boundedDelays == [5_000_000_000,10_000_000_000,20_000_000_000,40_000_000_000])
+   precondition(bounded.message.contains("网络") && bounded.userCode.isEmpty)
+   let deniedAPI = GitHub(); deniedAPI.accountErrors = [AppError(text:"HTTP 401")]
+   let denied = DeviceOAuthController(session:session,wait:{ _ in })
+   OAuthFixtureProtocol.reset([device,success])
+   denied.start(clientID:"testclient",privateRepositories:false,api:deniedAPI) { preconditionFailure() }
+   await drainOAuth(denied)
+   precondition(deniedAPI.accountAttempts == 1 && deniedAPI.added.isEmpty && denied.message == "HTTP 401")
+
+   // Cancelling or changing accounts during recovery must prevent subsequent requests/saves.
+   for switchAccount in [false,true] {
+     let isolatedAPI = GitHub(); var pending: CheckedContinuation<Void,Error>?
+     let isolated = DeviceOAuthController(session:session,wait:{ delay in
+       if delay == 10_000_000_000 { try await withCheckedThrowingContinuation { pending = $0 } }
+     })
+     OAuthFixtureProtocol.reset([device,"-1005",success])
+     isolated.start(clientID:"testclient",privateRepositories:false,api:isolatedAPI) { preconditionFailure() }
+     while pending == nil && isolated.busy { await Task.yield() }
+     precondition(pending != nil)
+     if switchAccount { isolatedAPI.isCurrentSession = false } else { isolated.cancel() }
+     pending!.resume()
+     await drainOAuth(isolated)
+     for _ in 0..<20 { await Task.yield() }
+     precondition(isolatedAPI.added.isEmpty && OAuthFixtureProtocol.requests().count == 2)
+   }
+   print("PASS OAuth transient polling and account-validation recovery, bounded retry, cancellation and session isolation")
    print("PASS production community API routing, optional payloads, README limits, filter encoding, OAuth validation, pagination retry/dedup/cancel/account isolation/bounds")
    print("PASS production device OAuth via URLProtocol: pending, slow_down, success, denial, cancellation, no Authorization header or real GitHub traffic")
  }

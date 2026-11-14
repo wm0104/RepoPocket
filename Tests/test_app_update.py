@@ -41,6 +41,12 @@ class UpdateTests(unittest.TestCase):
     def test_production_version_and_asset_rules(self):
         api = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
         source = 'import Foundation\n' + api[api.index('struct AppError:'):api.index('struct GitHubAPIError:')] + Path(REPO_ROOT, 'RepoPocket/AppUpdateSessionRules.swift').read_text() + rules.replace('import Foundation', '') + r'''
+precondition(AppVersion("1.0.5")! < AppVersion("1.0.5.1")!)
+precondition(AppVersion("1.0.5.2")! < AppVersion("1.0.5.10")!)
+precondition(AppVersion("1.0.5.99")! < AppVersion("1.0.6")!)
+precondition(AppVersion("1.0.5.0")! == AppVersion("1.0.5")!)
+precondition(AppVersion("1.0.5.1-rc.1")! < AppVersion("1.0.5.1")!)
+for bad in ["1.0.5.01","1.0.5.1.0","1.0.5.","1.0.5.x"] { precondition(AppVersion(bad) == nil) }
 precondition(AppVersion("1.0.9")! < AppVersion("1.0.10")!)
 precondition(AppVersion("1.0.1-rc.9")! < AppVersion("1.0.1-rc.10")!)
 precondition(AppVersion("1.0.1-rc.10")! < AppVersion("1.0.1")!)
@@ -50,6 +56,10 @@ func release(_ tag: String, _ draft: Bool = false, _ pre: Bool = false, _ assets
     let raw = "{\"tag_name\":\"\(tag)\",\"html_url\":\"https://github.com/wm0104/RepoPocket/releases/tag/\(tag)\",\"draft\":\(draft),\"prerelease\":\(pre),\"assets\":\(assets)}"
     return try JSONDecoder().decode(AppUpdateRelease.self, from: Data(raw.utf8))
 }
+precondition(try AppUpdateRules.isNewer(release("v1.0.5.1"), local: "1.0.5", localBuild: "10"))
+precondition(try !AppUpdateRules.isNewer(release("v1.0.5.1"), local: "1.0.5.1", localBuild: "11"))
+precondition(try !AppUpdateRules.isNewer(release("v1.0.5"), local: "1.0.5.1", localBuild: "11"))
+precondition(try AppUpdateRules.isNewer(release("v1.0.6"), local: "1.0.5.1", localBuild: "11"))
 precondition(try AppUpdateRules.isNewer(release("v1.1.0"), local: "1.0.1", localBuild: "7"))
 precondition(try AppUpdateRules.isNewer(release("v1.0.1+8"), local: "1.0.1", localBuild: "7"))
 precondition(try !AppUpdateRules.isNewer(release("v1.0.1"), local: "1.0.1", localBuild: "7"))

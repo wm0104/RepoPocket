@@ -24,10 +24,10 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertNotIn('gh release', self.source)
         self.assertNotIn('softprops/action-gh-release', self.source)
         self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "4"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.5"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.5.1"', self.source)
         project = (REPO_ROOT / 'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.0.5"', project)
-        self.assertIn('CURRENT_PROJECT_VERSION: "10"', project)
+        self.assertIn('MARKETING_VERSION: "1.0.5.1"', project)
+        self.assertIn('CURRENT_PROJECT_VERSION: "11"', project)
 
     def test_system_default_refresh_rate(self):
         project = (REPO_ROOT / 'project.yml').read_text()

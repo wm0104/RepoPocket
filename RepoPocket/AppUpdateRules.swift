@@ -10,15 +10,16 @@ struct AppVersion: Comparable {
         guard metadata.count <= 2 else { return nil }
         let main = metadata[0].split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
         let numbers = main[0].split(separator: ".", omittingEmptySubsequences: false)
-        guard numbers.count == 3, numbers.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) && ($0.count == 1 || !$0.hasPrefix("0")) }), numbers.allSatisfy({ Int($0) != nil }) else { return nil }
-        parts = numbers.map { Int($0)! }
+        guard (3...4).contains(numbers.count), numbers.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) && ($0.count == 1 || !$0.hasPrefix("0")) }), numbers.allSatisfy({ Int($0) != nil }) else { return nil }
+        // A fourth numeric component is used for maintenance releases such as 1.0.5.1.
+        parts = numbers.map { Int($0)! } + (numbers.count == 3 ? [0] : [])
         prerelease = main.count == 2 ? main[1].split(separator: ".", omittingEmptySubsequences: false).map(String.init) : []
         let identifiers = prerelease + (metadata.count == 2 ? metadata[1].split(separator: ".", omittingEmptySubsequences: false).map(String.init) : [])
         guard identifiers.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 } }), prerelease.allSatisfy({ Int($0) == nil || $0.count == 1 || !$0.hasPrefix("0") }) else { return nil }
         build = metadata.count == 2 ? Int(metadata[1]) : nil
     }
     static func < (lhs: Self, rhs: Self) -> Bool {
-        for i in 0..<3 where lhs.parts[i] != rhs.parts[i] { return lhs.parts[i] < rhs.parts[i] }
+        for i in 0..<4 where lhs.parts[i] != rhs.parts[i] { return lhs.parts[i] < rhs.parts[i] }
         if lhs.prerelease.isEmpty != rhs.prerelease.isEmpty { return !lhs.prerelease.isEmpty }
         for (a, b) in zip(lhs.prerelease, rhs.prerelease) where a != b {
             if let x = Int(a), let y = Int(b) { return x < y }

@@ -116,6 +116,8 @@ struct GitHubAvatar: View {
 
 struct RepositoryStatistics: View {
     let repository: Repository
+    @Environment(\.repositorySocialAPI) private var socialAPI
+    @State private var socialDestination: RepositorySocialDestination?
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) { counts }.fixedSize(horizontal: true, vertical: false)
@@ -124,15 +126,24 @@ struct RepositoryStatistics: View {
         .font(.caption)
         .monospacedDigit()
         .foregroundColor(.secondary)
+        .sheet(item: $socialDestination) { destination in
+            if let socialAPI { RepositorySocialView(api: socialAPI, repository: repository, destination: destination) }
+        }
     }
     @ViewBuilder private var counts: some View {
         if let stars = repository.stargazers_count {
-            Label("\(max(0, stars).formatted())", systemImage: "star")
-                .accessibilityLabel("\(stars) 个星标")
+            if socialAPI != nil {
+                Button { socialDestination = .stars } label: { Label("\(max(0, stars).formatted())", systemImage: "star") }.buttonStyle(.borderless).accessibilityLabel("查看 \(stars) 位星标用户")
+            } else {
+                Label("\(max(0, stars).formatted())", systemImage: "star").accessibilityLabel("\(stars) 个星标")
+            }
         }
         if let forks = repository.forks_count {
-            Label("\(forks.formatted())", systemImage: "tuningfork")
-                .accessibilityLabel("\(forks) 个派生仓库")
+            if socialAPI != nil {
+                Button { socialDestination = .forks } label: { Label("\(forks.formatted())", systemImage: "tuningfork") }.buttonStyle(.borderless).accessibilityLabel("查看 \(forks) 个复刻仓库")
+            } else {
+                Label("\(forks.formatted())", systemImage: "tuningfork").accessibilityLabel("\(forks) 个派生仓库")
+            }
         }
         if let language = RepositoryPresentationRules.language(repository.language) {
             Text(language).accessibilityLabel("语言：" + language)

@@ -272,6 +272,7 @@ struct BrowserView: View {
                     if let repositoryInfo {
                         HStack(alignment: .top, spacing: 8) {
                             RepositoryCard(repository: repositoryInfo, account: api.login, api: api, descriptionLineLimit: nil, copyLinkContextMenu: false)
+                                .environment(\.repositorySocialAPI, api)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if RepositoryDescriptionRules.canEdit(repositoryInfo, login: api.login, sessionMatches: api.isCurrentSession) {
                                 Menu {
