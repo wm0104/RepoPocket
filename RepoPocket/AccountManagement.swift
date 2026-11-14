@@ -1,0 +1,71 @@
+import SwiftUI
+
+@MainActor final class AccountPresentation: ObservableObject {
+    @Published var showing = false
+}
+
+struct AccountManagementView: View {
+    @EnvironmentObject private var presentation: AccountPresentation
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var api = GitHub()
+    @State private var accounts = AccountStore.accounts
+    @State private var pendingRemoval: GitHubAccount?
+    @State private var token = ""
+    @State private var busy = false
+    @State private var verification: Task<Void, Never>?
+    @State private var error = ""
+    private func close() {
+        verification?.cancel(); verification = nil; token = ""
+        presentation.showing = false; dismiss()
+    }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("账号") {
+                    if accounts.isEmpty { Text("尚无已验证账号") }
+                    ForEach(accounts) { account in
+                        HStack {
+                            GitHubAvatar(url: account.avatarURL, size: 32)
+                            Text(account.login); Spacer()
+                            if account.id == AccountStore.activeID { Image(systemName: "checkmark") }
+                            else { Button("切换") { close(); AccountStore.activate(account.id) }.disabled(busy) }
+                            Button(role: .destructive) { pendingRemoval = account } label: { Image(systemName: "trash").frame(width: 44, height: 44) }.disabled(busy)
+                        }
+                    }
+                }
+                Section {
+                    NavigationLink("添加 / 更新 GitHub 账号") {
+                        Form {
+                            SecureField("粘贴你自己的 Token", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            Button("验证并安全保存") {
+                                guard !busy else { return }
+                                let credential = token; token = ""; busy = true
+                                verification = Task { @MainActor in
+                                    defer { busy = false }
+                                    do { try await api.addAccount(token: credential); accounts = AccountStore.accounts; close() }
+                                    catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+                                }
+                            }.disabled(busy || token.isEmpty)
+                            if busy { ProgressView() }
+                            Link("在 GitHub 创建 Token", destination: URL(string: "https://github.com/settings/tokens")!)
+                        }.navigationTitle("添加 / 更新账号").onDisappear { token = "" }
+                    }
+                    Text("仅移除本机凭据，不会删除 GitHub 账号、远端仓库或本地工作区。").font(.caption)
+                    if !error.isEmpty { Text(error).font(.caption) }
+                }
+            }.navigationTitle("账号管理")
+            .toolbar { Button("完成") { close() } }
+            .confirmationDialog("移除此账号及本机 Token？", isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }), titleVisibility: .visible) {
+                Button("移除本机账号", role: .destructive) {
+                    guard let account = pendingRemoval, !busy else { return }
+                    let active = account.id == AccountStore.activeID
+                    pendingRemoval = nil
+                    if active { close() }
+                    AccountStore.remove(account.id)
+                    accounts = AccountStore.accounts
+                }
+                Button("取消", role: .cancel) { pendingRemoval = nil }
+            } message: { Text("仅移除本机账号，不会删除 GitHub 账号、远端仓库或本地工作区。") }
+        }.onDisappear { verification?.cancel(); token = "" }
+    }
+}

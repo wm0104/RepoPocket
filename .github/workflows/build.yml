@@ -1,0 +1,127 @@
+name: Build Test IPA
+on:
+  push:
+    branches: [main, 'test/**']
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - '*.md'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - '*.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test build workflow entry points
+        run: python3 Tests/test_build_workflow.py
+      - name: Test original baseline historic commit and disk download regressions
+        run: python3 Tests/test_workspace_baseline.py
+      - name: Test production local checkbox and strict commit eligibility
+        run: python3 Tests/test_local_selection.py
+      - name: Test scanner, selective commit and three-way pull
+        run: python3 Tests/test_local_store.py
+      - name: Test ZIPFoundation safe extraction
+        run: python3 Tests/test_workspace_zip.py
+      - name: Test deb control editor
+        run: sh DebControlEditorTests/run-macos.sh
+      - name: Test deb UI lifecycle and commit feedback
+        run: python3 Tests/test_deb_ui_static.py
+      - name: Test workspace and TrollFools UI contracts
+        run: python3 Tests/test_workspace_troll_static.py
+      - name: Test queue and streamed blob core
+        run: python3 Tests/test_repo_queue.py
+      - name: Test metadata-only plugin editing
+        run: python3 Tests/test_troll_metadata.py
+      - name: Test repository deletion with network-free mocks and account management
+        run: python3 Tests/test_repository_deletion.py
+      - name: Test manual update SemVer and transient notice contracts
+        run: python3 Tests/test_app_update.py
+      - name: Test production update notice lifecycle mocks
+        run: python3 Tests/test_update_notice.py
+      - name: Test dynamic update group boundaries and production Swift corner geometry
+        run: python3 Tests/test_update_groups.py
+      - name: Test production GitHub repository links and shared input contracts
+        run: python3 Tests/test_repository_input.py
+      - name: Test repository menu canonical links and isolated fork mocks
+        run: python3 Tests/test_repository_copy_link.py
+      - name: Test production star state and account guards with network-free mocks
+        run: python3 Tests/test_repository_star.py
+      - name: Test repository statistics and legacy decoding
+        run: python3 Tests/test_repository_statistics.py
+      - name: Test multi-account isolation and avatar repository models
+        run: python3 Tests/test_accounts.py
+      - name: Test Desktop history, diff and branches
+        run: python3 Tests/test_desktop.py
+      - name: Test selection lifecycle, refresh and landscape contracts
+        run: python3 Tests/test_selection_lifecycle.py
+      - name: Test equal-width cards and soft grouped UI
+        run: python3 Tests/test_soft_groups.py
+      - name: Test always-visible repository list contracts
+        run: python3 Tests/test_repository_disclosure.py
+      - name: Test persistent downloads, cache whitelist and account lifecycle mocks
+        run: python3 Tests/test_download_store.py
+      - name: Test foreground inertness and operation guards
+        run: python3 Tests/test_manual_refresh.py
+      - name: Test workspace keyboard focus and submit contracts
+        run: python3 Tests/test_workspace_keyboard.py
+      - name: Test document picker identity and cancellation contracts
+        run: python3 Tests/test_workspace_picker.py
+      - name: Test folding search history and fail-closed permissions
+        run: python3 Tests/test_folding_search_safety.py
+      - name: Test repository UI performance and parent cache contracts
+        run: python3 Tests/test_repository_ui_performance.py
+      - name: Test restored Browser navigation without repository release requests
+        run: python3 Tests/test_browser_no_releases.py
+      - name: Test lazy directory navigation contract
+        run: python3 Tests/test_lazy_directory_navigation.py
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Compile iOS app
+        run: |
+          set -o pipefail
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tee build.log
+      - name: Ad-hoc sign and package IPA
+        run: |
+          set -euo pipefail
+          APP=build/Build/Products/Release-iphoneos/RepoPocket.app
+          test -d "$APP"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1"
+          codesign --force --sign - --entitlements Entitlements.plist "$APP"
+          codesign --verify --deep --strict "$APP"
+          codesign --display --entitlements :- "$APP"
+          mkdir -p dist/Payload
+          cp -R "$APP" dist/Payload/
+          cd dist
+          zip -qry RepoPocket.ipa Payload
+          unzip -t RepoPocket.ipa
+          mkdir verify
+          unzip -q RepoPocket.ipa -d verify
+          codesign --verify --deep --strict verify/Payload/RepoPocket.app
+          shasum -a 256 RepoPocket.ipa > RepoPocket.ipa.sha256
+          shasum -a 256 -c RepoPocket.ipa.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RepoPocket-iOS16-Test
+          path: |
+            dist/RepoPocket.ipa
+            dist/RepoPocket.ipa.sha256
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log
+          path: build.log
