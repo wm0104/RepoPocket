@@ -57,6 +57,7 @@ enum CredentialStore {
         } else if status != errSecSuccess {
             throw AppError(text: "钥匙串更新失败（\(status)）")
         }
+        AccountStore.updateAuthorization(account, scopes: nil)
     }
     static func clear(account: String = AccountStore.activeID) { SecItemDelete(query(account) as CFDictionary) }
 }
@@ -148,10 +149,12 @@ final class GitHub: ObservableObject {
     @Published var login = ""
     @Published var avatarURL: String?
     @Published var profile: User?
+    @Published private(set) var profileWriteAuthorization: Bool? = nil
     let accountID = AccountStore.activeID
     private let session: URLSession
     private let accountGeneration = AccountStore.generation
     private var accountObserver: AnyCancellable?
+    private var authorizationObserver: AnyCancellable?
     // Session-scoped caches never publish mutations to the whole repository list.
     private var parentTasks: [String: Task<RepositoryReference?, Never>] = [:]
     private var parentCache: [String: (Date, RepositoryReference?)] = [:]
@@ -209,10 +212,6 @@ final class GitHub: ObservableObject {
         }
         starRevision += 1
     }
-    func clearMemoryCaches() {
-        guard parentTasks.isEmpty else { return }
-        parentCache.removeAll(); collectionCache.removeAll()
-    }
     var canCheckAppUpdate: Bool { isCurrentSession && !CredentialStore.read(account: accountID).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     /// The public releases endpoint works signed out; a token only raises the rate limit.
     var canCheckOfficialUpdate: Bool { isCurrentSession }
@@ -265,6 +264,12 @@ final class GitHub: ObservableObject {
         config.timeoutIntervalForResource = 3600
         config.httpShouldSetCookies = false
         session = URLSession(configuration: config)
+        profileWriteAuthorization = AccountStore.accounts.first { $0.id == accountID }?.profileWriteAuthorization
+        authorizationObserver = NotificationCenter.default.publisher(for: .githubAuthorizationChanged)
+            .sink { [weak self] notice in
+                guard let self, self.isCurrentSession, notice.userInfo?["account"] as? String == self.accountID else { return }
+                self.profileWriteAuthorization = AccountStore.accounts.first { $0.id == self.accountID }?.profileWriteAuthorization
+            }
         accountObserver = NotificationCenter.default.publisher(for: .githubAccountChanged)
             .sink { [weak self] _ in
                 self?.session.invalidateAndCancel()
@@ -715,9 +720,15 @@ final class GitHub: ObservableObject {
         _ = try await data(endpoint + "/git/refs/heads/" + Self.filePath(branch), method: "PATCH", object: ["sha": newCommit.sha, "force": false])
     }
     func identify() async throws {
-        let user = try await decoded(User.self, "/user")
+        let r = try request(url("/user"))
+        let (bytes, response) = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        try check(bytes, response)
+        let user = try JSONDecoder().decode(User.self, from: bytes)
         try ensureActiveAccount()
         login = user.login; avatarURL = user.avatar_url; profile = user
+        if let scopes = GitHubAccount.grantedScopes((response as? HTTPURLResponse)?.value(forHTTPHeaderField: "X-OAuth-Scopes")) {
+            AccountStore.updateAuthorization(accountID, scopes: scopes)
+        }
         if accountID == "legacy", let id = user.id {
             let account = GitHubAccount(id: String(id), login: user.login, avatarURL: user.avatar_url)
             try CredentialStore.save(CredentialStore.read(account: "legacy"), account: account.id)
@@ -726,22 +737,40 @@ final class GitHub: ObservableObject {
             AccountStore.activate(account.id)
         }
     }
-    func addAccount(token: String) async throws {
+    var oauthScopes: [String]? { AccountStore.accounts.first { $0.id == accountID }?.oauthScopes }
+    func recordProfileWriteAuthorization(_ allowed: Bool) {
+        guard isCurrentSession else { return }
+        AccountStore.updateAuthorization(accountID, scopes: oauthScopes, profileWriteAccess: allowed)
+        profileWriteAuthorization = allowed
+    }
+    func addAccount(token: String, expectedAccountID: String? = nil, grantedScopes: String? = nil) async throws {
         try ensureActiveAccount()
         // Validate before replacing any existing credential. No secrets enter metadata or logs.
         var request = URLRequest(url: URL(string: "https://api.github.com/user")!)
         request.setValue("Bearer " + token.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (bytes, response) = try await session.data(for: request)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await session.data(for: request, delegate: OfficialUpdateRedirectPolicy())
         try check(bytes, response, operation: "验证账号")
+        guard (response as? HTTPURLResponse)?.statusCode == 200, bytes.count <= 1024 * 1024 else { throw AppError(text: "GitHub 未确认账号验证成功。") }
         let user = try JSONDecoder().decode(User.self, from: bytes)
         try ensureActiveAccount()
         guard let id = user.id else { throw AppError(text: "GitHub 未返回账号标识") }
-        let account = GitHubAccount(id: String(id), login: user.login, avatarURL: user.avatar_url)
+        guard expectedAccountID == nil || expectedAccountID == String(id) else {
+            throw AppError(text: "浏览器授权的账号与当前账号不同，请在 GitHub 切换到当前账号后重试。原账号凭据未修改。")
+        }
+        let scopes = GitHubAccount.grantedScopes((response as? HTTPURLResponse)?.value(forHTTPHeaderField: "X-OAuth-Scopes") ?? grantedScopes)
+        if expectedAccountID != nil, let scopes, !scopes.contains("user") {
+            throw AppError(text: "GitHub 未授予社交账号管理所需的 user 权限，原账号凭据未修改。")
+        }
+        let account = GitHubAccount(id: String(id), login: user.login, avatarURL: user.avatar_url, oauthScopes: scopes)
         try Task.checkCancellation()
         try CredentialStore.save(token, account: account.id)
         try AccountStore.record(account)
         AccountStore.activate(account.id)
+        let detail = account.profileWriteAuthorization == true ? "社交账号管理权限已确认。" : ""
+        NotificationCenter.default.post(name: .githubAuthorizationCompleted, object: nil,
+            userInfo: ["account": account.id, "message": "授权成功，账号 @\(account.login) 已保存。" + detail])
     }
     func repositories() async throws -> [Repository] {
         var result: [Repository] = []
@@ -1210,11 +1239,13 @@ final class GitHub: ObservableObject {
         let (tmp, response) = try await session.download(for: request, delegate: redirect)
         defer { try? FileManager.default.removeItem(at: tmp) }
         try ensureActiveAccount()
-        do {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let body = (200..<300).contains(status) ? Data() : ((try? Data(contentsOf: tmp)) ?? Data())
-            try check(Data(body.prefix(8192)), response, operation: "下载归档/文件")
-        } catch { try? FileManager.default.removeItem(at: tmp); throw error }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        var body = Data()
+        if !(200..<300).contains(status), let handle = try? FileHandle(forReadingFrom: tmp) {
+            defer { try? handle.close() }
+            body = (try? handle.read(upToCount: 8192)) ?? Data()
+        }
+        try check(body, response, operation: "下载归档/文件")
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = DownloadRules.safeName(name)
@@ -1429,4 +1460,69 @@ final class GitHub: ObservableObject {
         return try await download(r, name: asset.name, redirect: ReleaseAssetDownloadDelegate(update: transfer))
     }
 
+}
+
+// Current-account profile writes have their own endpoint and acknowledgement checks.
+extension GitHub {
+    func socialAccountRead(_ login: String, page: Int) async throws -> Data {
+        try await socialAccountData(method: "GET", page: page, path: "/users/" + Self.component(login) + "/social_accounts")
+    }
+    func ownSocialAccounts() async throws -> [CommunitySocialAccount] {
+        var result: [CommunitySocialAccount] = []
+        var seen = Set<String>()
+        for page in 1...CommunityRules.pageLimit {
+            let bytes = try await socialAccountData(method: "GET", page: page)
+            let batch = try JSONDecoder().decode([CommunitySocialAccount].self, from: bytes)
+            result += batch.filter { seen.insert($0.id).inserted }
+            if batch.count < CommunityRules.pageSize { return result }
+        }
+        throw AppError(text: "社交账号列表未加载完整，请稍后重试。")
+    }
+    func addSocialAccount(_ raw: String) async throws {
+        guard raw.utf8.count <= 2048, let target = CommunityRules.profileWebsiteURL(raw) else {
+            throw AppError(text: "请填写有效的社交账号或网站链接。")
+        }
+        let bytes = try await socialAccountData(method: "POST", link: target.absoluteString)
+        let result = try JSONDecoder().decode([CommunitySocialAccount].self, from: bytes)
+        guard result.contains(where: { $0.url == target.absoluteString }) else {
+            throw AppError(text: "GitHub 未确认新增链接，请刷新核实；原链接不会自动删除。")
+        }
+        recordProfileWriteAuthorization(true)
+    }
+    func deleteSocialAccount(_ link: String) async throws {
+        guard !link.isEmpty, link.utf8.count <= 2048 else { throw AppError(text: "无效的社交账号链接。") }
+        _ = try await socialAccountData(method: "DELETE", link: link)
+        recordProfileWriteAuthorization(true)
+    }
+    private func socialAccountData(method: String, link: String? = nil, page: Int = 1, path: String = "/user/social_accounts") async throws -> Data {
+        try Task.checkCancellation(); try ensureActiveAccount()
+        guard ["GET", "POST", "DELETE"].contains(method) else { throw AppError(text: "无效的社交账号操作。") }
+        guard method == "GET" || path == "/user/social_accounts" else { throw AppError(text: "社交账号只能修改当前账号。") }
+        let body = try link.map { try JSONSerialization.data(withJSONObject: ["account_urls": [$0]]) }
+        let query = method == "GET" ? try CommunityRules.page(page) : []
+        var r = try request(url(path, query: query), method: method, body: body)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        try Task.checkCancellation(); try ensureActiveAccount()
+        let code = (response as? HTTPURLResponse)?.statusCode
+        if code == 403, method != "GET" {
+            let http = response as? HTTPURLResponse
+            if http?.value(forHTTPHeaderField: "X-RateLimit-Remaining") != "0", http?.value(forHTTPHeaderField: "Retry-After") == nil {
+                recordProfileWriteAuthorization(false)
+            }
+            throw AppError(text: "当前授权无法管理社交账号。浏览器授权请开启“授权社交账号管理”；Token 需 user 或 Profile 写入权限。")
+        }
+        if code == 422 {
+            throw AppError(text: "GitHub 未接受此链接，请检查格式、是否重复或数量已满。如已满，请先删除不再使用的链接，再添加新链接。")
+        }
+        try check(bytes, response, operation: "社交账号管理")
+        let expected = method == "GET" ? 200 : (method == "POST" ? 201 : 204)
+        guard code == expected else { throw AppError(text: "未收到社交账号操作成功确认，请刷新核实后重试。") }
+        guard bytes.count <= 1024 * 1024 else { throw AppError(text: "社交账号响应过大。") }
+        if method != "GET" {
+            NotificationCenter.default.post(name: .socialAccountsChanged, object: nil,
+                userInfo: ["account": accountID, "generation": accountGeneration])
+        }
+        return bytes
+    }
 }

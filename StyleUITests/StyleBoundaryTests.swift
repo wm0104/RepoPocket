@@ -2,6 +2,169 @@ import XCTest
 import UIKit
 
 final class StyleBoundaryTests: XCTestCase {
+    func testSettingsSocialAccountsAddEditDeleteAndPermissionRecovery() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        func openAccounts(_ flags: [String] = []) {
+            app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-social-account-settings-preview"] + flags
+            app.launch()
+            let entry = app.buttons["settings-social-accounts"]
+            XCTAssertTrue(entry.waitForExistence(timeout: 20)); entry.tap()
+            XCTAssertTrue(app.buttons["social-account-https://t.me/fixture_owner"].waitForExistence(timeout: 15))
+        }
+        func fill(_ text: String) {
+            let field = app.textFields["social-account-url"]
+            XCTAssertTrue(field.waitForExistence(timeout: 10))
+            reveal(field, in: app); field.tap()
+            if let value = field.value as? String, value.hasPrefix("https://") {
+                field.press(forDuration: 1)
+                let selectAll = app.descendants(matching: .any).matching(NSPredicate(format: "label IN {'Select All', '全选'}")).firstMatch
+                XCTAssertTrue(selectAll.waitForExistence(timeout: 5)); selectAll.tap()
+                field.typeText(XCUIKeyboardKey.delete.rawValue)
+            }
+            field.typeText(text + "\n")
+            XCTAssertEqual(field.value as? String, text)
+            let save = app.buttons["social-account-save"]
+            reveal(save, in: app); save.tap()
+        }
+        openAccounts()
+        let original = app.buttons["social-account-https://t.me/fixture_owner"]
+        XCTAssertFalse(app.textFields["social-account-url"].exists, "Keep the main list compact until adding or editing")
+        app.buttons["social-account-add"].tap()
+        XCTAssertTrue(app.textFields["social-account-url"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.textFields["social-account-url"].placeholderValue, "社交账号或网站链接")
+        fill("https://example.invalid/new")
+        let added = app.buttons["social-account-https://example.invalid/new"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.textFields["social-account-url"])], timeout: 15), .completed)
+        XCTAssertTrue(added.waitForExistence(timeout: 15)); XCTAssertTrue(original.exists)
+        reveal(added, in: app); added.tap(); fill("https://example.invalid/edited")
+        let edited = app.buttons["social-account-https://example.invalid/edited"]
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.textFields["social-account-url"])], timeout: 15), .completed)
+        XCTAssertTrue(edited.waitForExistence(timeout: 15)); XCTAssertFalse(added.exists)
+        reveal(edited, in: app); edited.press(forDuration: 1)
+        let remove = app.buttons["social-account-context-delete"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 5))
+        keepScreenshot(app, name: "social-accounts-long-press")
+        remove.tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label == '删除' AND identifier != 'social-account-context-delete'")).firstMatch
+        guard confirm.waitForExistence(timeout: 10) else {
+            XCTFail("Show the native social-account deletion confirmation: " + app.debugDescription); return
+        }
+        let cancelDeletion = app.buttons.matching(NSPredicate(format: "label == '取消' AND identifier != 'social-account-cancel'")).firstMatch
+        guard cancelDeletion.waitForExistence(timeout: 5) else {
+            XCTFail("The deletion confirmation needs its own cancel button: " + app.debugDescription); return
+        }
+        cancelDeletion.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: confirm)], timeout: 5), .completed)
+        XCTAssertTrue(edited.exists, "Cancelling must keep the selected social account")
+        XCTAssertTrue(original.exists)
+        XCTAssertFalse(app.textFields["social-account-url"].exists, "Long press must not open the editor")
+        reveal(edited, in: app); edited.press(forDuration: 1)
+        XCTAssertTrue(remove.waitForExistence(timeout: 5)); remove.tap()
+        guard confirm.waitForExistence(timeout: 10) else {
+            XCTFail("Show the deletion confirmation again after cancelling: " + app.debugDescription); return
+        }
+        confirm.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: edited)], timeout: 15), .completed)
+        XCTAssertTrue(original.exists)
+        keepScreenshot(app, name: "social-accounts-managed")
+        app.terminate(); openAccounts(["-social-accounts-denied"])
+        app.buttons["social-account-add"].tap()
+        fill("https://example.invalid/denied")
+        let error = app.staticTexts["social-account-error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 15))
+        XCTAssertEqual(app.textFields["social-account-url"].value as? String, "https://example.invalid/denied")
+        XCTAssertFalse(app.buttons["social-account-https://example.invalid/denied"].exists)
+        let authorize = app.buttons["social-account-authorize-editor"]
+        guard authorize.waitForExistence(timeout: 10) else {
+            XCTFail("The editor must offer authorization after a permission error: " + app.debugDescription); return
+        }
+        for _ in 0..<6 {
+            if authorize.isHittable { break }
+            app.swipeUp()
+        }
+        guard authorize.isHittable else {
+            XCTFail("The editor authorization link must be tappable: " + app.debugDescription); return
+        }
+        authorize.tap()
+        let permission = app.switches["oauth-write-profile"]
+        XCTAssertTrue(permission.waitForExistence(timeout: 10)); XCTAssertEqual(permission.value as? String, "1")
+        keepScreenshot(app, name: "social-accounts-permission")
+    }
+
+    func testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        func openAuthor(_ flags: [String] = []) {
+            app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-profile-contacts-preview"] + flags
+            app.launch()
+            let issue = app.buttons["home-issue-4"]
+            XCTAssertTrue(issue.waitForExistence(timeout: 20)); issue.tap()
+            let author = app.buttons["issue-author"]
+            XCTAssertTrue(author.waitForExistence(timeout: 15)); author.tap()
+            XCTAssertTrue(app.navigationBars["fixture-follower"].waitForExistence(timeout: 10))
+        }
+        func tapContact(_ element: XCUIElement) {
+            guard element.waitForExistence(timeout: 15) else {
+                XCTFail("The profile contact must remain available: " + app.debugDescription); return
+            }
+            for _ in 0..<12 {
+                if element.isHittable { element.tap(); return }
+                // Small, reversible drags cannot skip a row and keep scrolling away from it.
+                let direction: CGFloat = !element.frame.isEmpty && element.frame.midY < app.frame.midY ? 1 : -1
+                let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+                origin.press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: 0, dy: direction * 130)))
+            }
+            XCTFail("The profile contact must be tappable: " + app.debugDescription)
+        }
+        openAuthor()
+        let contact = app.buttons["profile-social-https://mastodon.example.invalid/@author"]
+        XCTAssertTrue(contact.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["profile-website"].exists)
+        XCTAssertTrue(app.buttons["profile-social-https://bsky.app/profile/author.example.invalid"].exists)
+        XCTAssertTrue(app.buttons["profile-social-https://threads.net/fixture-author"].exists)
+        XCTAssertFalse(app.buttons["profile-github"].exists, "The native author profile must not repeat an external GitHub profile entry")
+        XCTAssertEqual(contact.value as? String, "https://mastodon.example.invalid/@author")
+        keepScreenshot(app, name: "profile-public-contacts")
+        tapContact(contact)
+        let done = app.buttons.matching(NSPredicate(format: "label IN {'Done', '完成'}")).firstMatch
+        guard done.waitForExistence(timeout: 10) else {
+            XCTFail("Without an associated app, keep the author page inside Safari: " + app.debugDescription); return
+        }
+        XCTAssertFalse(app.buttons["reading-link-close"].exists, "Use Safari's existing Done button without a second close bar")
+        done.tap()
+        let safariClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)
+        if XCTWaiter.wait(for: [safariClosed], timeout: 3) != .completed {
+            // Remote Safari controls can ignore Simulator taps; also exercise native sheet dismissal.
+            let browser = app.descendants(matching: .other).matching(NSPredicate(format: "identifier BEGINSWITH 'BrowserView?'")).firstMatch
+            let frame = app.frame
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let top = browser.exists ? browser.frame.minY + 4 : frame.minY + 75
+            origin.withOffset(CGVector(dx: frame.midX, dy: top)).press(forDuration: 0.1,
+                thenDragTo: origin.withOffset(CGVector(dx: frame.midX, dy: frame.maxY - 90)))
+        }
+        let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)
+        guard XCTWaiter.wait(for: [closed], timeout: 10) == .completed else {
+            XCTFail("Closing the web page must dismiss its presentation: " + app.debugDescription); return
+        }
+        XCTAssertTrue(contact.waitForExistence(timeout: 10))
+        let unsupported = app.buttons["profile-social-fixtureapp://author"]
+        tapContact(unsupported)
+        let alert = app.alerts["无法打开此链接"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.buttons["复制链接"].exists)
+        alert.buttons["取消"].tap()
+        app.terminate(); openAuthor(["-profile-contacts-error"])
+        let retry = app.buttons["重试联系方式"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["user-follow-action"].exists)
+        XCTAssertTrue(app.buttons["profile-website"].exists)
+        reveal(retry, in: app); keepScreenshot(app, name: "profile-contacts-retry")
+        retry.tap()
+        XCTAssertTrue(contact.waitForExistence(timeout: 15))
+        XCTAssertFalse(retry.exists)
+    }
+
     func testWorkflowFiltersAndSelectionKeepGroupedRows() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -525,7 +688,12 @@ final class StyleBoundaryTests: XCTestCase {
         keepScreenshot(app, name: "local-deb-editor")
         save.tap()
         XCTAssertTrue(folder.waitForExistence(timeout: 20))
-        menu.tap(); app.buttons["编辑包信息"].tap()
+        // Wait for the scan; SwiftUI's Menu wrapper can lack an AX hit point even when enabled.
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in menu.exists && menu.isEnabled }, object: nil)], timeout: 20), .completed)
+        menu.tap()
+        let edit = app.buttons["编辑包信息"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5)); edit.tap()
         XCTAssertTrue(version.waitForExistence(timeout: 20))
         XCTAssertEqual(version.value as? String, "2.0", "The edited DEB must be saved to its original project path")
         app.buttons["关闭"].tap()
@@ -686,6 +854,66 @@ final class StyleBoundaryTests: XCTestCase {
             keepScreenshot(app, name: "patch-" + mode + "-right")
             if mode == "highlight" { setSwitch(app, label: "原始 patch", enabled: true) }
         }
+    }
+
+    func testRemoteFileEditorConfirmationDoesNotRestoreKeyboard() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-remote-file-editor-preview"]
+        app.launch()
+        let edit = app.buttons["编辑"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 20)); edit.tap()
+        let editor = app.navigationBars["编辑 editor.py"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 10))
+        let surfaces = app.textViews.matching(identifier: "代码正文")
+        XCTAssertTrue(surfaces.firstMatch.waitForExistence(timeout: 10))
+        // The reading surface can remain behind the presented editor.
+        let code = surfaces.element(boundBy: surfaces.count - 1)
+        XCTAssertTrue(code.isHittable)
+        let original = code.value as? String ?? ""
+        XCTAssertTrue(original.hasSuffix("END_MARKER"))
+        XCTAssertEqual(original.components(separatedBy: "\n").count, 80)
+        for _ in 0..<6 { code.swipeUp() }
+        let viewport = code.frame.intersection(app.frame)
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: viewport.maxX - 24, dy: viewport.maxY - 24)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Setup must focus the shipping code editor")
+        code.typeText("x" + XCUIKeyboardKey.delete.rawValue + "_EDIT")
+        let draft = code.value as? String ?? ""
+        XCTAssertEqual(draft, original + "_EDIT", "Setup must edit and delete at the actual document end")
+        let message = app.textFields["提交说明"]
+        XCTAssertTrue(message.exists)
+        var commitMessage = message.value as? String ?? ""
+        var restoredFocus: [String] = []
+        for focus in ["source", "commit-message"] {
+            if focus == "commit-message" {
+                message.tap(); message.typeText(" fixture")
+                commitMessage = message.value as? String ?? ""
+                XCTAssertTrue(commitMessage.contains("fixture"), "Setup must edit the commit message")
+            }
+            XCTAssertTrue(app.keyboards.firstMatch.exists, "Setup must begin confirmation with \(focus) focused")
+            editor.buttons["提交"].tap()
+            let confirm = app.buttons["确认提交"]
+            XCTAssertTrue(confirm.waitForExistence(timeout: 5), "The real FileView confirmation must open: " + app.debugDescription)
+            keepScreenshot(app, name: "remote-file-editor-confirmation-" + focus)
+            let cancel = app.buttons.matching(NSPredicate(format: "label == '取消' OR label == 'Cancel'"))
+                .allElementsBoundByIndex.last(where: { $0.isHittable })
+            guard let cancel else { XCTFail("Missing confirmation cancel: " + app.debugDescription); return }
+            cancel.tap()
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: confirm)], timeout: 5), .completed)
+            XCTAssertTrue(editor.exists, "Cancelling confirmation must keep the editor sheet")
+            XCTAssertEqual(code.value as? String, draft, "Cancelling must preserve the edited body")
+            XCTAssertEqual(message.value as? String, commitMessage, "Cancelling must preserve the commit message")
+            let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
+            if XCTWaiter.wait(for: [hidden], timeout: 3) != .completed { restoredFocus.append(focus) }
+            else {
+                let reappeared = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.keyboards.firstMatch)
+                reappeared.isInverted = true
+                if XCTWaiter.wait(for: [reappeared], timeout: 1) != .completed { restoredFocus.append(focus) }
+            }
+        }
+        keepScreenshot(app, name: "remote-file-editor-cancelled")
+        XCTAssertTrue(restoredFocus.isEmpty, "Cancelling confirmation must not reopen the keyboard; restored focus: \(restoredFocus)")
     }
 
     func testSourcePreviewAndEditorHorizontalScrolling() {

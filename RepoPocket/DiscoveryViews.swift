@@ -1,12 +1,17 @@
 import SwiftUI
+import UIKit
 
 struct CommunityProfileSection: View {
     @ObservedObject var api: GitHub
     let login: String
     let avatar: String?
+    let openWeb: (URL) -> Void
     @State private var profile: CommunityProfile?
     @State private var error = ""
     @State private var revision = 0
+    @StateObject private var contacts = CommunityPageStore<CommunitySocialAccount>()
+    @State private var linkRequest: UUID?
+    @State private var unsupportedLink: String?
 
     var body: some View {
         Section("用户资料") {
@@ -29,18 +34,78 @@ struct CommunityProfileSection: View {
                     if let count = profile.followers { SoftGroupRow("followers") { Text("\(count) 位关注者 · 正在关注 \(profile.following ?? 0) 人").font(.caption) } }
                     if let company = profile.company, !company.isEmpty { SoftGroupRow("company") { Label(company, systemImage: "building.2") } }
                     if let location = profile.location, !location.isEmpty { SoftGroupRow("location") { Label(location, systemImage: "mappin") } }
-                    if let site = profile.blog, !site.isEmpty { SoftGroupRow("site") { Text(site).font(.caption).textSelection(.enabled) } }
+                    if let site = profile.blog, !site.isEmpty {
+                        SoftGroupRow("site") {
+                            Button { openContact(site) } label: {
+                                HStack(alignment: .center, spacing: 12) {
+                                    SocialAccountIcon(url: site)
+                                    Text(site).font(.subheadline).multilineTextAlignment(.leading)
+                                }
+                            }
+                                .accessibilityIdentifier("profile-website").accessibilityValue(site)
+                                .disabled(linkRequest != nil)
+                        }
+                    }
+                }
+                for contact in contacts.items {
+                    SoftGroupRow("social-" + contact.id) {
+                        Button { openContact(contact.url) } label: {
+                            HStack(alignment: .center, spacing: 12) {
+                                SocialAccountIcon(url: contact.url, provider: contact.provider)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(contact.title).font(.caption).foregroundStyle(.secondary)
+                                    Text(contact.url).font(.subheadline).multilineTextAlignment(.leading)
+                                }
+                            }
+                        }.accessibilityIdentifier("profile-social-" + contact.id).accessibilityValue(contact.url)
+                            .disabled(linkRequest != nil)
+                    }
+                }
+                if contacts.busy { SoftGroupRow("contacts-loading") { ProgressView("加载联系方式") } }
+                if !contacts.error.isEmpty {
+                    SoftGroupRow("contacts-error") { Text("联系方式加载失败，请重试。").font(.caption) }
+                    SoftGroupRow("contacts-retry") { Button("重试联系方式") { loadContacts() } }
+                } else if contacts.loaded && contacts.more {
+                    SoftGroupRow("contacts-more") { Button("加载更多联系方式") { loadContacts() }.disabled(contacts.busy) }
                 }
                 SoftGroupRow("events") { NavigationLink("公开活动") { CommunityEventsView(api: api, login: login) } }
                 SoftGroupRow("chart") { NavigationLink("活动图表") { NativeActivityChartView(api: api, login: login) } }
                 if !error.isEmpty { SoftGroupRow("error") { Text(error).font(.caption) }; SoftGroupRow("retry") { Button("重试资料加载") { revision += 1 } } }
             }
-        }.task(id: revision) {
+        }
+        .alert("无法打开此链接", isPresented: Binding(get: { unsupportedLink != nil }, set: { if !$0 { unsupportedLink = nil } }), presenting: unsupportedLink) { value in
+            Button("复制链接") { UIPasteboard.general.string = value }
+            Button("取消", role: .cancel) {}
+        } message: { _ in Text("此链接没有可用的网页地址，可以复制后在对应应用中使用。") }
+        .onDisappear { contacts.cancel(); linkRequest = nil; unsupportedLink = nil }
+        .onReceive(NotificationCenter.default.publisher(for: .socialAccountsChanged)) { notice in
+            let viewer = api.login.isEmpty ? AccountStore.accounts.first { $0.id == api.accountID }?.login : api.login
+            guard api.isCurrentSession, viewer?.lowercased() == login.lowercased(),
+                  notice.userInfo?["account"] as? String == api.accountID,
+                  notice.userInfo?["generation"] as? UUID == AccountStore.generation else { return }
+            contacts.load(reset: true, api: api) { try await api.communitySocialAccounts(login, page: $0) }
+        }
+        .task(id: revision) {
             error = ""
             do {
                 let value = try await api.communityProfile(login)
                 try Task.checkCancellation(); guard api.isCurrentSession else { return }; profile = value
+                if value.type == "User", !contacts.loaded { loadContacts() }
             } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { self.error = "资料加载失败，仓库浏览仍可使用。" } }
+        }
+    }
+    private func loadContacts() {
+        contacts.load(api: api) { try await api.communitySocialAccounts(login, page: $0) }
+    }
+    private func openContact(_ raw: String) {
+        guard api.isCurrentSession, linkRequest == nil else { return }
+        guard let url = CommunityRules.profileWebsiteURL(raw) else { unsupportedLink = raw; return }
+        let request = UUID(); linkRequest = request
+        UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { opened in
+            guard linkRequest == request else { return }
+            linkRequest = nil
+            guard api.isCurrentSession, !opened else { return }
+            openWeb(url)
         }
     }
 }

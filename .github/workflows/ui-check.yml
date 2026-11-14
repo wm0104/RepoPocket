@@ -5,7 +5,7 @@ on:
       test_scope:
         description: Run all UI checks, profile navigation, or attachment/follow actions
         type: choice
-        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle]
+        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit]
         default: all
   push:
     branches: [main, 'codex/**']
@@ -44,6 +44,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Select Xcode 15.4
         run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+      - name: Test community API and profile contacts
+        run: |
+          python3 Tests/test_community.py
+          python3 Tests/test_social_platforms.py
       - uses: actions/cache@v4
         with:
           path: NativeBuild

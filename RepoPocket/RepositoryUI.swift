@@ -35,11 +35,6 @@ actor AvatarPipeline {
         configuration.urlCredentialStorage = nil
         return URLSession(configuration: configuration, delegate: AvatarRedirectPolicy(), delegateQueue: nil)
     }()
-    func clearIfIdle() -> Bool {
-        guard pending.isEmpty, active == 0, waiters.isEmpty else { return false }
-        cache.removeAllObjects(); session.configuration.urlCache?.removeAllCachedResponses()
-        return true
-    }
     func image(for url: URL) async -> UIImage? {
         if let image = cache.object(forKey: url as NSURL) { return image }
         if let task = pending[url] { return await task.value }

@@ -29,7 +29,7 @@ class StarTests(unittest.TestCase):
         self.assertNotIn('confirmationDialog',ui)
         self.assertNotIn('isOwned',ui)
         for source in [app,sections]: self.assertIn('.onChange(of: api.starRevision)',source)
-        self.assertIn('CURRENT_PROJECT_VERSION: "1.1.2"',(ROOT/'project.yml').read_text())
+        self.assertIn('CURRENT_PROJECT_VERSION: "1.1.4"',(ROOT/'project.yml').read_text())
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Production Swift mocks run on macOS CI')
     def test_production_store_network_free(self):
@@ -76,7 +76,7 @@ struct Repository { let full_name: String; let stargazers_count: Int? }
  }
 }
 '''
-        production_cache = (ROOT/'RepoPocket/GitHub.swift').read_text().split('    func applyStarChange(',1)[1].split('    func clearMemoryCaches()',1)[0]
+        production_cache = (ROOT/'RepoPocket/GitHub.swift').read_text().split('    func applyStarChange(',1)[1].split('    var canCheckAppUpdate:',1)[0]
         mock_cache = ''' func applyStarChange(name: String, starred: Bool, repository: Repository?) {
   list.removeAll { $0.full_name.lowercased() == name.lowercased() }
   if starred, let repository { list.insert(repository, at: 0) }

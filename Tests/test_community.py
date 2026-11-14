@@ -35,24 +35,65 @@ class WorkflowDeletionIntegrationTests(unittest.TestCase):
         self.assertNotIn('load(reset: true)', handler)
 
 
+class OAuthCompletionIntegrationTests(unittest.TestCase):
+    def test_oauth_completion_is_reported_outside_rebuilt_account_root(self):
+        app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text(encoding='utf-8')
+        presentation = (ROOT/'RepoPocket/AccountManagement.swift').read_text(encoding='utf-8')
+        github = (ROOT/'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
+        device = (ROOT/'RepoPocket/DeviceOAuth.swift').read_text(encoding='utf-8')
+        self.assertIn('accountPresentation.authorizationNotice', app)
+        self.assertIn('.githubAuthorizationCompleted', presentation)
+        self.assertIn('X-OAuth-Scopes', github)
+        self.assertIn('expectedAccountID', github)
+        self.assertIn('let scope: String?', device)
+
+
 @unittest.skipUnless(shutil.which('swiftc'), 'production Swift tests run on macOS CI')
 class CommunityTests(unittest.TestCase):
+    def test_production_oauth_completion_and_scope_storage(self):
+        github = (ROOT/'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
+        presentation = (ROOT/'RepoPocket/AccountManagement.swift').read_text(encoding='utf-8')
+        program = (ROOT/'Tests/Fixtures/OAuthCompletionHarness.swift').read_text(encoding='utf-8')
+        sources = {
+            '// PRODUCTION_ERRORS': github.split('struct AppError:', 1)[1].split('enum CredentialStore', 1)[0],
+            '// PRODUCTION_ACCOUNTS': (ROOT/'RepoPocket/GitHubAccounts.swift').read_text(encoding='utf-8').replace('import Security\n', ''),
+            '// PRODUCTION_USER': 'struct User:' + github.split('struct User:', 1)[1].split('struct RepoAccess:', 1)[0] + 'struct GitHubMessage: Decodable { let message: String }',
+            '// PRODUCTION_PRESENTATION': '@MainActor final class AccountPresentation:' + presentation.split('@MainActor final class AccountPresentation:', 1)[1].split('@MainActor struct AccountManagementView:', 1)[0],
+            '// PRODUCTION_REDIRECT': (ROOT/'RepoPocket/OfficialUpdateRedirectPolicy.swift').read_text(encoding='utf-8'),
+            '// PRODUCTION_CHECK': '    private func ensureActiveAccount()' + github.split('    private func ensureActiveAccount()', 1)[1].split('    private func operation(', 1)[0],
+            '// PRODUCTION_ACCOUNT_SAVE': '    var oauthScopes:' + github.split('    var oauthScopes:', 1)[1].split('    func repositories()', 1)[0],
+            '// PRODUCTION_DEVICE_OAUTH': (ROOT/'RepoPocket/DeviceOAuth.swift').read_text(encoding='utf-8'),
+        }
+        sources['// PRODUCTION_ERRORS'] = 'struct AppError:' + sources['// PRODUCTION_ERRORS']
+        for marker, source in sources.items():
+            self.assertEqual(program.count(marker), 1)
+            program = program.replace(marker, source)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'main.swift'
+            path.write_text(program, encoding='utf-8')
+            executable = str(Path(folder)/'oauth-completion')
+            subprocess.run(['swiftc', '-parse-as-library', str(path), '-o', executable], check=True)
+            subprocess.run([executable], check=True, timeout=30)
+
     def test_production_community(self):
         source = (ROOT/'RepoPocket/GitHub.swift').read_text()
         models = source[source.index('struct User: Decodable'):source.index('struct Release: Decodable')]
         oauth = (ROOT/'RepoPocket/DeviceOAuth.swift').read_text()
+        follow_rules = (ROOT/'RepoPocket/UserFollow.swift').read_text().split('/// Shared only', 1)[0]
         program = '''import Foundation
 import Combine
 struct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }
 enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error is CancellationError } }
 @MainActor final class GitHub {
  var isCurrentSession = true
+ let accountID = "fixture-account"
+ var oauthScopes: [String]? = nil
  var calls: [(String, [URLQueryItem])] = []
  var payload = Data("[]".utf8)
  var added: [String] = []
  var accountErrors: [Error] = []
  var accountAttempts = 0
- func addAccount(token: String) async throws {
+ func addAccount(token: String, expectedAccountID: String? = nil, grantedScopes: String? = nil) async throws {
    try Task.checkCancellation(); guard isCurrentSession else { throw CancellationError() }
    accountAttempts += 1
    if !accountErrors.isEmpty { throw accountErrors.removeFirst() }
@@ -63,8 +104,13 @@ enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error
  func communityRead(_ path: String, query: [URLQueryItem]) async throws -> Data {
    calls.append((path, query)); return payload
  }
+ func socialAccountRead(_ login: String, page: Int) async throws -> Data {
+   let result = try await communityRead("/users/" + Self.component(login) + "/social_accounts", query: CommunityRules.page(page))
+   try Task.checkCancellation(); guard isCurrentSession else { throw CancellationError() }
+   return result
+ }
 }
-'''+models+'\n'+(ROOT/'RepoPocket/RepositoryInput.swift').read_text()+'\n'+(ROOT/'RepoPocket/DesktopModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/RepositorySearchRules.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/HomeCommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityAPI.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityPaging.swift').read_text()+'\n'+oauth+r'''
+'''+models+'\n'+follow_rules+'\n'+(ROOT/'RepoPocket/RepositoryInput.swift').read_text()+'\n'+(ROOT/'RepoPocket/DesktopModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/RepositorySearchRules.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/HomeCommunityModels.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityAPI.swift').read_text()+'\n'+(ROOT/'RepoPocket/CommunityPaging.swift').read_text()+'\n'+oauth+r'''
 struct Row: Identifiable { let id: Int }
 enum SampleError: Error { case offline }
 final class OAuthFixtureProtocol: URLProtocol {
@@ -95,6 +141,46 @@ final class OAuthFixtureProtocol: URLProtocol {
  @MainActor static func main() async throws {
    let decoder = JSONDecoder()
    let api = GitHub()
+   api.payload = Data(#"[{"provider":"mastodon","url":"https://infosec.exchange/@opa334"},{"provider":"bluesky","url":"https://bsky.app/profile/opa334.bsky.social"},{"provider":"generic","url":"https://threads.net/opa334"}]"#.utf8)
+   let contacts = try await api.communitySocialAccounts("OPA334", page: 2)
+   precondition(SocialPlatform.identify(url:"https://t.me/example", provider:"generic") == .telegram)
+   precondition(SocialPlatform.identify(url:"https://m.youtube.com/@example", provider:"generic") == .youtube)
+   precondition(SocialPlatform.identify(url:"https://threads.net/example", provider:"generic") == .threads)
+   precondition(SocialPlatform.identify(url:"https://custom.example/@author", provider:"mastodon") == .mastodon)
+   for unknown in ["https://t.me.evil.invalid/example", "https://evil-t.me/example", "javascript:alert(1)", "tg://resolve?domain=example", "https://unknown.example/author"] {
+     precondition(SocialPlatform.identify(url:unknown, provider:"generic") == nil)
+   }
+   precondition(CommunityRules.profileWebsiteURL("https://unknown.example/author") != nil)
+   precondition(contacts.count == 3 && contacts[0].title == "Mastodon" && contacts[1].title == "Bluesky")
+   precondition(contacts[2].id == "https://threads.net/opa334")
+   precondition(api.calls.last!.0 == "/users/opa334/social_accounts")
+   precondition(api.calls.last!.1.contains { $0.name == "page" && $0.value == "2" })
+   precondition(api.calls.last!.1.contains { $0.name == "per_page" && $0.value == "30" })
+   let contactCalls = api.calls.count
+   for invalid in ["", "../user", "user/name", "name?x=1", String(repeating:"a",count:40)] {
+     do { _ = try await api.communitySocialAccounts(invalid,page:1); preconditionFailure() } catch {}
+   }
+   for page in [0,11] {
+     do { _ = try await api.communitySocialAccounts("opa334",page:page); preconditionFailure() } catch {}
+   }
+   precondition(api.calls.count == contactCalls)
+   api.isCurrentSession = false
+   do { _ = try await api.communitySocialAccounts("opa334",page:1); preconditionFailure() } catch is CancellationError {}
+   api.isCurrentSession = true
+   api.payload = Data("[]".utf8)
+   let emptyContacts = try await api.communitySocialAccounts("other",page:1)
+   precondition(emptyContacts.isEmpty)
+   for invalid in [nil, "", "   ", "javascript:alert(1)", "file:///tmp/x", "https://user:password@example.com", "https://example.com/with space"] as [String?] {
+     precondition(CommunityRules.profileWebsiteURL(invalid) == nil)
+   }
+   precondition(CommunityRules.profileWebsiteURL(" example.com/about ")?.absoluteString == "https://example.com/about")
+   precondition(CommunityRules.profileWebsiteURL("https://example.com/about")?.absoluteString == "https://example.com/about")
+   precondition(CommunityRules.profileWebsiteURL("http://example.com")?.scheme == "http")
+   precondition(CommunityRules.profileWebsiteURL("example.com:8443/about")?.port == 8443)
+   precondition(CommunityRules.profileWebsiteURL("//example.com/about")?.absoluteString == "https://example.com/about")
+   precondition(CommunityRules.profileWebsiteURL("fixtureapp://author") == nil)
+   precondition(CommunityRules.profileWebsiteURL("tel:123") == nil)
+   precondition(CommunityRules.profileWebsiteURL("sms:123") == nil)
    api.payload = Data(#"[{"id":8,"login":"example-user","avatar_url":null}]"#.utf8)
    for kind in UserConnectionKind.allCases {
      let people = try await api.userConnections("fixture-owner", kind:kind, page:2)
@@ -386,6 +472,33 @@ final class OAuthFixtureProtocol: URLProtocol {
             executable = str(Path(folder)/'tests')
             subprocess.run(['swiftc', '-parse-as-library', str(path), '-o', executable], check=True)
             subprocess.run([executable], check=True, timeout=30)
+    @unittest.skipUnless(shutil.which('swiftc'), 'Native social-account regressions run on macOS')
+    def test_production_social_account_management(self):
+        github = (ROOT/'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
+        models = github[github.index('struct User: Decodable'):github.index('struct Release: Decodable')]
+        request = '    private func request(' + github.split('    private func request(', 1)[1].split('    // Public official update metadata', 1)[0]
+        social_api = github.split('// Current-account profile writes have their own endpoint and acknowledgement checks.', 1)[1]
+        social_state = (ROOT/'RepoPocket/SocialAccountsView.swift').read_text(encoding='utf-8')
+        social_state = '@MainActor' + social_state.split('@MainActor', 1)[1].split('struct SocialAccountsView:', 1)[0]
+        program = (ROOT/'Tests/Fixtures/SocialAccountsHarness.swift').read_text(encoding='utf-8')
+        sources = {
+            '// PRODUCTION_MODELS': models,
+            '// PRODUCTION_REPOSITORY_INPUT': (ROOT/'RepoPocket/RepositoryInput.swift').read_text(encoding='utf-8'),
+            '// PRODUCTION_COMMUNITY_MODELS': (ROOT/'RepoPocket/CommunityModels.swift').read_text(encoding='utf-8'),
+            '// PRODUCTION_REDIRECT_POLICY': (ROOT/'RepoPocket/OfficialUpdateRedirectPolicy.swift').read_text(encoding='utf-8'),
+            '// PRODUCTION_REQUEST': request,
+            '// PRODUCTION_SOCIAL_API': social_api,
+            '// PRODUCTION_SOCIAL_STATE': social_state,
+        }
+        for marker, source in sources.items():
+            self.assertEqual(program.count(marker), 1)
+            program = program.replace(marker, source)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/'main.swift'
+            path.write_text(program, encoding='utf-8')
+            executable = str(Path(folder)/'social-accounts')
+            subprocess.run(['swiftc', '-parse-as-library', str(path), '-o', executable], check=True)
+            subprocess.run([executable], check=True, timeout=60)
 
 
 if __name__ == '__main__':

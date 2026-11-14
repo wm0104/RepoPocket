@@ -1,7 +1,27 @@
 import SwiftUI
+import Combine
 
 @MainActor final class AccountPresentation: ObservableObject {
     @Published var showing = false
+    @Published var authorizationNotice: String? = nil
+    private var pendingAuthorizationNotice: (accountID: String, message: String)?
+    private var authorizationObserver: AnyCancellable?
+    init() {
+        authorizationObserver = NotificationCenter.default.publisher(for: .githubAuthorizationCompleted)
+            .sink { [weak self] notice in
+                guard let account = notice.userInfo?["account"] as? String, account == AccountStore.activeID,
+                      let message = notice.userInfo?["message"] as? String else { return }
+                guard let self else { return }
+                if self.showing {
+                    self.pendingAuthorizationNotice = (account, message)
+                    self.showing = false
+                } else { self.authorizationNotice = message }
+            }
+    }
+    func accountSheetDismissed() {
+        if let pending = pendingAuthorizationNotice, pending.accountID == AccountStore.activeID { authorizationNotice = pending.message }
+        pendingAuthorizationNotice = nil
+    }
 }
 
 @MainActor struct AccountManagementView: View {

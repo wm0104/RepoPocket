@@ -25,7 +25,10 @@ struct RepoPocketApp: App {
                 .background(WindowStyleApplier(style: appearance == "dark" ? .dark : (appearance == "light" ? .light : .unspecified)))
                 .environmentObject(selectionStore)
                 .environmentObject(accountPresentation)
-                .sheet(isPresented: $accountPresentation.showing) { accountManager.id(accountID).environmentObject(accountPresentation).appSheetCornerRadius() }
+                .sheet(isPresented: $accountPresentation.showing, onDismiss: { accountPresentation.accountSheetDismissed() }) { accountManager.id(accountID).environmentObject(accountPresentation).appSheetCornerRadius() }
+                .alert("GitHub 授权成功", isPresented: Binding(get: { accountPresentation.authorizationNotice != nil }, set: { if !$0 { accountPresentation.authorizationNotice = nil } })) {
+                    Button("好", role: .cancel) { accountPresentation.authorizationNotice = nil }
+                } message: { Text(accountPresentation.authorizationNotice ?? "") }
                 .sheet(item: $downloads.picker, onDismiss: { downloads.selected(nil) }) { request in
                     WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false, cancelTitle: "取消") { downloads.selected($0) }
                 }
@@ -617,7 +620,11 @@ struct FileView: View {
             }.navigationTitle("编辑 " + entry.name).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { editing = false }.disabled(busy) }
-                ToolbarItem(placement: .confirmationAction) { Button(busy ? "提交中…" : "提交") { confirmSave = true }
+                ToolbarItem(placement: .confirmationAction) { Button(busy ? "提交中…" : "提交") {
+                    // End input before presenting, so dismissing confirmation cannot restore the keyboard.
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    confirmSave = true
+                }
                     .disabled(busy || !writable || text == originalText || text.utf8.count > SourceTextRules.byteLimit || commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             }
             .confirmationDialog("把修改提交到 \(repo)？", isPresented: $confirmSave, titleVisibility: .visible) { Button("确认提交") { Task { await save() } } }
@@ -719,7 +726,11 @@ struct SettingsView: View {
                         Button { accountPresentation.showing = true } label: {
                             Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
                         }.accessibilityLabel("账号管理：切换、添加或移除本机账号")
-                    }.padding(.vertical, 8).softGroupedRow(top: true, bottom: true)
+                    }.padding(.vertical, 8).softGroupedRow(top: true, bottom: savedAccount == nil)
+                    if savedAccount != nil {
+                        NavigationLink { SocialAccountsView(api: api) } label: { Label("社交账号", systemImage: "link") }
+                            .accessibilityIdentifier("settings-social-accounts").softGroupedRow(bottom: true)
+                    }
                 }
                 Section("账号与安全") {
                     Text("Token 仅保存在本机钥匙串，切换账号自动隔离，账号资料不含 Token。")
@@ -732,7 +743,6 @@ struct SettingsView: View {
                     }.softGroupedRow(top: true, bottom: true)
                 }
                 DownloadLocationSection()
-                CacheSettingsSection(api: api, checker: updateChecker)
                 Section("关于") {
                     AppUpdateSection(api: api, checker: updateChecker)
                     // The version is the stable final row of the update group in every state.

@@ -25,6 +25,27 @@ class DownloadTests(unittest.TestCase):
   for name in ['RepoPocketApp.swift', 'UploadView.swift', 'UpdateFeature.swift', 'WorkflowViews.swift', 'ReleaseAssetDownload.swift']:
    self.assertIn('try await DownloadStore.shared.persist(', Path(REPO_ROOT, 'RepoPocket', name).read_text())
 
+ def test_settings_remove_manual_cache_clearing_but_keep_downloads(self):
+  self.assertFalse('CacheSettingsSection' in app)
+  self.assertIn('DownloadLocationSection()', app)
+  self.assertIn('AppUpdateSection(api: api, checker: updateChecker)', app)
+  self.assertNotIn('清缓存', store)
+  for name in ['CacheSettings.swift', 'CacheUsage.swift']:
+   self.assertFalse(Path(REPO_ROOT, 'RepoPocket', name).exists())
+  self.assertNotIn('enum CacheRules', rules)
+  self.assertNotIn('func clearMemoryCaches()', Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text())
+  avatar = Path(REPO_ROOT, 'RepoPocket/RepositoryUI.swift').read_text()
+  self.assertNotIn('func clearIfIdle()', avatar)
+  self.assertIn('NSCache<NSURL, UIImage>', avatar)
+  self.assertIn('configuration.urlCache = URLCache(', avatar)
+
+ def test_download_error_body_is_read_with_a_fixed_memory_bound(self):
+  github = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
+  download = github.split('    private func download(', 1)[1].split('    // These bounded endpoints', 1)[0]
+  self.assertNotIn('Data(contentsOf:', download)
+  self.assertIn('handle.read(upToCount: 8192)', download)
+  self.assertIn('defer { try? handle.close() }', download)
+
  def test_real_callsites_and_lifecycle(self):
   for text in ['resolvingBookmarkData', 'bookmarkDataIsStale', 'startAccessingSecurityScopedResource', 'stopAccessingSecurityScopedResource', 'NSFileCoordinator', 'volumeAvailableCapacityForImportantUsageKey', 'LocalStore.snapshotFileSHA256', 'AccountStore.generation']:
    self.assertIn(text, store)
@@ -48,14 +69,88 @@ class DownloadTests(unittest.TestCase):
   self.assertNotIn('Button("完成") { close() }.disabled', account)
   self.assertIn('verification?.cancel()', account)
   self.assertIn('try Task.checkCancellation()\n        try CredentialStore.save', Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text())
-  cache = Path(REPO_ROOT, 'RepoPocket/CacheSettings.swift').read_text()
-  self.assertIn('confirmationDialog', cache)
-  self.assertIn('clearIfIdle()', cache)
-  self.assertIn('downloads.operations > 0', cache)
-  self.assertIn('CacheRules.clear(root: root', cache)
   redirect = Path(REPO_ROOT, 'RepoPocket/ReleaseAssetRedirectPolicy.swift').read_text()
   self.assertIn('redirected.setValue(nil, forHTTPHeaderField: "Authorization")', redirect)
   self.assertIn('canCheckAppUpdate', Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text())
+ @unittest.skipUnless(shutil.which('swiftc'), 'Production download transport runs on macOS')
+ def test_production_download_error_and_temporary_file_lifecycle(self):
+  github = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
+  download = '    func download(' + github.split('    private func download(', 1)[1].split('    // These bounded endpoints', 1)[0]
+  source = rules + r'''
+struct DownloadHTTPError: Error { let status: Int }
+final class ArchiveRedirectPolicy: NSObject, URLSessionTaskDelegate {}
+@MainActor final class DownloadTransport {
+    var temporary: URL
+    var status = 500
+    init(_ temporary: URL) { self.temporary = temporary }
+    func download(for request: URLRequest, delegate: URLSessionTaskDelegate) async throws -> (URL, URLResponse) {
+        (temporary, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+    }
+}
+@MainActor final class GitHub {
+    let session: DownloadTransport
+    var active = true
+    var checkedBody: Data?
+    init(_ temporary: URL) { session = DownloadTransport(temporary) }
+    func ensureActiveAccount() throws { if !active { throw CancellationError() } }
+    func check(_ body: Data, _ response: URLResponse, operation: String) throws {
+        checkedBody = body
+        let status = (response as! HTTPURLResponse).statusCode
+        if !(200..<300).contains(status) { throw DownloadHTTPError(status: status) }
+    }
+// PRODUCTION_DOWNLOAD
+}
+@main struct DownloadRegression {
+    @MainActor static func main() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("DownloadRegression-" + UUID().uuidString)
+        try fm.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: root) }
+        let temporary = root.appendingPathComponent("response.tmp")
+        let api = GitHub(temporary)
+        let request = URLRequest(url: URL(string: "https://api.github.com/fixture")!)
+        for (status, body) in [(404, Data("{\"message\":\"Not Found\"}".utf8)),
+                               (500, Data(repeating: 65, count: 2 * 1024 * 1024)), (403, Data())] {
+            try body.write(to: temporary)
+            api.session.status = status
+            do {
+                _ = try await api.download(request, name: "asset.zip")
+                preconditionFailure("HTTP error accepted")
+            } catch let error as DownloadHTTPError { precondition(error.status == status) }
+            precondition(api.checkedBody == Data(body.prefix(8192)))
+            precondition(!fm.fileExists(atPath: temporary.path))
+        }
+        // An unreadable response still reports the HTTP error, not a file-read error.
+        api.session.status = 503
+        do {
+            _ = try await api.download(request, name: "asset.zip")
+            preconditionFailure("missing error body accepted")
+        } catch let error as DownloadHTTPError { precondition(error.status == 503) }
+        precondition(api.checkedBody == Data())
+        let contents = Data("downloaded contents".utf8)
+        try contents.write(to: temporary)
+        api.session.status = 200
+        let saved = try await api.download(request, name: "asset.zip")
+        defer { try? fm.removeItem(at: saved.deletingLastPathComponent()) }
+        let actual = try Data(contentsOf: saved)
+        precondition(actual == contents && saved.lastPathComponent == "asset.zip")
+        precondition(api.checkedBody == Data() && !fm.fileExists(atPath: temporary.path))
+        try contents.write(to: temporary)
+        api.active = false; api.checkedBody = nil
+        do {
+            _ = try await api.download(request, name: "asset.zip")
+            preconditionFailure("stale account accepted")
+        } catch is CancellationError {}
+        precondition(api.checkedBody == nil && !fm.fileExists(atPath: temporary.path))
+        print("PASS production download: bounded error body, empty/unreadable response, success, session rejection and temporary cleanup; no network")
+    }
+}
+'''
+  source = source.replace('// PRODUCTION_DOWNLOAD', download)
+  with tempfile.TemporaryDirectory() as d:
+   p = Path(d) / 'main.swift'; p.write_text(source)
+   subprocess.run(['swiftc', '-parse-as-library', str(p), '-o', d + '/test'], check=True)
+   subprocess.run([d + '/test'], check=True, timeout=30)
  @unittest.skipUnless(shutil.which('swiftc'), 'Pure Swift mocks run in Actions; no Apple device data touched')
  def test_production_rules_mock(self):
   source = rules + r'''
@@ -107,17 +202,7 @@ let linked = root.appendingPathComponent("link")
 try fm.createSymbolicLink(at: linked, withDestinationURL: parent)
 do { _ = try DownloadRules.save(input, parent: linked, valid:{true}, fingerprint:fingerprint); preconditionFailure("symlink followed") } catch { }
 precondition(DownloadRules.safeName("../file.zip") == "file.zip")
-let cache = root.appendingPathComponent("Caches")
-try fm.createDirectory(at: cache, withIntermediateDirectories:true)
-for name in ["RepoPocketCache", "RepoPocketAvatars", "Documents", "Downloads", "workspaces", "drafts", "Keychain"] { try fm.createDirectory(at:cache.appendingPathComponent(name),withIntermediateDirectories:true) }
-var removed:[String] = []
-do { try CacheRules.clear(root:cache,busy:true) { removed.append($0.lastPathComponent) }; preconditionFailure("busy ignored") } catch { precondition(removed.isEmpty) }
-try CacheRules.clear(root:cache,busy:false) { removed.append($0.lastPathComponent) }
-precondition(removed == ["RepoPocketCache", "RepoPocketAvatars"])
-try fm.removeItem(at:cache.appendingPathComponent("RepoPocketAvatars"))
-try fm.createSymbolicLink(at:cache.appendingPathComponent("RepoPocketAvatars"),withDestinationURL:parent)
-do { try CacheRules.clear(root:cache,busy:false) { _ in }; preconditionFailure("cache symlink followed") } catch { }
-print("PASS production pure Swift rules: filename/collision, exclusive save, session switch, copy/integrity/ENOSPC rollback, symlink refusal, cache whitelist/busy; mock-only user data")
+print("PASS production pure Swift rules: filename/collision, exclusive save, session switch, copy/integrity/ENOSPC rollback, symlink refusal; mock-only user data")
 '''
   # Throwing expressions are evaluated outside precondition's non-throwing autoclosure.
   source = source.replace('precondition(try fingerprint(first) == "fixture")', 'let firstText = try fingerprint(first); precondition(firstText == "fixture")')

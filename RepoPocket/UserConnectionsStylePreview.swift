@@ -5,10 +5,18 @@ import SwiftUI
 struct UserConnectionsStylePreview: View {
     @State private var api: GitHub?
     @State private var error = ""
+    @StateObject private var updateChecker = UpdateChecker()
+    @StateObject private var accountPresentation = AccountPresentation()
     var body: some View {
         Group {
             if let api {
-                if ProcessInfo.processInfo.arguments.contains("-issue-deletion-repository-preview") {
+                if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
+                    NavigationStack {
+                        FileView(api: api, repo: "fixture-owner/sample", entry: ConnectionsPreviewProtocol.editorEntry, branch: "main", canWrite: true)
+                    }
+                } else if ProcessInfo.processInfo.arguments.contains("-social-account-settings-preview") {
+                    SettingsView(api: api, updateChecker: updateChecker).environmentObject(accountPresentation)
+                } else if ProcessInfo.processInfo.arguments.contains("-issue-deletion-repository-preview") {
                     NavigationStack { CollaborationListView(api: api, repo: "fixture-owner/sample", kind: .issues) }
                 } else if ProcessInfo.processInfo.arguments.contains("-fork-author-preview") {
                     RepositorySocialView(api: api, repository: try! JSONDecoder().decode(Repository.self, from: Data(ConnectionsPreviewProtocol.repository.utf8)), destination: .forks)
@@ -40,10 +48,55 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
     private static var posted = ""
     private static var deleted = false
     private static var followed: Set<String> = ["fixture-following", "fixture-second"]
+    private static var contactAttempts = 0
+    private static var socialURLs = ["https://t.me/fixture_owner"]
+    static let editorSource = (1...79).map { "# Fixture line \($0)" }.joined(separator: "\n") + "\nEND_MARKER"
+    static var editorEntry: Entry {
+        Entry(name: "editor.py", path: "editor.py", type: "file", sha: "fixture-editor-sha", size: editorSource.utf8.count,
+              download_url: nil, content: Data(editorSource.utf8).base64EncodedString(), encoding: "base64")
+    }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if ProcessInfo.processInfo.arguments.contains("-remote-file-editor-preview") {
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let allowed = request.url?.host == "api.github.com" && request.httpMethod == "GET"
+                && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"
+            var code = 403, payload: [String: Any] = ["message": "Unexpected editor fixture request"]
+            if allowed, path == "/repos/fixture-owner/sample/contents/editor.py",
+               query.count == 1, query.first?.name == "ref", query.first?.value == "main" {
+                payload = ["name": "editor.py", "path": "editor.py", "type": "file", "sha": "fixture-editor-sha",
+                           "size": Self.editorSource.utf8.count, "content": Data(Self.editorSource.utf8).base64EncodedString(), "encoding": "base64"]
+                code = 200
+            } else if allowed, path == "/repos/fixture-owner/sample", query.isEmpty {
+                payload = ["full_name": "fixture-owner/sample", "permissions": ["push": true]]; code = 200
+            }
+            let bytes = try! JSONSerialization.data(withJSONObject: payload)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: bytes); client?.urlProtocolDidFinishLoading(self); return
+        }
+        if path == "/user/social_accounts" {
+            let method = request.httpMethod ?? ""
+            let allowed = request.url?.host == "api.github.com" && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"
+            Self.lock.lock()
+            var code = 403
+            if allowed {
+                if method == "GET" { code = 200 }
+                else if !ProcessInfo.processInfo.arguments.contains("-social-accounts-denied"),
+                        let bytes = Self.body(request), let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: [String]],
+                        let urls = object["account_urls"], urls.count == 1 {
+                    if method == "POST", Self.socialURLs.count < 4 { Self.socialURLs += urls; code = 201 }
+                    else if method == "DELETE" { Self.socialURLs.removeAll { urls.contains($0) }; code = 204 }
+                    else { code = 422 }
+                }
+            }
+            let rows = Self.socialURLs.map { ["provider": "generic", "url": $0] }
+            let bytes = code == 204 ? Data() : (try! JSONSerialization.data(withJSONObject: rows))
+            Self.lock.unlock()
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: bytes); client?.urlProtocolDidFinishLoading(self); return
+        }
         if path.hasPrefix("/users/fixture-owner/following/") || path.hasPrefix("/user/following/") {
             let target = path.components(separatedBy: "/").last ?? ""
             let method = request.httpMethod ?? ""
@@ -73,6 +126,13 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
         let allowed = request.url?.host == "api.github.com"
             && (request.httpMethod == "GET" || acceptedPost || graph)
             && request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-connections"
+        if path.hasSuffix("/social_accounts"), ProcessInfo.processInfo.arguments.contains("-profile-contacts-error") {
+            Self.lock.lock(); Self.contactAttempts += 1; let first = Self.contactAttempts == 1; Self.lock.unlock()
+            if first {
+                client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocolDidFinishLoading(self); return
+            }
+        }
         let payload: String
         if graph && allowed, let bytes = Self.body(request),
            let body = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
@@ -100,7 +160,11 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
             payload = #"[{"id":404,"login":"fixture-following"}]"#
         } else if ["/users/fixture-follower", "/users/fixture-following", "/users/fixture-owner", "/users/fixture-second"].contains(path) {
             let login = path.components(separatedBy: "/").last!
-            payload = "{\"login\":\"" + login + "\",\"type\":\"User\",\"bio\":\"关注列表测试用户\",\"public_repos\":0,\"followers\":0,\"following\":0}"
+            let website = ProcessInfo.processInfo.arguments.contains("-profile-contacts-preview") ? "https://example.invalid/author" : ""
+            payload = "{\"login\":\"" + login + "\",\"type\":\"User\",\"blog\":\"" + website + "\",\"bio\":\"关注列表测试用户\",\"public_repos\":0,\"followers\":0,\"following\":0}"
+        } else if path.hasSuffix("/social_accounts") {
+            payload = ProcessInfo.processInfo.arguments.contains("-profile-contacts-preview")
+                ? #"[{"provider":"mastodon","url":"https://mastodon.example.invalid/@author"},{"provider":"bluesky","url":"https://bsky.app/profile/author.example.invalid"},{"provider":"generic","url":"https://threads.net/fixture-author"},{"provider":"generic","url":"fixtureapp://author"}]"# : "[]"
         } else if path == "/user/repos" {
             payload = #"[{"id":501,"name":"alpha","full_name":"fixture-owner/alpha","html_url":"https://github.com/fixture-owner/alpha"},{"id":502,"name":"beta","full_name":"fixture-owner/beta","html_url":"https://github.com/fixture-owner/beta"}]"#
         } else if path == "/user/starred" {

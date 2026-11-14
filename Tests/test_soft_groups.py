@@ -280,6 +280,15 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
              'ReleasePublishPlan.swift', 'ReleaseTransfers.swift']:
     current = source(file)
     if file == 'GitHub.swift':
+        # Current-account social writes are isolated and covered by native request/state fixtures.
+        social_marker = '// Current-account profile writes have their own endpoint and acknowledgement checks.\n'
+        assert current.count(social_marker) == 1
+        social = current.split(social_marker, 1)[1]
+        assert 'path: String = "/user/social_accounts"' in social
+        assert 'guard method == "GET" || path == "/user/social_accounts"' in social
+        assert 'delegate: OfficialUpdateRedirectPolicy()' in social
+        assert 'guard code == expected' in social
+        current = current.split(social_marker, 1)[0].removesuffix('\n')
         # Exact additions for the account-scoped follow capability have their own native request/race fixtures.
         current = current.replace('    lazy var follows = UserFollowStore(api: self)\n', '')
         current = current.replace('                self?.follows.invalidate()\n', '')
@@ -344,6 +353,43 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         helper_end = current.index('    func history(', helper_start)
         current = current[:helper_start] + current[helper_end:]
         old_github = baseline(file)
+        # Only the obsolete manual cache-reset hook is removed; retain the
+        # byte guard on cache fetching and every unrelated API operation.
+        assert '    func clearMemoryCaches()' not in current
+        cache_start = old_github.index('    func clearMemoryCaches()')
+        cache_end = old_github.index('    var canCheckAppUpdate:', cache_start)
+        current = current.replace('    var canCheckAppUpdate:', old_github[cache_start:cache_end] + '    var canCheckAppUpdate:', 1)
+        # The bounded error read has focused transport tests. Normalize only
+        # this exact block, preserving the session, redirect and file-move guards.
+        bounded_error = '''        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        var body = Data()
+        if !(200..<300).contains(status), let handle = try? FileHandle(forReadingFrom: tmp) {
+            defer { try? handle.close() }
+            body = (try? handle.read(upToCount: 8192)) ?? Data()
+        }
+        try check(body, response, operation: "下载归档/文件")
+'''
+        assert current.count(bounded_error) == 1
+        old_download = old_github.split('    private func download(', 1)[1]
+        old_error = '        do {\n' + old_download.split('        do {\n', 1)[1].split('        let dir =', 1)[0]
+        current = current.replace(bounded_error, old_error, 1)
+        # Server-confirmed authorization metadata and login completion are covered
+        # by the native OAuth fixture; freeze every other credential/API byte.
+        current = current.replace('        AccountStore.updateAuthorization(account, scopes: nil)\n', '')
+        current = current.replace('    @Published private(set) var profileWriteAuthorization: Bool? = nil\n', '')
+        current = current.replace('    private var authorizationObserver: AnyCancellable?\n', '')
+        auth_init = current.index('        profileWriteAuthorization = AccountStore.accounts.first')
+        auth_init_end = current.index('        accountObserver = ', auth_init)
+        assert 'self.isCurrentSession' in current[auth_init:auth_init_end]
+        current = current[:auth_init] + current[auth_init_end:]
+        auth_start, auth_end = current.index('    func identify()'), current.index('    func repositories()')
+        auth = current[auth_start:auth_end]
+        assert 'X-OAuth-Scopes' in auth and 'expectedAccountID == String(id)' in auth
+        assert auth.index('expectedAccountID == String(id)') < auth.index('try CredentialStore.save(token,')
+        assert 'try Task.checkCancellation()' in auth and 'AccountStore.activate(account.id)' in auth
+        assert 'name: .githubAuthorizationCompleted' in auth
+        old_auth_start, old_auth_end = old_github.index('    func identify()'), old_github.index('    func repositories()')
+        current = current[:auth_start] + old_github[old_auth_start:old_auth_end] + current[auth_end:]
         for signature, next_signature in (
             ('    func commitQueue(', '    func identify('),
             ('    func trollPublish(', '    func metadataSnapshot('),
@@ -377,6 +423,11 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
     elif file == 'RepositoryUI.swift':
         # Approved star/fork navigation changes only this rendering block.
         old = baseline(file)
+        # Removing the manual reset must not alter the avatar cache pipeline.
+        assert '    func clearIfIdle()' not in current
+        cache_start = old.index('    func clearIfIdle()')
+        cache_end = old.index('    func image(for url:', cache_start)
+        old = old[:cache_start] + old[cache_end:]
         begin, end = 'struct RepositoryStatistics:', '/// The same compact summary'
         assert current.split(begin)[0] == old.split(begin)[0]
         assert current.split('struct LoadingRows:')[1] == old.split('struct LoadingRows:')[1]

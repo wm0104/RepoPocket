@@ -66,26 +66,3 @@ enum DownloadRules {
         return target
     }
 }
-
-enum CacheRules {
-    /// Total bytes of one cache directory; missing or unreadable entries count as zero.
-    static func directorySize(_ url: URL) -> Int64 {
-        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) else { return 0 }
-        var total: Int64 = 0
-        for case let file as URL in enumerator {
-            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            total += Int64(size)
-        }
-        return total
-    }
-    /// Only the two dedicated cache children; never Documents, temp, downloads or Keychain.
-    static func clear(root: URL, busy: Bool, remove: (URL) throws -> Void) throws {
-        guard !busy else { throw NSError(domain: "Cache", code: 1, userInfo: [NSLocalizedDescriptionKey: "操作进行中，请稍后清理缓存。"]) }
-        try DownloadRules.rejectSymlinks(root)
-        let children = ["RepoPocketCache", "RepoPocketAvatars"].map { root.appendingPathComponent($0, isDirectory: true) }
-        for child in children { try DownloadRules.rejectSymlinks(child) }
-        for child in children {
-            if FileManager.default.fileExists(atPath: child.path) { try remove(child) }
-        }
-    }
-}

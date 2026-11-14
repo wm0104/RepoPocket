@@ -1,5 +1,9 @@
 import Foundation
 
+extension Notification.Name {
+    static let socialAccountsChanged = Notification.Name("RepoPocket.socialAccountsChanged")
+}
+
 enum UserConnectionKind: String, CaseIterable, Identifiable {
     case followers, following
     var id: String { rawValue }
@@ -77,6 +81,66 @@ struct CommunityProfile: Decodable {
     let public_repos: Int?
 }
 
+struct CommunitySocialAccount: Decodable, Identifiable {
+    let provider: String
+    let url: String
+    var id: String { url }
+    var title: String {
+        if let platform = SocialPlatform.identify(url: url, provider: provider) { return platform.title }
+        switch provider.lowercased() {
+        case "mastodon": return "Mastodon"
+        case "bluesky": return "Bluesky"
+        case "twitter": return "X / Twitter"
+        case "generic": return "社交链接"
+        default: return provider.capitalized
+        }
+    }
+}
+
+enum SocialPlatform: String, CaseIterable {
+    case telegram, x, mastodon, bluesky, threads, instagram, youtube, discord, tiktok, whatsapp, bilibili, github
+
+    var title: String {
+        switch self {
+        case .telegram: return "Telegram"
+        case .x: return "X / Twitter"
+        case .mastodon: return "Mastodon"
+        case .bluesky: return "Bluesky"
+        case .threads: return "Threads"
+        case .instagram: return "Instagram"
+        case .youtube: return "YouTube"
+        case .discord: return "Discord"
+        case .tiktok: return "TikTok"
+        case .whatsapp: return "WhatsApp"
+        case .bilibili: return "哔哩哔哩"
+        case .github: return "GitHub"
+        }
+    }
+
+    static func identify(url: String, provider: String = "generic") -> SocialPlatform? {
+        guard let host = CommunityRules.profileWebsiteURL(url)?.host?.lowercased() else { return nil }
+        let domains: [(SocialPlatform, [String])] = [
+            (.telegram, ["t.me", "telegram.me", "telegram.org"]),
+            (.x, ["x.com", "twitter.com"]),
+            (.mastodon, ["mastodon.social", "mastodon.online"]),
+            (.bluesky, ["bsky.app", "bsky.social"]),
+            (.threads, ["threads.net", "threads.com"]),
+            (.instagram, ["instagram.com"]),
+            (.youtube, ["youtube.com", "youtu.be"]),
+            (.discord, ["discord.com", "discord.gg"]),
+            (.tiktok, ["tiktok.com"]),
+            (.whatsapp, ["whatsapp.com", "wa.me"]),
+            (.bilibili, ["bilibili.com", "b23.tv"]),
+            (.github, ["github.com"])
+        ]
+        for (platform, names) in domains {
+            if names.contains(where: { host == $0 || host.hasSuffix("." + $0) }) { return platform }
+        }
+        // Federated Mastodon servers have no fixed hostname; GitHub supplies the provider.
+        return provider.lowercased() == "mastodon" ? .mastodon : nil
+    }
+}
+
 struct CommunityEvent: Decodable, Identifiable {
     let id: String
     let type: String
@@ -119,6 +183,17 @@ enum CommunityRules {
     static func webURL(_ raw: String?) -> URL? {
         guard let raw, let url = URL(string: raw), url.scheme == "https",
               url.host != nil, url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+    static func profileWebsiteURL(_ raw: String?) -> URL? {
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
+              !value.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }) else { return nil }
+        // A bare domain can have a port; app schemes must not become web hosts.
+        if !value.contains("://"), let scheme = URLComponents(string: value)?.scheme, !scheme.contains(".") { return nil }
+        let candidate = value.hasPrefix("//") ? "https:" + value : (value.contains("://") ? value : "https://" + value)
+        guard let url = URL(string: candidate), let scheme = url.scheme?.lowercased(),
+              ["https", "http"].contains(scheme), let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil else { return nil }
         return url
     }
     static func repositoryURL(_ repo: String, suffix: String = "") -> URL? {
