@@ -31,6 +31,6 @@ for signature in ['importItems(_ urls: [URL], zip: Bool)', 'downloadRemote()', '
 assert 'hasScanned = true' in scan  # no foreground reset/recreation identity
 import re
 build = re.search(r'CURRENT_PROJECT_VERSION: "([^"]+)"', Path(REPO_ROOT, "project.yml").read_text()).group(1)
-assert build == '1.1.5'
+assert build == '1.1.6'
 assert f'CFBundleVersion\' "$APP/Info.plist")" = "{build}"' in Path(REPO_ROOT, ".github/workflows/build.yml").read_text()
 print('PASS manual-only foreground contract, stable Text, explicit safety reason, no blocking overlay, atomic scan/reconciliation, operation busy gates and internal build12')

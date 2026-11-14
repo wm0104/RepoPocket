@@ -36,14 +36,14 @@ permissions:
   contents: read
 jobs:
   preview:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       RP_STYLE_TEST_SCOPE: ${{ inputs.test_scope || 'all' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+      - name: Select Xcode 16.4
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
       - name: Test community API and profile contacts
         run: |
           python3 Tests/test_community.py

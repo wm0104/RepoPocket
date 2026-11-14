@@ -19,18 +19,19 @@ class BuildWorkflowTests(unittest.TestCase):
 
     def test_read_only_permissions_and_apple_runner(self):
         self.assertIn('permissions:\n  contents: read', self.source)
-        self.assertIn('runs-on: macos-14', self.source)
+        self.assertIn('runs-on: macos-15', self.source)
+        self.assertIn('Xcode_16.4.app', self.source)
         self.assertNotIn('contents: write', self.source)
         self.assertNotIn('gh release', self.source)
         self.assertNotIn('softprops/action-gh-release', self.source)
         self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "4"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.1.5"', self.source)
-        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "1.1.5"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$EXT/Info.plist")" = "1.1.5"', self.source)
-        self.assertIn('Print :CFBundleVersion\' "$EXT/Info.plist")" = "1.1.5"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.1.6"', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "1.1.6"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$EXT/Info.plist")" = "1.1.6"', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$EXT/Info.plist")" = "1.1.6"', self.source)
         project = (REPO_ROOT / 'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.1.5"', project)
-        self.assertIn('CURRENT_PROJECT_VERSION: "1.1.5"', project)
+        self.assertIn('MARKETING_VERSION: "1.1.6"', project)
+        self.assertIn('CURRENT_PROJECT_VERSION: "1.1.6"', project)
 
     def test_release_version_is_readable_by_installed_1_0_5(self):
         import re
