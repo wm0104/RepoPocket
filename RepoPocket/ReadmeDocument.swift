@@ -124,7 +124,7 @@ enum ReadmeDocumentRules {
         p, ul, ol, pre, blockquote, table { margin: 0 0 1em; } ul, ol { padding-left: 1.6em; }
         a { color: #0969da; text-decoration: none; } .anchor { display: none; }
         img, svg, video { max-width: 100%; height: auto; } img { vertical-align: middle; }
-        pre { overflow: auto; padding: 12px; background: #f6f8fa; border-radius: 8px; }
+        pre { overflow: auto; white-space: pre; overflow-wrap: normal; word-break: normal; padding: 12px; background: #f6f8fa; border-radius: 8px; }
         code, pre { font-family: ui-monospace, Menlo, monospace; font-size: .88em; }
         table { display: block; overflow: auto; border-collapse: collapse; max-width: 100%; }
         td, th { padding: 6px 12px; border: 1px solid #d1d9e0; }

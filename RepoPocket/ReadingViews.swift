@@ -75,7 +75,7 @@ struct RepositoryReadmeView: View {
                         readingLink = ReadingLink(url: $0)
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let source = document.source {
-                    ScrollView { Text(source).font(.system(size: 16, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                    SourceCodeView(text: source, filename: entryPath)
                 }
             } else if error.isEmpty { ProgressView("加载自述文件…") }
             if !error.isEmpty { Text(error); Button("重试") { revision += 1 } }
@@ -109,14 +109,15 @@ struct FileReadingView: View {
     @State private var markdown = true
     private var isMarkdown: Bool { ["md", "markdown", "mdown"].contains((path as NSString).pathExtension.lowercased()) }
     var body: some View {
-        ScrollView {
+        VStack(spacing: 0) {
+          if isMarkdown { Toggle("Markdown 排版", isOn: $markdown).padding(.horizontal).padding(.vertical, 8) }
+          if !isMarkdown || !markdown { SourceCodeView(text: text, filename: path) }
+          else { ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if isMarkdown { Toggle("Markdown 排版", isOn: $markdown) }
-                if isMarkdown && markdown {
                     CommunityMarkdown(text: text, baseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: false),
                         imageBaseURL: CommunityRules.readingBase(repo, branch: branch, file: path, raw: true), api: api)
-                } else { SourceCodeView(text: text, filename: path) }
             }.padding().frame(maxWidth: .infinity, alignment: .leading)
-        }.navigationTitle((path as NSString).lastPathComponent).adaptiveWorkspaceLayout()
+          } }
+        }.navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
     }
 }

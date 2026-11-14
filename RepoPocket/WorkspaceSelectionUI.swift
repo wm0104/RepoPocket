@@ -76,10 +76,15 @@ struct SoftGroupRow: Identifiable {
 }
 struct SoftGroupRows: View {
     private let rows: [SoftGroupRow]
-    init(@SoftGroupRowsBuilder rows: () -> [SoftGroupRow]) { self.rows = rows() }
+    private let animateBackground: Bool
+    init(animateBackground: Bool = true, @SoftGroupRowsBuilder rows: () -> [SoftGroupRow]) {
+        self.animateBackground = animateBackground
+        self.rows = rows()
+    }
     var body: some View {
         ForEach(rows) { row in
-            row.content.softGroupedRow(top: row.id == rows.first?.id, bottom: row.id == rows.last?.id, separatorInset: row.separatorInset)
+            row.content.softGroupedRow(top: row.id == rows.first?.id, bottom: row.id == rows.last?.id,
+                                      animateBackground: animateBackground, separatorInset: row.separatorInset)
         }
     }
 }

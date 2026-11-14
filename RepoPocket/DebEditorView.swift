@@ -7,6 +7,7 @@ struct DebEditorView: View {
     var remote: (repo: String, entry: Entry, branch: String)? = nil
     var canWrite: Bool = false
     var initialFile: URL? = nil
+    var onSaveLocal: ((URL) async throws -> Void)? = nil
     var onUseForUpload: ((URL) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var folder: URL?
@@ -69,7 +70,7 @@ struct DebEditorView: View {
     private var sourceSection: some View {
         Section("源文件") {
             if remote == nil && initialFile == nil { Button("从“文件”选择 .deb") { showPicker = true }.disabled(busy).softGroupedRow(top: true) }
-            if let source { Text(source.lastPathComponent).softGroupedRow(top: remote != nil || initialFile != nil); Text("只修改副本；原文件不会覆盖").font(.caption).foregroundColor(.secondary).softGroupedRow() }
+            if let source { Text(source.lastPathComponent).softGroupedRow(top: remote != nil || initialFile != nil); Text(onSaveLocal == nil ? "只修改副本；原文件不会覆盖" : "先编辑副本，点击“保存到本地项目”才更新原文件").font(.caption).foregroundColor(.secondary).softGroupedRow() }
             if busy { ProgressView("读取 / 生成中，请保持前台").softGroupedRow(top: source == nil && (remote != nil || initialFile != nil)) }
             Text("支持 control.tar、gz、xz、zst；xz/zst 编辑后输出 gzip。bz2/lzma 暂不支持编辑，但仍可原样上传。").font(.caption).foregroundColor(.secondary).softGroupedRow(top: source == nil && !busy && (remote != nil || initialFile != nil), bottom: true)
         }
@@ -134,17 +135,26 @@ struct DebEditorView: View {
                 if !resultMessage.isEmpty { Text(resultMessage).softGroupedRow() }
             } else if remote != nil {
                 Text("此仓库为只读，生成文件仅可保存到本地。").softGroupedRow()
+            } else if let onSaveLocal {
+                Button("保存到本地项目") {
+                    Task { @MainActor in
+                        busy = true; defer { busy = false }
+                        do { try await onSaveLocal(output); dismiss() }
+                        catch { self.error = error.localizedDescription }
+                    }
+                }.disabled(busy).softGroupedRow()
             } else if let onUseForUpload {
                 Button("使用新 deb 提交 / 发布") { onUseForUpload(output) }.disabled(busy).softGroupedRow()
             } else {
                 Button("使用新 deb 提交 / 发布") { showUpload = true }.disabled(busy).softGroupedRow()
             }
-            Text("提交仓库须明确选择目录及目标；Release 只上传附件，不会自动公开发布。").font(.caption).softGroupedRow(bottom: true)
+            Text(onSaveLocal == nil ? "提交仓库须明确选择目录及目标；Release 只上传附件，不会自动公开发布。" : "保存只更新当前本地 DEB，之后需创建本地提交并推送；其他项目文件不变。").font(.caption).softGroupedRow(bottom: true)
         }
     }
 
     private var editorNavigation: some View {
         editorForm
+            .accessibilityIdentifier("deb-editor-form")
             .navigationTitle("编辑 deb 包信息")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy || showUpload) } }

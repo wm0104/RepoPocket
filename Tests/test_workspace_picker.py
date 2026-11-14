@@ -13,7 +13,9 @@ assert 'WorkspaceImportRequest(kind: .folder)' in view
 assert 'zip = true' not in view and 'zip = false' not in view
 assert 'zip: request.isZIP' in view
 assert re.search(r'importRequest = nil\n[ \t]+guard let urls else', view)
-assert 'request.isZIP ? [.zip] : [.folder], asCopy: false' in picker
+assert 'request.kind == .files ? [.item] : (request.isZIP ? [.zip] : [.folder])' in picker
+assert 'forOpeningContentTypes: types, asCopy: false' in picker
+assert picker.count('[.item]') == 1  # Broad types apply only to explicit file import.
 assert 'var allowsMultipleSelection = true' in picker
 assert 'picker.allowsMultipleSelection = allowsMultipleSelection' in picker
 git_view = Path(REPO_ROOT, 'RepoPocket/GitWorkspaceView.swift').read_text()
@@ -36,7 +38,7 @@ assert 'showCancel: !request.isZIP' in picker
 assert 'let label = UILabel()' not in picker
 assert 'view.safeAreaLayoutGuide.topAnchor' in picker
 assert 'button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)' in picker
-for forbidden in ['setValue(', 'value(forKey:', 'navigationItem', 'UTType.data', '[.item]', '[.content]']:
+for forbidden in ['setValue(', 'value(forKey:', 'navigationItem', 'UTType.data', '[.content]']:
     assert forbidden not in picker
 assert 'source.startAccessingSecurityScopedResource()' in view
 assert 'source.stopAccessingSecurityScopedResource()' in view
@@ -46,7 +48,7 @@ assert 'WorkspaceZIP.extract(readable, to: stage)' in view
 # Abstract request/lifecycle model: every presentation gets a new identity,
 # immutable captured mode; nil cancels without import, duplicate callbacks ignored.
 import uuid
-for sequence in [('zip',), ('folder', 'zip'), ('zip', 'folder', 'zip'), ('zip', 'zip')]:
+for sequence in [('zip',), ('folder', 'zip'), ('zip', 'folder', 'zip'), ('zip', 'zip'), ('files',), ('folder', 'files', 'zip')]:
     identities = set()
     for kind in sequence:
         identity = uuid.uuid4(); assert identity not in identities; identities.add(identity)

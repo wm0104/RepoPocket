@@ -4,7 +4,7 @@ import UIKit
 
 // One immutable request is both the sheet identity and its import mode.
 struct WorkspaceImportRequest: Identifiable {
-    enum Kind { case folder, zip }
+    enum Kind { case folder, zip, files }
     let id = UUID()
     let kind: Kind
     var isZIP: Bool { kind == .zip }
@@ -15,11 +15,14 @@ struct WorkspaceDocumentPicker: UIViewControllerRepresentable {
     let request: WorkspaceImportRequest
     var allowsMultipleSelection = true
     var cancelTitle = "取消导入"
+    var initialDirectoryURL: URL? = nil
     let completion: ([URL]?) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(completion) }
     func makeUIViewController(context: Context) -> WorkspacePickerContainer {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: request.isZIP ? [.zip] : [.folder], asCopy: false)
+        let types: [UTType] = request.kind == .files ? [.item] : (request.isZIP ? [.zip] : [.folder])
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
         picker.allowsMultipleSelection = allowsMultipleSelection
+        picker.directoryURL = initialDirectoryURL
         picker.delegate = context.coordinator
         return WorkspacePickerContainer(picker: picker, showCancel: !request.isZIP, cancelTitle: cancelTitle, cancel: { context.coordinator.finish(nil) })
     }

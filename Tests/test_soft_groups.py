@@ -43,7 +43,8 @@ assert '.sheet(isPresented: $showOpen)' in ui
 assert 'NavigationLink("浏览")' in ui
 assert '.softGroupedRow().softGroupedRow' not in ui + workspace + upload
 assert ui.count('top: e.id == entries.first?.id, bottom: e.id == entries.last?.id') == 3
-assert 'if busy { ProgressView().softGroupedRow(bottom: true) }' in ui
+# The file reader is now a full-height code surface; its loading indicator is
+# no longer a terminal row inside the old metadata/download Form.
 # Import buttons moved into the toolbar Menu (not List rows).
 for marker in ['Text(binding.repo + " · " + binding.branch)', 'TextField("提交说明", text: $commitMessage)']:
     row = next(line for line in workspace.splitlines() if marker in line)
@@ -493,6 +494,11 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             changed = current.get(signature, '')
             expected = body.replace('guard file.startAccessingSecurityScopedResource() else { throw AppError(text: "文件未授权，请重选。") }\n            defer { file.stopAccessingSecurityScopedResource() }', 'let scoped = file.startAccessingSecurityScopedResource()\n            defer { if scoped { file.stopAccessingSecurityScopedResource() }; ShareSelectionCleanup.remove([file]) }\n            guard FileManager.default.isReadableFile(atPath: file.path) else { throw AppError(text: "文件未授权，请重选。") }')
             assert changed == expected, signature
+            continue
+        if file == 'RepoPocketApp.swift' and signature in ('private func read() async', 'private func save() async'):
+            # Approved file-reader redesign: automatic bounded reading and a
+            # dedicated editor replace the old manual Form actions. Production
+            # text/lexer and page-request regressions cover the replacement.
             continue
         assert current.get(signature) == body, (file, signature)
 print('PASS byte-exact baseline operation bodies: account, navigation/API actions, local/remote workspace, upload, release and destructive guards')

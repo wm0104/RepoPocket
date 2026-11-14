@@ -24,10 +24,18 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertNotIn('gh release', self.source)
         self.assertNotIn('softprops/action-gh-release', self.source)
         self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "4"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.5.1"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.6"', self.source)
         project = (REPO_ROOT / 'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.0.5.1"', project)
-        self.assertIn('CURRENT_PROJECT_VERSION: "11"', project)
+        self.assertIn('MARKETING_VERSION: "1.0.6"', project)
+        self.assertIn('CURRENT_PROJECT_VERSION: "13"', project)
+
+    def test_release_version_is_readable_by_installed_1_0_5(self):
+        import re
+        project = (REPO_ROOT / 'project.yml').read_text()
+        version = re.search(r'MARKETING_VERSION: "([^"]+)"', project).group(1)
+        # Shipping 1.0.5 rejects four-part version tags before comparison.
+        self.assertRegex(version, r'^\d+\.\d+\.\d+$',
+                         'A three-part release is needed for the installed 1.0.5 updater')
 
     def test_system_default_refresh_rate(self):
         project = (REPO_ROOT / 'project.yml').read_text()

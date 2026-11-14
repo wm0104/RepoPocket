@@ -663,9 +663,9 @@ Section("本地变更预览 / 勾选提交") {
                             Text("同文件双改或删除/修改冲突不会自动覆盖。请逐项选择；取消不会改变工作区。二进制或大文本仅显示哈希。").softGroupedRow(top: true, bottom: true)
                             ForEach(pending.conflicts, id: \.self) { path in
                                 Section(path) {
-                                    Text("基线：" + (binding.snapshot.texts[path] ?? binding.snapshot.hashes[path] ?? "已删除")).softGroupedRow(top: true)
-                                    Text("本地：" + (pending.local.texts[path] ?? pending.local.hashes[path] ?? "已删除")).softGroupedRow()
-                                    Text("远端：" + (pending.binding.snapshot.texts[path] ?? pending.binding.snapshot.hashes[path] ?? "已删除")).softGroupedRow()
+                                    ScrollView(.horizontal) { Text("基线：" + (binding.snapshot.texts[path] ?? binding.snapshot.hashes[path] ?? "已删除")).fixedSize(horizontal: true, vertical: false) }.softGroupedRow(top: true)
+                                    ScrollView(.horizontal) { Text("本地：" + (pending.local.texts[path] ?? pending.local.hashes[path] ?? "已删除")).fixedSize(horizontal: true, vertical: false) }.softGroupedRow()
+                                    ScrollView(.horizontal) { Text("远端：" + (pending.binding.snapshot.texts[path] ?? pending.binding.snapshot.hashes[path] ?? "已删除")).fixedSize(horizontal: true, vertical: false) }.softGroupedRow()
                                     Button { pullChoices[path] = false } label: { Label("保留本地", systemImage: pullChoices[path] == false ? "checkmark.circle.fill" : "circle") }.softGroupedRow()
                                     Button { pullChoices[path] = true } label: { Label("采用远端", systemImage: pullChoices[path] == true ? "checkmark.circle.fill" : "circle") }.softGroupedRow(bottom: true)
                                 }.font(.system(.caption, design: .monospaced))

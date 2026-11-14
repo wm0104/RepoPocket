@@ -29,6 +29,24 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+      - uses: actions/cache@v4
+        with:
+          path: NativeBuild
+          key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh') }}
+      - name: Prepare native Git libraries
+        run: |
+          bash Scripts/build_native_git.sh macosx
+          bash Scripts/build_native_git.sh iphoneos
+      - name: Test native local Git backend
+        run: python3 Tests/test_local_git_native.py
+      - name: Test original-folder persistence and editing
+        run: python3 Tests/test_local_git_store.py
+      - name: Test local project page lifecycle
+        run: python3 Tests/test_local_git_ui.py
+      - name: Test language-aware code and automatic text reading
+        run: python3 Tests/test_source_code.py
       - name: Test build workflow entry points
         run: python3 Tests/test_build_workflow.py
       - name: Test community reads, pagination, filters and OAuth rules
@@ -119,8 +137,6 @@ jobs:
         run: python3 Tests/test_repository_page_lifecycle.py
       - name: Test Swift source structure before compiling
         run: python3 Tests/test_swift_structure.py
-      - name: Select Xcode 15.4
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
       - name: Generate Xcode project
         run: |
           brew install xcodegen
@@ -139,15 +155,15 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0.5.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.0.6"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "16.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "11"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "13"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.0.5.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.0.6"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
           codesign --display --entitlements :- "$EXT"
@@ -216,49 +232,20 @@ jobs:
         if: ${{ inputs.style_preview }}
         run: |
           set -o pipefail
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
+          bash Scripts/build_native_git.sh iphonesimulator
+          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
       - name: Render fixed-data account and repository screens
         if: ${{ inputs.style_preview }}
-        run: |
-          set -euo pipefail
-          mkdir -p screenshots
-          RUNTIME=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys; r=[r for r in json.load(sys.stdin)["runtimes"] if r.get("isAvailable") and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-17")]; print(r[-1]["identifier"] if r else "")')
-          test -n "$RUNTIME"
-          DEVICE=$(xcrun simctl create RepoPocketStylePreview com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro "$RUNTIME")
-          xcrun simctl boot "$DEVICE"
-          xcrun simctl bootstatus "$DEVICE" -b
-          xcrun simctl status_bar "$DEVICE" override --time 9:41 --batteryState charged --batteryLevel 100
-          xcrun simctl install "$DEVICE" preview-build/Build/Products/Debug-iphonesimulator/RepoPocket.app
-          xcrun simctl launch "$DEVICE" com.wm0104.RepoPocket -style-preview -account-preview
-          sleep 5
-          xcrun simctl io "$DEVICE" screenshot screenshots/account.png
-          xcrun simctl terminate "$DEVICE" com.wm0104.RepoPocket
-          xcrun simctl launch "$DEVICE" com.wm0104.RepoPocket -style-preview
-          sleep 5
-          xcrun simctl io "$DEVICE" screenshot screenshots/repository.png
-          xcrun simctl terminate "$DEVICE" com.wm0104.RepoPocket
-          xcrun simctl launch "$DEVICE" com.wm0104.RepoPocket -style-preview -expanded-style-preview
-          sleep 5
-          xcrun simctl io "$DEVICE" screenshot screenshots/repository-expanded.png
-          xcrun simctl terminate "$DEVICE" com.wm0104.RepoPocket
-          xcrun simctl launch "$DEVICE" com.wm0104.RepoPocket -style-preview -workflow-style-preview
-          sleep 3
-          xcrun simctl io "$DEVICE" screenshot screenshots/workflow.png
-          xcrun simctl terminate "$DEVICE" com.wm0104.RepoPocket
-          xcrun simctl launch "$DEVICE" com.wm0104.RepoPocket -style-preview -workflow-style-preview -expanded-style-preview
-          sleep 3
-          xcrun simctl io "$DEVICE" screenshot screenshots/workflow-expanded.png
-          xcrun simctl terminate "$DEVICE" com.wm0104.RepoPocket
-          xcodebuild -project RepoPocket.xcodeproj -scheme RepoPocket -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath preview-build -resultBundlePath style-tests.xcresult CODE_SIGNING_ALLOWED=NO -only-testing:RepoPocketStyleUITests test > style-tests.log 2>&1 || { tail -100 style-tests.log; exit 1; }
-          python3 Scripts/export_style_attachments.py style-tests.xcresult screenshots
-          xcrun simctl shutdown "$DEVICE"
-          xcrun simctl delete "$DEVICE"
+        run: bash Scripts/run_style_preview.sh
       - uses: actions/upload-artifact@v4
         if: ${{ always() && inputs.style_preview }}
         with:
           name: simulator-style-preview
           path: |
             screenshots/*.png
+            screenshots/*.mp4
+            local-git-recording.log
             preview-build.log
+            app-preview.log
             style-tests.log
             style-tests.xcresult
