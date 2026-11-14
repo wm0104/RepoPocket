@@ -506,6 +506,14 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
         if file == 'ReleaseManagementUI.swift' and signature == 'func cancel()':
             assert 'task?.cancel()' in current[signature] and 'assetDownload?.stage = .cancelled' in current[signature]
             continue
+        if file == 'ReleaseManagementUI.swift' and signature == 'func list(reset: Bool)':
+            # Confirmed edits/deletions preserve loaded rows; production controller fixtures cover paging and stale responses.
+            changed = current.get(signature, '')
+            assert 'self.api.managedReleases(self.repo, page: p); try self.check()' in changed
+            assert 'batch.filter { !self.removedReleaseIDs.contains($0.id) }' in changed
+            assert 'self.removedReleaseIDs = []' in changed
+            assert 'self.api.managedLatestID(self.repo, refresh: true); try self.check()' in changed
+            continue
         if file == 'ReleaseManagementUI.swift' and signature == 'func download(_ asset: Asset)':
             body = current.get(signature, '')
             assert 'self.downloader.download(' in body

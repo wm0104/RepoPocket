@@ -672,6 +672,41 @@ static NSDictionary *RPRecover(git_repository *repo, NSDictionary *q, RPGitResou
     RPRequire(unlink(journal.fileSystemRepresentation)==0,@"恢复已完成，但恢复记录未能清除，请再次检查。");
     return @{@"head":RPOID(&newID)};
 }
+static int RPPullDiffProgress(const git_diff *diff, const char *oldPath, const char *newPath, void *payload) {
+    return RPIsCancelled((__bridge NSString *)payload) ? GIT_EUSER : 0;
+}
+static NSDictionary *RPPullSummary(git_repository *repo, const git_oid *before, const git_oid *target,
+                                   NSString *requestID, RPGitResources *c) {
+    if (git_oid_equal(before,target)) return @{@"commits":@0,@"files":@[],@"totalFiles":@0,@"added":@0,@"modified":@0,@"deleted":@0,@"truncated":@NO};
+    size_t commits=0, behind=0;
+    RPCheck(git_graph_ahead_behind(&commits,&behind,repo,target,before), @"统计本次拉取提交失败，尚未更新工作文件。");
+    git_commit *oldCommit=NULL,*newCommit=NULL; git_tree *oldTree=NULL,*newTree=NULL;
+    RPCheck(git_commit_lookup(&oldCommit,repo,before), @"读取拉取前提交失败。"); KEEP(oldCommit,git_commit_free);
+    RPCheck(git_commit_lookup(&newCommit,repo,target), @"读取拉取目标提交失败。"); KEEP(newCommit,git_commit_free);
+    RPCheck(git_commit_tree(&oldTree,oldCommit), @"读取拉取前文件树失败。"); KEEP(oldTree,git_tree_free);
+    RPCheck(git_commit_tree(&newTree,newCommit), @"读取拉取目标文件树失败。"); KEEP(newTree,git_tree_free);
+    git_diff_options options=GIT_DIFF_OPTIONS_INIT;
+    options.flags=GIT_DIFF_INCLUDE_TYPECHANGE;
+    options.progress_cb=RPPullDiffProgress; options.payload=(__bridge void *)requestID;
+    git_diff *diff=NULL;
+    RPCheck(git_diff_tree_to_tree(&diff,repo,oldTree,newTree,&options), @"统计本次拉取文件失败，尚未更新工作文件。"); KEEP(diff,git_diff_free);
+    NSMutableArray *files=[NSMutableArray array]; size_t added=0,modified=0,deleted=0,total=git_diff_num_deltas(diff);
+    for (size_t i=0;i<total;i++) {
+        RPRequire(!RPIsCancelled(requestID), @"拉取已取消，尚未更新工作文件。");
+        const git_diff_delta *delta=git_diff_get_delta(diff,i);
+        NSString *kind;
+        if (delta->status==GIT_DELTA_ADDED) { added++;kind=@"added"; }
+        else if (delta->status==GIT_DELTA_DELETED) { deleted++;kind=@"deleted"; }
+        else { modified++;kind=@"modified"; }
+        if (files.count<1000) {
+            const char *raw=delta->status==GIT_DELTA_DELETED ? delta->old_file.path : delta->new_file.path;
+            NSString *path=raw ? [NSString stringWithUTF8String:raw] : nil;
+            RPRequire(path!=nil, @"拉取文件名不是有效 UTF-8，尚未更新工作文件。");
+            [files addObject:@{@"path":path,@"kind":kind}];
+        }
+    }
+    return @{@"commits":@(commits),@"files":files,@"totalFiles":@(total),@"added":@(added),@"modified":@(modified),@"deleted":@(deleted),@"truncated":total>files.count ? @YES : @NO};
+}
 static NSDictionary *RPPull(git_repository *repo, NSMutableDictionary *q, RPGitResources *c) {
     NSDictionary *status = RPStatus(repo,c); RPWritable(repo,status);
     RPRequire([status[@"files"] count]==0, @"请先提交本地修改，再拉取；不会自动覆盖、暂存或清理文件。");
@@ -680,8 +715,10 @@ static NSDictionary *RPPull(git_repository *repo, NSMutableDictionary *q, RPGitR
     git_reference *head = RPHead(repo,c), *upstream = RPSafeUpstream(repo,head,YES,c);
     RPExpected(@{@"head":RPOID(git_reference_target(head)),@"reference":@(git_reference_name(head))},q);
     const git_oid *target = git_reference_target(upstream), *before = git_reference_target(head);
-    if (git_oid_equal(target,before)) return @{@"head":RPOID(before)};
+    if (git_oid_equal(target,before) || git_graph_descendant_of(repo,before,target)==1)
+        return @{@"head":RPOID(before),@"pullSummary":RPPullSummary(repo,before,before,q[@"requestID"],c)};
     RPRequire(git_graph_descendant_of(repo,target,before)==1, @"两端已有不同提交，停止拉取；请先在桌面 Git 处理分叉。");
+    NSDictionary *summary=RPPullSummary(repo,before,target,q[@"requestID"],c);
     git_transaction *tx = RPLockHead(repo,head,c);
     NSDictionary *fresh = RPStatus(repo,c); RPWritable(repo,fresh);
     RPExpected(fresh,q);RPRequire([fresh[@"files"] count]==0, @"拉取前发现本地新变化，已停止。");
@@ -700,7 +737,7 @@ static NSDictionary *RPPull(git_repository *repo, NSMutableDictionary *q, RPGitR
     RPCheck(git_transaction_set_target(tx,git_reference_name(head),target,signature,"RepoPocket fast-forward pull"), @"保存分支更新失败，恢复信息已保留。");
     RPCheck(git_transaction_commit(tx), @"分支更新未完成，恢复信息已保留。");
     unlink(journal.fileSystemRepresentation);
-    return @{@"head":RPOID(target)};
+    return @{@"head":RPOID(target),@"pullSummary":summary};
 }
 static NSDictionary *RPPush(git_repository *repo, NSMutableDictionary *q, RPGitResources *c) {
     NSDictionary *status = RPStatus(repo,c); RPWritable(repo,status);

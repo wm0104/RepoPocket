@@ -90,6 +90,13 @@ MUTATE
    do {_ = try CommunityMutationRules.request(.createIssue,title:" ");preconditionFailure()}catch{}
    do {_ = try CommunityMutationRules.request(.comment(1),text:String(repeating:"x",count:60001));preconditionFailure()}catch{}
    let api=GitHub();defer{api.session.invalidateAndCancel()}
+   api.payload=Data(#"{"workflow_runs":[]}"#.utf8)
+   _ = try await api.workflowRuns("owner/repo",branch:"feature/fix",page:2,failedOnly:true)
+   precondition(api.queries.contains { $0.name=="status" && $0.value=="failure" })
+   precondition(api.queries.contains { $0.name=="branch" && $0.value=="feature/fix" })
+   precondition(api.queries.contains { $0.name=="page" && $0.value=="2" })
+   _ = try await api.workflowRuns("owner/repo",branch:"",page:1)
+   precondition(!api.queries.contains { $0.name=="status" || $0.name=="branch" })
    _ = try await api.communityMutate("owner/repo",action:.comment(7),text:"reply")
    precondition(api.pushChecks==0 && api.method=="POST" && api.body["body"] as? String=="reply")
    let before=Fixture.count()

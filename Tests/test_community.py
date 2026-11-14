@@ -9,6 +9,32 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class WorkflowDeletionIntegrationTests(unittest.TestCase):
+    def test_filters_and_selection_reuse_existing_rows(self):
+        source = (ROOT/'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8')
+        runs = source.split('struct WorkflowRunsView: View {', 1)[1].split('struct WorkflowRunView:', 1)[0]
+        filters = runs.split('Section {', 1)[1].split('}.disabled(selection.busy)', 1)[0]
+        for component in ['SoftGroupRows {', 'SoftGroupRow("branch")', 'SoftGroupRow("failed")']:
+            self.assertIn(component, filters)
+        self.assertEqual(runs.count('WorkflowRunSummary(run: run)'), 2)
+        self.assertIn('selection.remove(target, api: api)', runs)
+        self.assertIn('failedOnly: requestedFailedOnly', runs)
+        self.assertIn('.onChange(of: failedOnly)', runs)
+        self.assertIn('.onChange(of: store.items.map(\\.id))', runs)
+        self.assertIn('.onDisappear { store.cancel(); selection.cancel() }', runs)
+        self.assertNotIn('cornerRadius:', runs)
+
+    def test_delete_notification_preserves_loaded_list(self):
+        source = (ROOT/'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8')
+        handler = source.split('.onReceive(NotificationCenter.default.publisher(for: .workflowRunDeleted))', 1)[1].split('\n        }', 1)[0]
+        self.assertIn('api.isCurrentSession', handler)
+        self.assertIn('notice.userInfo?["repo"] as? String == repo', handler)
+        self.assertIn('notice.userInfo?["generation"] as? UUID == AccountStore.generation', handler)
+        self.assertIn('notice.userInfo?["run"] as? Int', handler)
+        self.assertIn('store.remove(id: runID)', handler)
+        self.assertNotIn('load(reset: true)', handler)
+
+
 @unittest.skipUnless(shutil.which('swiftc'), 'production Swift tests run on macOS CI')
 class CommunityTests(unittest.TestCase):
     def test_production_community(self):
@@ -186,6 +212,80 @@ final class OAuthFixtureProtocol: URLProtocol {
      await drain(store)
    }
    precondition(store.items.count == 300 && store.limited && !store.more)
+   // Keep loaded row identities while repairing deletion-induced page shifts.
+   let runs = CommunityPageStore<Row>()
+   var server = (0..<125).map { Row(id:$0) }
+   var runPages: [Int] = []
+   func fetchRuns(_ page: Int) -> [Row] {
+     runPages.append(page)
+     return Array(server.dropFirst((page-1)*30).prefix(30))
+   }
+   for _ in 0..<3 { runs.load(api:api,fetch:fetchRuns); await drain(runs) }
+   runs.cancel() // The parent list disappears when a run's detail is opened.
+   server.removeAll { $0.id == 85 }; runs.remove(id:85)
+   precondition(runs.loaded && runs.items.map(\.id) == Array(0..<90).filter { $0 != 85 })
+   precondition(runPages == [1,2,3] && runs.more && !runs.busy)
+   // A duplicate notice or another filter's run must not cancel a valid request.
+   runs.load(api:api,fetch:fetchRuns)
+   runs.remove(id:85); runs.remove(id:999)
+   await drain(runs)
+   precondition(runPages == [1,2,3,3] && runs.items.map(\.id) == server.prefix(90).map(\.id))
+   // Consecutive deletions before loading can cross an entire page boundary.
+   let removed = Set(50...84)
+   server.removeAll { removed.contains($0.id) }
+   for id in removed { runs.remove(id:id) }
+   precondition(runs.items.count == 55 && runs.items.first?.id == 0)
+   runs.load(api:api) { page in runPages.append(page); throw SampleError.offline }
+   await drain(runs)
+   precondition(runPages.last == 2 && runs.items.count == 55 && !runs.error.isEmpty)
+   runs.load(api:api,fetch:fetchRuns); await drain(runs)
+   precondition(runPages.suffix(2) == [2,2] && runs.error.isEmpty && runs.items.map(\.id) == server.prefix(60).map(\.id))
+   // A late response may still contain a confirmed-deleted run; never resurrect it.
+   var pending: CheckedContinuation<[Row],Never>?
+   runs.load(api:api) { _ in await withCheckedContinuation { pending = $0 } }
+   while pending == nil { await Task.yield() }
+   server.removeAll { $0.id == 49 }; runs.remove(id:49)
+   runs.load(api:api,fetch:fetchRuns); await drain(runs)
+   pending!.resume(returning:[Row(id:49),Row(id:999)])
+   for _ in 0..<10 { await Task.yield() }
+   precondition(!runs.items.contains { $0.id == 49 || $0.id == 999 })
+   runs.load(api:api) { _ in [Row(id:85),Row(id:50)] }; await drain(runs)
+   precondition(!runs.items.contains { $0.id == 85 || $0.id == 50 })
+   // Recheck an exhausted tail without losing retained rows, including the last row.
+   let tail = CommunityPageStore<Row>()
+   tail.load(api:api) { _ in [Row(id:1),Row(id:2)] }; await drain(tail)
+   tail.remove(id:2)
+   precondition(tail.loaded && tail.items.map(\.id) == [1] && tail.more)
+   tail.load(api:api) { page in precondition(page == 1); return [Row(id:1)] }; await drain(tail)
+   precondition(!tail.more && tail.items.map(\.id) == [1])
+   tail.remove(id:1)
+   tail.load(api:api) { page in precondition(page == 1); return [] }; await drain(tail)
+   precondition(tail.loaded && tail.items.isEmpty && !tail.more)
+   // Refill page ten at the limit, without requesting page eleven.
+   var capServer = (0..<330).map { Row(id:$0) }
+   func fetchCap(_ page: Int) -> [Row] {
+     precondition((1...10).contains(page))
+     return Array(capServer.dropFirst((page-1)*30).prefix(30))
+   }
+   for i in 1...10 { store.load(reset:i==1,api:api,fetch:fetchCap); await drain(store) }
+   let cachedCap = capServer
+   capServer.removeAll { $0.id == 290 }; store.remove(id:290)
+   precondition(store.items.count == 299 && store.more && !store.limited)
+   store.load(api:api) { page in
+     precondition(page == 10)
+     return Array(cachedCap.dropFirst((page-1)*30).prefix(30))
+   }; await drain(store)
+   precondition(store.items.count == 299 && store.more && !store.limited && !store.items.contains { $0.id == 290 })
+   store.load(api:api,fetch:fetchCap); await drain(store)
+   precondition(store.limited && !store.more && store.items.map(\.id) == capServer.prefix(300).map(\.id))
+   store.load(api:api) { _ in precondition(false, "page limit bypassed"); return [] }
+   // Explicit refresh/filter reset clears deletion history and rejects stale accounts.
+   tail.load(reset:true,api:api) { _ in [Row(id:1)] }; await drain(tail)
+   precondition(tail.items.map(\.id) == [1])
+   tail.remove(id:1)
+   tail.load(api:api) { _ in api.isCurrentSession=false; return [Row(id:3)] }; await drain(tail)
+   precondition(tail.items.isEmpty)
+   api.isCurrentSession=true
    let config=URLSessionConfiguration.ephemeral; config.protocolClasses=[OAuthFixtureProtocol.self]
    let session=URLSession(configuration:config)
    defer { session.invalidateAndCancel() }

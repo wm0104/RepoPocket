@@ -26,10 +26,13 @@ expected.update({'source-preview-left', 'source-preview-right', 'source-editor-l
 expected.update({'patch-highlight-left', 'patch-highlight-right', 'patch-raw-left', 'patch-raw-right'})
 profiles = {'profile-issue-list', 'profile-fork', 'profile-activity', 'profile-fork-repository', 'profile-activity-repository'}
 actions = {'release-compact-attachments', 'release-inline-progress', 'profile-following-action', 'profile-follow-status-error', 'repository-owner-profile'}
+actions.update({'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'})
 file_feedback = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-editor'}
 download_lifecycle = file_feedback | {'local-file-sheet-dismissed', 'release-compact-attachments', 'release-inline-progress'}
 if scope == 'profiles':
     expected = profiles
+elif scope == 'workflow-selection':
+    expected = {'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'}
 elif scope == 'actions':
     expected = actions
 elif scope == 'file-feedback':

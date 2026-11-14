@@ -30,15 +30,20 @@ struct ReleaseManagementDestination: View {
     @Published private(set) var assetDownload: ReleaseAssetDownload?
     @Published var completedDownload: URL?
     private var page = 1
+    private var removedReleaseIDs = Set<Int>()
     private var assetPage = 1
     private var task: Task<Void, Never>?
     private var operation = UUID()
     private var accountObserver: AnyCancellable?
+    private var listObserver: AnyCancellable?
     private let downloader: ReleaseAssetDownloading
     init(api: GitHub, repo: String, downloader: ReleaseAssetDownloading? = nil) {
         self.api = api; self.repo = repo; self.downloader = downloader ?? LiveReleaseAssetDownloader()
         accountObserver = NotificationCenter.default.publisher(for: .githubAccountChanged).sink { [weak self] _ in
             self?.cancel(); self?.completedDownload = nil; self?.canWrite = false; self?.rows = []; self?.assets = []; self?.release = nil; self?.notice = ""; self?.latestID = nil
+        }
+        listObserver = NotificationCenter.default.publisher(for: .releaseManagementChanged).sink { [weak self] in
+            self?.applyListChange($0)
         }
     }
     var valid: Bool { generation == AccountStore.generation && api.isCurrentSession }
@@ -59,6 +64,26 @@ struct ReleaseManagementDestination: View {
         }
     }
     func check() throws { try Task.checkCancellation(); guard valid else { throw CancellationError() } }
+    private func applyListChange(_ notification: Notification) {
+        guard valid, listLoaded, let info = notification.userInfo,
+              info["generation"] as? UUID == generation,
+              let changedRepo = info["repo"] as? String,
+              changedRepo.caseInsensitiveCompare(repo) == .orderedSame else { return }
+        if let deleted = info["deletedReleaseID"] as? Int, rows.contains(where: { $0.id == deleted }) {
+            cancel()
+            removedReleaseIDs.insert(deleted)
+            rows.removeAll { $0.id == deleted }
+            // Deletion shifts page boundaries; re-read the last loaded page and merge by ID.
+            if page > ReleaseManagementRules.pageLimit { more = true }
+            page = min(page, rows.count / ReleaseManagementRules.pageSize + 1)
+            latestID = nil
+        }
+        if let saved = info["release"] as? ManagedRelease, let index = rows.firstIndex(where: { $0.id == saved.id }) {
+            rows[index] = ReleaseSummary(id: saved.id, tag_name: saved.tag_name, name: saved.name,
+                draft: saved.draft, prerelease: saved.prerelease, created_at: saved.created_at, published_at: saved.published_at)
+            latestID = nil // The server may have changed the official Latest; manual refresh rechecks it.
+        }
+    }
     func prepareImport() {
         guard valid, !busy else { return }
         assetDownload = nil; error = ""; notice = ""
@@ -74,12 +99,13 @@ struct ReleaseManagementDestination: View {
     }
     func list(reset: Bool) {
         run {
-            if reset { self.page = 1; self.rows = []; try await self.access() }
+            if reset { self.page = 1; self.rows = []; self.listLoaded = false; self.removedReleaseIDs = []; try await self.access() }
             let p = self.page
             let batch = try await self.api.managedReleases(self.repo, page: p); try self.check()
-            self.rows = ReleaseManagementRules.merged(self.rows, batch)
+            self.rows = ReleaseManagementRules.merged(self.rows, batch.filter { !self.removedReleaseIDs.contains($0.id) })
             self.listLoaded = true
-            self.more = ReleaseManagementRules.more(count: batch.count, page: p); self.page = p + 1
+            self.more = ReleaseManagementRules.more(count: batch.count, page: p)
+            self.page = self.removedReleaseIDs.isEmpty ? p + 1 : min(p + 1, self.rows.count / ReleaseManagementRules.pageSize + 1)
             if reset {
                 self.latestID = nil
                 do { self.latestID = try await self.api.managedLatestID(self.repo, refresh: true); try self.check() }
@@ -183,7 +209,7 @@ struct ReleaseListView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("发行版")
         .toolbar { Button("刷新") { state.list(reset: true) }.disabled(state.busy) }
-        .task { if state.rows.isEmpty { state.list(reset: true) } }
+        .task { if !state.listLoaded { state.list(reset: true) } }
         .onDisappear { state.cancel() }
         .sheet(isPresented: $creating, onDismiss: { state.list(reset: true) }) {
             ReleaseEditorView(api: state.api, repo: state.repo, original: nil).appSheetCornerRadius()
@@ -332,7 +358,8 @@ struct ReleaseDetailView: View {
         state.run {
             try await state.api.deleteManagedRelease(target.repo, original: target.release, asset: target.asset)
             try state.check()
-            ReleaseManagementChanges.changed(api: state.api, repo: target.repo)
+            ReleaseManagementChanges.changed(api: state.api, repo: target.repo,
+                deletedReleaseID: target.asset == nil ? target.release.id : nil)
             if target.asset == nil { dismiss() } else { try await state.reload(id) }
         }
     }
@@ -424,10 +451,15 @@ struct ReleaseEditorView: View {
                     let captured = form
                     state.run {
                         if let original {
-                            _ = try await state.api.saveManagedRelease(state.repo, original: original, form: captured)
-                        } else { try await publishAttachments(captured) }
+                            let saved = try await state.api.saveManagedRelease(state.repo, original: original, form: captured)
+                            try state.check()
+                            ReleaseManagementChanges.changed(api: state.api, repo: state.repo, release: saved)
+                        } else {
+                            try await publishAttachments(captured)
+                            try state.check()
+                            ReleaseManagementChanges.changed(api: state.api, repo: state.repo)
+                        }
                         try state.check()
-                        ReleaseManagementChanges.changed(api: state.api, repo: state.repo)
                         dismiss()
                     }
                 }

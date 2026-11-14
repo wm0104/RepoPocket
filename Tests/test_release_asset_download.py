@@ -23,6 +23,9 @@ class ReleaseAssetDownloadTests(unittest.TestCase):
         ui=(ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
         state=ui.split('@MainActor final class ReleaseScreenState:',1)[1].split('struct ReleaseListView:',1)[0]
         source=(ROOT/'Tests/Fixtures/ReleaseAssetDownloadHarness.swift').read_text()
+        source=source.replace('// PRODUCTION_RELEASE_MODELS',(ROOT/'RepoPocket/ReleaseManagement.swift').read_text(encoding='utf-8'))
+        changes=(ROOT/'RepoPocket/ReleasePresence.swift').read_text(encoding='utf-8').split('@MainActor enum ReleaseManagementChanges',1)[1].split('@MainActor final class ReleasePresenceState',1)[0]
+        source=source.replace('// PRODUCTION_RELEASE_CHANGES','@MainActor enum ReleaseManagementChanges' + changes)
         source=source.replace('// PRODUCTION_STATE','@MainActor final class ReleaseScreenState:' + state)
         source=source.replace('// PRODUCTION_PROGRESS',(ROOT/'RepoPocket/ReleaseAssetDownload.swift').read_text())
         source += '\n' + (ROOT/'RepoPocket/ReleaseAssetRedirectPolicy.swift').read_text()

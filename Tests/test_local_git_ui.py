@@ -14,6 +14,57 @@ class LocalGitUITests(unittest.TestCase):
         for label in ['导入文件', '导入文件夹', '全选', '取消全选']:
             self.assertTrue(label in page, 'Missing local Git action: ' + label)
 
+    def test_pull_result_is_separate_from_uncommitted_workspace_changes(self):
+        page = (ROOT/'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
+        self.assertIn('if let pullSummary { pullResultSection(pullSummary) }', page)
+        summary = page.split('    private func pullResultSection(', 1)[1].split('    private func changesSection(', 1)[0]
+        for text in ['Section("本次拉取结果")', 'SoftGroupRows(animateBackground: false)',
+                     '远端没有新提交', 'summary.commits', 'summary.added', 'summary.modified',
+                     'summary.deleted', 'summary.totalFiles', 'summary.files.prefix(1000)',
+                     'if pullFilesExpanded', 'summary.truncated', 'UIRules.withoutAnimation']:
+            self.assertIn(text, summary)
+        for unwanted in ['LocalGitEngine', 'state.snapshot', 'state.selected', '.task', '.onAppear', 'Task {']:
+            self.assertNotIn(unwanted, summary, 'Pull disclosure must only render the completed pull reply')
+        sync = page.split('    private func sync(', 1)[1].split('\n}\n', 1)[0]
+        self.assertIn('if action == "pull" { pullSummary = nil; pullFilesExpanded = false }', sync)
+        self.assertIn('if action == "pull" { pullSummary = reply.pullSummary }', sync)
+        self.assertLess(sync.index('Task.checkCancellation()'), sync.index('pullSummary = reply.pullSummary'))
+        self.assertLess(sync.index('guard valid else'), sync.index('pullSummary = reply.pullSummary'))
+
+    @unittest.skipUnless(shutil.which('swiftc'), 'Swift production pull-summary decoding regression runs on macOS')
+    def test_pull_summary_decodes_legacy_noop_and_fast_forward_replies(self):
+        fixture = r'''
+import Foundation
+@main struct PullSummaryFixture {
+ static func reply(_ value: String) throws -> LocalGitReply {
+  try JSONDecoder().decode(LocalGitReply.self, from: Data(value.utf8))
+ }
+ static func main() throws {
+  let empty = try reply("{}"), legacy = try reply(#"{"commit":"old","head":"head"}"#)
+  precondition(empty.pullSummary == nil && legacy.pullSummary == nil)
+  precondition(LocalGitReply(commit:nil,head:"legacy fixture").pullSummary == nil)
+  let noop = try reply(#"{"head":"same","pullSummary":{"commits":0,"files":[],"totalFiles":0,"added":0,"modified":0,"deleted":0,"truncated":false}}"#).pullSummary!
+  precondition(noop.commits == 0 && noop.files.isEmpty && noop.totalFiles == 0)
+  precondition(noop.added == 0 && noop.modified == 0 && noop.deleted == 0 && !noop.truncated)
+  let changed = try reply(#"{"head":"new","pullSummary":{"commits":2,"files":[{"path":"新增.txt","kind":"added"},{"path":"src/main.swift","kind":"modified"},{"path":"old.txt","kind":"deleted"}],"totalFiles":3,"added":1,"modified":1,"deleted":1,"truncated":false}}"#).pullSummary!
+  precondition(changed.commits == 2 && changed.totalFiles == 3 && changed.files.count == 3)
+  precondition(changed.added == 1 && changed.modified == 1 && changed.deleted == 1)
+  precondition(changed.files.map(\.label) == ["新增","修改","删除"])
+  precondition(changed.files.map(\.id) == ["新增.txt","src/main.swift","old.txt"])
+  let limited = try reply(#"{"pullSummary":{"commits":4,"files":[{"path":"one.txt","kind":"added"}],"totalFiles":1001,"added":1001,"modified":0,"deleted":0,"truncated":true}}"#).pullSummary!
+  precondition(limited.truncated && limited.totalFiles > limited.files.count)
+  print("PASS production pull summary: backward-compatible replies, zero updates, fast-forward counts and bounded file-list metadata")
+ }
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory)/'PullSummaryFixture.swift'
+            file.write_text(fixture, encoding='utf-8')
+            output = str(Path(directory)/'check')
+            subprocess.run(['swiftc', '-parse-as-library', str(ROOT/'RepoPocket/ChinaDate.swift'),
+                            str(ROOT/'RepoPocket/LocalGitModels.swift'), str(file), '-o', output], check=True)
+            subprocess.run([output], check=True)
+
     def test_import_uses_repository_default_branch_when_unspecified(self):
         page = (ROOT/'RepoPocket/LocalProjectImportView.swift').read_text(encoding='utf-8')
         self.assertIn('@State private var branch = ""', page)
