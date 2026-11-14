@@ -5,7 +5,7 @@ on:
       test_scope:
         description: Run all UI checks, profile navigation, or attachment/follow actions
         type: choice
-        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck, ui-fixes, ui-fixes-failed, path-time, reading-layout]
+        options: [all, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck, ui-fixes, ui-fixes-failed, path-time, reading-layout, workflow-log-navigation]
         default: all
   pull_request:
     branches: [main]

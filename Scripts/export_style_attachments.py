@@ -52,6 +52,7 @@ file_edit = {'remote-file-editor-cancelled', 'source-preview-left', 'source-prev
 file_edit.update({'mobile-editor-saved-preview', 'source-native-file-search', 'repository-file-folder-search', 'repository-search-opened-code'})
 diagnostics = {'account-switch-failure', 'account-control-failure'}
 diagnostics.update({'mobile-editor-create-menu', 'source-native-find-start'})
+diagnostics.add('workflow-log-long-located')
 maintenance = {'local-project-compact', 'local-project-information', 'local-branch-create-confirmation',
                'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
                'local-commit-patch', 'local-history-after-folding', 'local-import-destination',
@@ -91,6 +92,7 @@ reading_layout = repository_collections | {'star-list-multiple-added-stays-open'
 reading_layout.update('settings-theme-' + value + '-checked' for value in ('dark', 'light', 'system'))
 reading_layout.update('settings-official-releases-' + str(attempt) for attempt in (1, 2))
 reading_layout.update('group-corners-' + name + '-' + str(cycle) for name in ('仓库', '本地 Git', '设置') for cycle in range(4))
+workflow_log_navigation = {'workflow-log-highlighted-context', 'workflow-log-long-located'}
 if scope == 'path-time':
     expected = path_time
 elif scope == 'ui-fixes-failed':
@@ -99,6 +101,8 @@ elif scope == 'ui-fixes':
     expected = ui_fixes
 elif scope == 'reading-layout':
     expected = reading_layout
+elif scope == 'workflow-log-navigation':
+    expected = workflow_log_navigation
 elif scope == 'repository-collections':
     expected = repository_collections
 elif scope == 'repository-operations':

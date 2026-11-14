@@ -146,6 +146,7 @@ TEST_STATUS=0
 select_test_scope() {
 local RP_STYLE_TEST_SCOPE="$1"
 case "${RP_STYLE_TEST_SCOPE:-all}" in
+  workflow-log-navigation) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/WorkflowLogTests/testExplicitLineHighlightsKeepTheCompleteReadOnlyContext) ;;
   reading-layout) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/WorkflowLogTests
     -only-testing:RepoPocketStyleUITests/SettingsTests

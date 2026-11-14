@@ -9,6 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkflowLogPresentationTests(unittest.TestCase):
+    def test_long_log_ui_matches_localized_line_numbers_without_dropping_navigation_checks(self):
+        ui = (ROOT / 'StyleUITests/WorkflowLogTests.swift').read_text(encoding='utf-8')
+        self.assertEqual(ui.count('position.label.contains(30001.formatted(.number))'), 2)
+        self.assertEqual(ui.count('position.label.contains(30010.formatted(.number))'), 1)
+        self.assertNotIn('position.label.contains("30001")', ui)
+        for token in ['position.label.contains("1/2")', 'report["selectedVisible"], "1"',
+                      'XCTAssertGreaterThan(Int(report["verticalOffset"]',
+                      'XCTAssertLessThanOrEqual(abs(after - before), 3', 'workflow-log-toggle-raw',
+                      'screenshot(app, "workflow-log-long-located")']:
+            self.assertIn(token, ui)
+
     def test_native_regressions_check_tail_error_visibility_and_refresh_position(self):
         ui = (ROOT / 'StyleUITests/WorkflowLogTests.swift').read_text(encoding='utf-8')
         probe = (ROOT / 'RepoPocket/SourceStylePreview.swift').read_text(encoding='utf-8')

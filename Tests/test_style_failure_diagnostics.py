@@ -145,7 +145,10 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         import re
         script = (Path(__file__).resolve().parents[1] / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8')
         focused = re.findall(r'(?m)^  ([a-z-]+)\)', script)
-        self.assertEqual(len(focused), 19)
+        self.assertEqual(len(focused), 20)
+        self.assertEqual(self.selection('workflow-log-navigation', 'selected'), [
+            '-only-testing:RepoPocketStyleUITests/WorkflowLogTests/testExplicitLineHighlightsKeepTheCompleteReadOnlyContext',
+        ])
         self.assertEqual(self.selection('reading-layout', 'selected'), [
             '-only-testing:RepoPocketStyleUITests/WorkflowLogTests',
             '-only-testing:RepoPocketStyleUITests/SettingsTests',
@@ -208,7 +211,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
             self.assertEqual(first | second | editors, all_names)
             self.assertEqual(len(first) + len(second) + len(editors), len(all_names))
             tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
-                    for name in all_names | config['regression_recheck'] | config['ui_fixes'] | config['path_time'] | config['reading_layout']]
+                    for name in all_names | config['regression_recheck'] | config['ui_fixes'] | config['path_time'] | config['reading_layout'] | config['workflow_log_navigation']]
             for scope, group, expected in [('all', 'boundaries-a', first), ('all', 'boundaries-b', second),
                                            ('all', 'editors', editors),
                                            ('all', 'selected', all_names),
@@ -217,6 +220,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                                            ('ui-fixes-failed', 'selected', config['ui_fixes_failed']),
                                            ('path-time', 'selected', config['path_time']),
                                             ('reading-layout', 'selected', config['reading_layout']),
+                                            ('workflow-log-navigation', 'selected', config['workflow_log_navigation']),
                                            ('upload-viewer', 'editors', config['upload_viewer']),
                                            ('release-editor', 'boundaries', config['release_editor'])]:
                 with self.subTest(scope=scope, group=group), \
@@ -226,7 +230,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                         patch.object(subprocess, 'run') as export, redirect_stdout(io.StringIO()):
                     runpy.run_path(str(script), run_name='__main__')
                 paths = {Path(call.args[0][-1]).stem for call in export.call_args_list}
-                optional = config['diagnostics'] & (all_names | config['regression_recheck'])
+                optional = config['diagnostics'] & (all_names | config['regression_recheck'] | config['workflow_log_navigation'])
                 self.assertEqual(paths, expected | optional)
             for group, expected in [('boundaries-a', first), ('boundaries-b', second), ('editors', editors)]:
                 missing = next(iter(expected))
