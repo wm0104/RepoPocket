@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Attached only inside menu content, not to scrolling repository rows.
+/// Shared by repository menus and the single repository-home action row.
 struct RepositoryStarMenuButton: View {
     let name: String
     let repository: Repository?
@@ -32,16 +32,18 @@ struct RepositoryStarMenuButton: View {
                 } label: { Label(value ? "取消星标" : "加星标", systemImage: value ? "star.fill" : "star") }
                 .disabled(store.isBusy(name) || !api.isCurrentSession)
             } else {
-                Button { api.message = error ?? "星标状态未知，请重新打开菜单" } label: { Label("星标状态查询失败", systemImage: "exclamationmark.circle") }
+                Button { Task { await load() } } label: { Label("星标状态查询失败，点击重试", systemImage: "arrow.clockwise") }
+                    .accessibilityHint(error ?? "重新查询当前仓库的星标状态")
             }
         }
-        .task(id: name) {
+        .task(id: name) { await load() }
+    }
+    private func load() async {
             guard api.canCheckAppUpdate else { loading = false; return }
             loading = true
             do { let result = try await store.status(name); if api.isCurrentSession { value = result; error = nil } }
             catch { if api.isCurrentSession { self.error = error.localizedDescription } }
             loading = false
-        }
     }
 }
 

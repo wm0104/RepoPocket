@@ -18,6 +18,27 @@ let package = Package(name: "ZIPRegression", platforms: [.macOS(.v12)], dependen
    z.writestr(info, '/etc/passwd' if link else 'hello')
  with zipfile.ZipFile(root/'duplicate.zip', 'w') as z:
   z.writestr('A.txt','a'); z.writestr('a.txt','b')
+ # Match the user-supplied GitHub ZIP's DOS creator, zero file attributes,
+ # UTF-8 Chinese paths and UT timestamp extra without publishing private files.
+ with zipfile.ZipFile(root/'dosutf8.zip', 'w') as z:
+  for path, content in [('repo/', ''), ('repo/13 数据容器tuple.py', 'print("中文")\n')]:
+   info = zipfile.ZipInfo(path)
+   info.create_system = 0
+   info.external_attr = 0x10 if path.endswith('/') else 0
+   info.extra = bytes.fromhex('5554050001b3c6cd6a')
+   z.writestr(info, content.encode('utf-8'))
+ # zipfile substitutes 0600 for zero attrs while writing; restore the exact
+ # GitHub DOS zero attributes in the central header for this regression fixture.
+ payload = bytearray((root/'dosutf8.zip').read_bytes())
+ with zipfile.ZipFile(root/'dosutf8.zip') as z:
+  offset = z.start_dir
+  for info in z.infolist():
+   if not info.is_dir(): payload[offset+38:offset+42] = bytes(4)
+   name_len = int.from_bytes(payload[offset+28:offset+30], 'little')
+   extra_len = int.from_bytes(payload[offset+30:offset+32], 'little')
+   comment_len = int.from_bytes(payload[offset+32:offset+34], 'little')
+   offset += 46 + name_len + extra_len + comment_len
+ (root/'dosutf8.zip').write_bytes(payload)
  for name, items in {
   'entrylimit': [('d'+str(i)+'/', '') for i in range(20001)],
   'empty': [],
@@ -60,8 +81,8 @@ do {
  }
  precondition(error.localizedDescription.contains("ZIP 路径越界"), "unexpected baseline failure")
 }
-let valid = Set(["valid", "directory", "literal", "implicit", "real"])
-for name in ["valid", "directory", "literal", "implicit", "real", "traversal", "absolute", "backslash", "symlink", "duplicate", "parentcase", "unicode", "fileparent", "entrylimit", "empty"] {
+let valid = Set(["valid", "directory", "literal", "implicit", "real", "dosutf8"])
+for name in ["valid", "directory", "literal", "implicit", "real", "dosutf8", "traversal", "absolute", "backslash", "symlink", "duplicate", "parentcase", "unicode", "fileparent", "entrylimit", "empty"] {
  let output = base.appendingPathComponent(name + "-out", isDirectory: true)
  try fm.createDirectory(at: output, withIntermediateDirectories: true)
  var rejected = false
@@ -69,6 +90,15 @@ for name in ["valid", "directory", "literal", "implicit", "real", "traversal", "
  precondition(rejected == !valid.contains(name), name)
  if !valid.contains(name) { precondition(try! fm.contentsOfDirectory(atPath: output.path).isEmpty) }
  if name == "literal" { precondition(fm.fileExists(atPath: output.appendingPathComponent("目录/100%25#U4E2D.txt").path)) }
+ if name == "dosutf8" {
+  let file = output.appendingPathComponent("repo/13 数据容器tuple.py")
+  let content = try String(contentsOf: file, encoding: .utf8)
+  precondition(content == #"print("中文")"# + "\\n")
+  let listing = try fm.contentsOfDirectory(atPath: file.deletingLastPathComponent().path)
+  precondition(listing == ["13 数据容器tuple.py"])
+  try fm.removeItem(at: file)
+  precondition(!fm.fileExists(atPath: file.path))
+ }
 }
 print("PASS: real ZIPFoundation extraction; zip slip, absolute, backslash, symlink and duplicate rejection before writes")
 '''

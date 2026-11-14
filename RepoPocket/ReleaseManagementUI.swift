@@ -23,7 +23,7 @@ struct ReleaseManagementDestination: View {
     @Published var rows: [ReleaseSummary] = []
     @Published var assets: [Asset] = []
     @Published var release: ManagedRelease?
-    @Published var saved: SharedFile?
+    @Published var notice = ""
     @Published var more = false
     @Published var listLoaded = false
     @Published var assetMore = false
@@ -35,14 +35,14 @@ struct ReleaseManagementDestination: View {
     init(api: GitHub, repo: String) {
         self.api = api; self.repo = repo
         accountObserver = NotificationCenter.default.publisher(for: .githubAccountChanged).sink { [weak self] _ in
-            self?.cancel(); self?.canWrite = false; self?.rows = []; self?.assets = []; self?.release = nil; self?.saved = nil; self?.latestID = nil
+            self?.cancel(); self?.canWrite = false; self?.rows = []; self?.assets = []; self?.release = nil; self?.notice = ""; self?.latestID = nil
         }
     }
     var valid: Bool { generation == AccountStore.generation && api.isCurrentSession }
     func cancel() { operation = UUID(); task?.cancel(); task = nil; busy = false }
     func run(_ work: @escaping () async throws -> Void) {
         guard valid, !busy else { return }
-        busy = true; error = ""; progress = 0
+        busy = true; error = ""; notice = ""; progress = 0
         let token = UUID(); operation = token
         task = Task {
             defer { if operation == token { busy = false; task = nil } }
@@ -98,8 +98,8 @@ struct ReleaseManagementDestination: View {
             }
             defer { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) }
             try self.check()
-            let file = try DownloadStore.shared.persist(temporary, session: self.generation)
-            try self.check(); self.saved = SharedFile(url: file)
+            _ = try await DownloadStore.shared.persist(temporary, session: self.generation)
+            try self.check(); self.notice = "已下载并保存到 " + DownloadStore.shared.label
         }
     }
 }
@@ -264,7 +264,6 @@ struct ReleaseDetailView: View {
         .toolbar { Button("刷新") { state.detail(id) }.disabled(state.busy) }
         .task { if state.release == nil { state.detail(id) } }
         .onDisappear { state.cancel() }
-        .sheet(item: $state.saved) { ShareSheet(url: $0.url) }
         .sheet(isPresented: $editing, onDismiss: { state.detail(id) }) {
             if let r = state.release { ReleaseEditorView(api: state.api, repo: state.repo, original: r) }
         }
@@ -509,6 +508,7 @@ struct ReleaseEditorView: View {
         Text("请保持前台，勿锁屏。").font(.caption).softGroupedRow()
         Button("取消当前操作") { state.cancel() }.softGroupedRow(bottom: state.error.isEmpty && state.valid)
     }
-    if !state.error.isEmpty { Text(state.error).foregroundColor(.red).textSelection(.enabled).softGroupedRow(top: !state.busy, bottom: state.valid) }
+    if !state.notice.isEmpty { Text(state.notice).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).softGroupedRow(top: !state.busy && state.error.isEmpty, bottom: state.valid) }
+    if !state.error.isEmpty { Text(state.error).foregroundColor(.red).textSelection(.enabled).softGroupedRow(top: !state.busy && state.notice.isEmpty, bottom: state.valid) }
     if !state.valid { Text("账号已切换，请重新打开此页面。").softGroupedRow(top: !state.busy && state.error.isEmpty, bottom: true) }
 }

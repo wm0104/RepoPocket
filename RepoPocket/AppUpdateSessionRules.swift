@@ -12,5 +12,5 @@ struct AppUpdateSessionRules {
         guard last.map({ now.timeIntervalSince($0) >= Self.cooldown }) ?? true else { return false }
         return true
     }
-    static func version(_ version: String, build: String) -> String { "\(version)（\(build)）" }
+    static func version(_ version: String, build: String) -> String { version }
 }

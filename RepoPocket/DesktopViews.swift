@@ -18,8 +18,8 @@ struct HistoryView: View {
                         Text(c.commit.message.components(separatedBy: "\n").first ?? c.sha)
                             .font(.system(size: messageSize, weight: .medium))
                             .lineLimit(2)
-                        Text(String(c.sha.prefix(7)) + " · " + (c.commit.author?.name ?? "未知作者")).font(.caption).foregroundColor(.secondary)
-                        if let date = c.commit.author?.date { Text(date).font(.caption2).foregroundColor(.secondary) }
+                        Text((c.commit.author?.name ?? "未知作者") + " · " + String(c.sha.prefix(7))).font(.caption).foregroundColor(.secondary).lineLimit(1)
+                        if let date = c.commit.author?.date { Text(CommitDatePresentation.local(date)).font(.caption2).foregroundColor(.secondary) }
                     }
                     .padding(.vertical, 7)
                     .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -73,7 +73,7 @@ struct CommitDetailView: View {
                     Button(messageExpanded ? "收起说明" : "展开完整说明") { messageExpanded.toggle() }.softGroupedRow()
                     Text(sha).font(.caption).textSelection(.enabled).softGroupedRow()
                     Text(d.commit.author?.name ?? "未知作者").softGroupedRow(bottom: d.stats == nil && d.commit.author?.date == nil)
-                    if let date = d.commit.author?.date { Text(date).font(.caption).softGroupedRow(bottom: d.stats == nil) }
+                    if let date = d.commit.author?.date { Text(CommitDatePresentation.local(date)).font(.caption).softGroupedRow(bottom: d.stats == nil) }
                     if let s = d.stats { Text("总计 +\(s.additions) / −\(s.deletions)").softGroupedRow(bottom: true) }
                 }
                 Section("变更文件") {

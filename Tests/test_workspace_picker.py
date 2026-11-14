@@ -1,5 +1,6 @@
 """Static lifecycle contracts; not a substitute for Files/provider device tests."""
 from pathlib import Path
+import re
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 picker = Path(REPO_ROOT, 'RepoPocket/WorkspaceDocumentPicker.swift').read_text()
@@ -11,7 +12,7 @@ assert 'WorkspaceImportRequest(kind: .zip)' in view
 assert 'WorkspaceImportRequest(kind: .folder)' in view
 assert 'zip = true' not in view and 'zip = false' not in view
 assert 'zip: request.isZIP' in view
-assert 'importRequest = nil\n                    guard let urls else' in view
+assert re.search(r'importRequest = nil\n[ \t]+guard let urls else', view)
 assert 'request.isZIP ? [.zip] : [.folder], asCopy: false' in picker
 assert 'var allowsMultipleSelection = true' in picker
 assert 'picker.allowsMultipleSelection = allowsMultipleSelection' in picker

@@ -1,6 +1,28 @@
 import Foundation
 
 enum RepositorySearchKind: String, Codable { case repositories, users }
+enum RepositorySearchSort: String, CaseIterable, Identifiable {
+    case best, stars, forks, updated
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .best: return "最佳匹配"
+        case .stars: return "最多 Star"
+        case .forks: return "最多 Fork"
+        case .updated: return "最近更新"
+        }
+    }
+}
+struct RepositorySearchOptions: Equatable {
+    var language = ""
+    var sort = RepositorySearchSort.best
+    var ascending = false
+    static let languages = ["", "Swift", "Objective-C", "Python", "JavaScript", "TypeScript", "Dart", "C", "C++", "C#", "Go", "Rust", "Java", "Kotlin", "Shell"]
+    func query(_ source: String) -> String {
+        let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        return RepositorySearchRules.normalized(source) + (trimmed.isEmpty ? "" : " language:\"" + trimmed + "\"")
+    }
+}
 struct RepositoryRecentSearch: Codable, Equatable, Identifiable {
     let query: String
     let kind: RepositorySearchKind
@@ -8,9 +30,14 @@ struct RepositoryRecentSearch: Codable, Equatable, Identifiable {
 }
 enum RepositorySearchRules {
     static func normalized(_ raw: String) -> String { raw.trimmingCharacters(in: .whitespacesAndNewlines) }
-    static func endpoint(kind: RepositorySearchKind, query: String, page: Int) -> URL {
+    static func endpoint(kind: RepositorySearchKind, query: String, page: Int, options: RepositorySearchOptions = .init()) -> URL {
         var components = URLComponents(string: "https://api.github.com/search/" + kind.rawValue)!
-        components.queryItems = [URLQueryItem(name: "q", value: normalized(query)), .init(name: "per_page", value: "30"), .init(name: "page", value: String(max(1, page)))]
+        var items = [URLQueryItem(name: "q", value: kind == .repositories ? options.query(query) : normalized(query))]
+        if kind == .repositories, options.sort != .best {
+            items += [.init(name: "sort", value: options.sort.rawValue), .init(name: "order", value: options.ascending ? "asc" : "desc")]
+        }
+        items += [.init(name: "per_page", value: "30"), .init(name: "page", value: String(max(1, page)))]
+        components.queryItems = items
         return components.url!
     }
     static func record(_ item: RepositoryRecentSearch, in previous: [RepositoryRecentSearch]) -> [RepositoryRecentSearch] {

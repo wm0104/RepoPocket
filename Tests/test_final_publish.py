@@ -25,7 +25,7 @@ class FinalPublishTests(unittest.TestCase):
         self.assertIn('generation == AccountStore.generation', entry)
         self.assertIn('showCancel: !request.isZIP', picker)
         self.assertNotIn('let label = UILabel()', picker)
-        for token in ['Menu("工作区…")', 'if !selected.isEmpty', 'Text("暂无变更")', '复制实际副本路径', '发布为发行版']:
+        for token in ['Menu("工作区…")', 'if !selected.isEmpty', 'Text("暂无变更")', '复制实际工作目录路径', '发布为发行版']:
             self.assertIn(token, workspace)
         self.assertIn('await updateChecker.automaticCheck(api: api)', app)
         self.assertNotIn('.badge(updateChecker.hasUpdate', app)
@@ -74,7 +74,7 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
   var recent = AppUpdateSessionRules(); precondition(!recent.claim(now:now,last:now.addingTimeInterval(-21_599)))
   var due = AppUpdateSessionRules(); precondition(due.claim(now:now,last:now.addingTimeInterval(-21_600)))
   var future = AppUpdateSessionRules(); precondition(!future.claim(now:now,last:now.addingTimeInterval(1)))
-  precondition(AppUpdateSessionRules.version("1.0.1",build:"5") == "1.0.1（5）")
+  precondition(AppUpdateSessionRules.version("1.0.1",build:"5") == "1.0.1")
   print("PASS production phase, fixed draft retry, cancel/finalization failure, identity/size, nonempty/budget/names, session once, six-hour edge and version format")
  }
 }

@@ -2,11 +2,12 @@ import SwiftUI
 
 struct CommitPatchDestination: View {
     private let build: () -> AnyView
-    init(file: DesktopCommit.File) { build = { AnyView(CommitPatchView(file: file)) } }
+    init(file: DesktopCommit.File, pullRequest: Bool = false) { build = { AnyView(CommitPatchView(file: file, pullRequest: pullRequest)) } }
     var body: AnyView { build() }
 }
 struct CommitPatchView: View {
     let file: DesktopCommit.File
+    var pullRequest = false
     @State private var result: CommitPatchResult?
     @State private var whitespace = true
     @State private var raw = false
@@ -15,7 +16,7 @@ struct CommitPatchView: View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 Text(file.filename).font(.caption).frame(maxWidth: .infinity, alignment: .leading).padding(8)
-                Text("仅显示本次提交的变化").font(.caption).padding(8)
+                Text(pullRequest ? "显示此 PR 的文件变化" : "仅显示本次提交的变化").font(.caption).padding(8)
                 Toggle("显示空白（· 空格 / ⇥ Tab）", isOn: $whitespace).padding(8)
                 Toggle("原始 patch", isOn: $raw).padding(8)
                 if file.patch == nil {

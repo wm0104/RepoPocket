@@ -20,7 +20,7 @@ enum WorkspaceZIP {
         // Canonicalize once; never compare an unresolved base to a resolved child.
         let base = directory.resolvingSymlinksInPath().standardizedFileURL
         let baseComponents = components(base)
-        let archive = try Archive(url: source, accessMode: .read)
+        let archive = try Archive(url: source, accessMode: .read, pathEncoding: .utf8)
         var total: UInt64 = 0
         var paths: [String: Bool] = [:]
         var spellings: [String: String] = [:]

@@ -1,0 +1,139 @@
+import Foundation
+
+enum DiscussionStream: String, CaseIterable, Identifiable {
+    case conversation, reviews, inline
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .conversation: return "讨论"
+        case .reviews: return "审查"
+        case .inline: return "行内评论"
+        }
+    }
+}
+
+enum CollaborationKind: String, CaseIterable, Identifiable {
+    case issues, pulls
+    var id: String { rawValue }
+    var title: String { self == .issues ? "Issue" : "PR" }
+}
+
+struct CollaborationItem: Decodable, Identifiable {
+    let id: Int
+    let number: Int
+    let title: String
+    let state: String
+    let body: String?
+    let user: User?
+    let html_url: String
+    let comments: Int?
+    let updated_at: String?
+    let draft: Bool?
+    let merged: Bool?
+    let additions: Int?
+    let deletions: Int?
+    let changed_files: Int?
+    let labels: [IssueLabel]?
+    let pull_request: PullReference?
+    let head: BranchReference?
+    let base: BranchReference?
+    struct PullReference: Decodable { let url: String? }
+    struct BranchReference: Decodable { let ref: String; let sha: String? }
+    struct IssueLabel: Decodable, Identifiable {
+        let name: String
+        var id: String { name }
+    }
+}
+
+struct CollaborationComment: Decodable, Identifiable {
+    let id: Int
+    let body: String?
+    let user: User?
+    let created_at: String?
+    let html_url: String?
+    let path: String?
+    let line: Int?
+    let state: String?
+}
+
+struct CommunityProfile: Decodable {
+    let login: String
+    let name: String?
+    let avatar_url: String?
+    let bio: String?
+    let company: String?
+    let location: String?
+    let blog: String?
+    let followers: Int?
+    let following: Int?
+    let public_repos: Int?
+}
+
+struct CommunityEvent: Decodable, Identifiable {
+    let id: String
+    let type: String
+    let actor: Actor
+    let repo: Repo
+    let created_at: String?
+    struct Actor: Decodable { let login: String; let avatar_url: String? }
+    struct Repo: Decodable { let name: String }
+    var summary: String {
+        switch type {
+        case "PushEvent": return "推送了提交"
+        case "WatchEvent": return "加星了仓库"
+        case "ForkEvent": return "复刻了仓库"
+        case "IssuesEvent": return "更新了 Issue"
+        case "IssueCommentEvent": return "参与了讨论"
+        case "PullRequestEvent": return "更新了 PR"
+        case "PullRequestReviewEvent": return "审查了 PR"
+        case "CreateEvent": return "创建了分支、标签或仓库"
+        case "ReleaseEvent": return "更新了发行版"
+        default: return type
+        }
+    }
+}
+
+struct RepositoryContributor: Decodable, Identifiable {
+    let login: String
+    let avatar_url: String?
+    let contributions: Int
+    var id: String { login }
+}
+
+enum CommunityRules {
+    static let pageSize = 30
+    static let pageLimit = 10
+    static let markdownByteLimit = 256 * 1024
+    static func page(_ page: Int) throws -> [URLQueryItem] {
+        guard (1...pageLimit).contains(page) else { throw AppError(text: "已达分页上限，请在 GitHub 查看更多。") }
+        return [.init(name: "per_page", value: String(pageSize)), .init(name: "page", value: String(page))]
+    }
+    static func webURL(_ raw: String?) -> URL? {
+        guard let raw, let url = URL(string: raw), url.scheme == "https",
+              url.host != nil, url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+    static func repositoryURL(_ repo: String, suffix: String = "") -> URL? {
+        guard let canonical = try? RepositoryInput.parse(repo) else { return nil }
+        return URL(string: "https://github.com/" + canonical + suffix)
+    }
+    static func readingBase(_ repo: String, branch: String, file: String, raw: Bool) -> URL? {
+        guard let canonical = try? RepositoryInput.parse(repo), !branch.isEmpty else { return nil }
+        func component(_ value: String) -> String {
+            value.addingPercentEncoding(withAllowedCharacters: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))) ?? ""
+        }
+        let directory = (file as NSString).deletingLastPathComponent
+        let path = directory.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
+        let root = raw ? "https://raw.githubusercontent.com/" + canonical + "/" : "https://github.com/" + canonical + "/blob/"
+        let relative = raw ? (path.isEmpty ? "" : path + "/") : file.split(separator: "/").map { component(String($0)) }.joined(separator: "/")
+        return URL(string: root + component(branch) + "/" + relative)
+    }
+    static func readmeText(_ entry: Entry) throws -> String {
+        guard (entry.size ?? Int.max) <= markdownByteLimit, entry.encoding == "base64",
+              let content = entry.content, let bytes = Data(base64Encoded: content, options: .ignoreUnknownCharacters),
+              bytes.count <= markdownByteLimit, !bytes.contains(0), let text = String(data: bytes, encoding: .utf8) else {
+            throw AppError(text: "README 超过 256 KiB 或不是 UTF-8 文本，请在 GitHub 查看。")
+        }
+        return text
+    }
+}

@@ -16,11 +16,31 @@ struct RepositorySearchView: View {
     @State private var more = false
     @State private var busy = false
     @State private var error = ""
+    @State private var options = RepositorySearchOptions()
+    @State private var requestedOptions = RepositorySearchOptions()
     private var store: RepositorySearchHistory { RepositorySearchHistory(accountID: api.accountID) }
     private var clean: String { RepositorySearchRules.normalized(query) }
     var body: some View {
         NavigationStack {
             List {
+                Section("仓库筛选") {
+                    SoftGroupRows {
+                    SoftGroupRow("language") {
+                    Picker("语言", selection: $options.language) {
+                        ForEach(RepositorySearchOptions.languages, id: \.self) { Text($0.isEmpty ? "所有语言" : $0).tag($0) }
+                    }
+                    }
+                    SoftGroupRow("sort") {
+                    Picker("排序", selection: $options.sort) {
+                        ForEach(RepositorySearchSort.allCases) { Text($0.title).tag($0) }
+                    }
+                    }
+                    if options.sort != .best { SoftGroupRow("direction") { Toggle("升序", isOn: $options.ascending) } }
+                    if options != requestedOptions && !submitted.isEmpty && kind == .repositories {
+                        SoftGroupRow("apply") { Button("应用筛选并重新搜索") { begin(.repositories) } }
+                    }
+                    }
+                }
                 if submitted.isEmpty {
                     if clean.isEmpty {
                         Section {
@@ -92,6 +112,7 @@ struct RepositorySearchView: View {
     private func begin(_ selected: RepositorySearchKind) {
         guard !clean.isEmpty else { return }
         invalidate(); kind = selected; submitted = clean
+        requestedOptions = options
         repositories = []; users = []; page = 1; more = false; busy = false; error = ""
         store.record(submitted, kind: selected); history = store.read()
         startLoad()
@@ -112,7 +133,7 @@ struct RepositorySearchView: View {
         defer { if generation == token { busy = false } }
         do {
             if requestedKind == .repositories {
-                let value = try await api.searchRepositories(requested, page: requestedPage)
+                let value = try await api.searchRepositories(requested, page: requestedPage, options: requestedOptions)
                 guard RepositorySearchRules.accepts(token, current: generation, account: account, currentAccount: AccountStore.generation) else { return }
                 let ids = Set(repositories.map { $0.id }); repositories += value.items.filter { !ids.contains($0.id) }
                 more = value.items.count == 30 && repositories.count < min(value.total_count, 1000)
@@ -141,6 +162,7 @@ struct UserRepositoriesView: View {
     @State private var error = ""
     var body: some View {
         List {
+            CommunityProfileSection(api: api, login: user.login, avatar: user.avatar_url)
             ForEach(repositories) { repository in
                 NavigationLink { BrowserView(api: api, repo: repository.full_name, path: "", branch: repository.default_branch ?? "") }
                 label: { RepositoryCard(repository: repository, account: api.login, api: api) }.softGroupedRow(top: repository.id == repositories.first?.id, bottom: repository.id == repositories.last?.id && !more)

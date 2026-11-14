@@ -9,6 +9,9 @@ home = ui.split('struct RepositoriesView:', 1)[1].split('struct BrowserView:', 1
 settings = ui.split('struct SettingsView:', 1)[1]
 assert home.count('RepositoryInlineSection(api:') == 2
 assert 'expanded: $ownedExpanded' in home and 'expanded: $starredExpanded' in home
+assert '@State private var ownedExpanded = false' in home
+assert '@State private var starredExpanded = false' in home
+assert home.count('ownedExpanded =') == 1 and home.count('starredExpanded =') == 1
 assert '查看仓库' not in home and '查看已加星标仓库' not in home
 assert 'RepositoryCollectionView(api: api, section: .owned)' in settings
 assert 'RepositoryCollectionView(api: api, section: .starred)' in settings

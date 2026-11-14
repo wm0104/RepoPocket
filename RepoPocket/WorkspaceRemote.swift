@@ -149,6 +149,7 @@ enum WorkspaceMerge {
 
 extension LocalStore {
     static func applyPull(_ pull: WorkspacePull, folder: URL, original: WorkspaceBinding, choices: [String: Bool]) throws {
+        guard try LinkedWorkspaces.identifier(folder) == nil else { throw AppError(text: "关联原目录暂不支持拉取覆盖，原目录不会被替换") }
         let fm = FileManager.default
         guard pull.conflicts.allSatisfy({ choices[$0] != nil }) else { throw AppError(text: "请逐项解决冲突") }
         guard try snapshot(folder).hashes == pull.local.hashes,

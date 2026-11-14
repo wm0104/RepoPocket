@@ -43,3 +43,22 @@ enum DesktopRules {
         return name.split(separator: "/").allSatisfy { !$0.hasPrefix(".") && !$0.hasSuffix(".lock") }
     }
 }
+
+
+enum CommitDatePresentation {
+    static func local(_ value: String, timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        let parser = ISO8601DateFormatter()
+        var date = parser.date(from: value)
+        if date == nil {
+            parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            date = parser.date(from: value)
+        }
+        guard let date else { return "时间未知" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.string(from: date)
+    }
+}

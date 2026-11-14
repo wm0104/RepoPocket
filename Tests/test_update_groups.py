@@ -19,7 +19,8 @@ class UpdateGroupTests(unittest.TestCase):
         group = body.split('        Group {',1)[1].split('        }.sheet',1)[0]
         rows = [line.strip() for line in group.splitlines()
                 if '.softGroupedRow(' in line]
-        self.assertEqual(len(rows), 12)
+        # The expanded release notes are a concrete child row too.
+        self.assertEqual(len(rows), 13)
         self.assertTrue(all(row.count('.softGroupedRow(') == 1 for row in rows))
         self.assertEqual(group.count('top: true'), 1)
         self.assertNotIn('bottom:', group)
@@ -31,10 +32,18 @@ class UpdateGroupTests(unittest.TestCase):
         self.assertNotIn('top: true', block)
         self.assertNotIn('Section', block)
         self.assertIn('listRowSeparator(.hidden)', style)
+        self.assertIn('.padding(.leading, separatorInset)', style)
         self.assertIn('.overlay(alignment: .bottom)', style)
-        self.assertIn('if !bottom {', style)
-        self.assertIn('.frame(height: 0.5)', style)
+        self.assertIn('let radius: CGFloat = 22', style)
         self.assertEqual(style.count('.listRowBackground('), 1)
+
+    def test_row_decoration_cannot_escape_into_list_layer(self):
+        # Regression: a list-owned cover keeps stale coordinates when other
+        # self-sizing rows move. Decoration must remain in SwiftUI's row subtree.
+        self.assertNotIn('SoftGroupCellBoundary(', style)
+        for path in (REPO_ROOT / 'RepoPocket').glob('*.swift'):
+            source = path.read_text()
+            self.assertNotIn('list.layer.addSublayer(cover)', source, path.name)
 
     def test_all_dynamic_states_have_only_outer_corners(self):
         # Read the actual source branches and row modifiers, rather than

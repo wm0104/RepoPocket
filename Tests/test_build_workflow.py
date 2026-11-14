@@ -23,11 +23,22 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertNotIn('contents: write', self.source)
         self.assertNotIn('gh release', self.source)
         self.assertNotIn('softprops/action-gh-release', self.source)
-        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "3"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.4"', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "4"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.0.5"', self.source)
         project = (REPO_ROOT / 'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.0.4"', project)
-        self.assertIn('CURRENT_PROJECT_VERSION: "3"', project)
+        self.assertIn('MARKETING_VERSION: "1.0.5"', project)
+        self.assertIn('CURRENT_PROJECT_VERSION: "10"', project)
+
+    def test_system_default_refresh_rate(self):
+        project = (REPO_ROOT / 'project.yml').read_text()
+        self.assertNotIn('CADisableMinimumFrameDurationOnPhone:', project)
+        self.assertIn('Print :CADisableMinimumFrameDurationOnPhone', self.source)
+        self.assertNotIn('Print :CADisableMinimumFrameDurationOnPhone\' "$APP/Info.plist")" = "true"', self.source)
+        # Do not replace the opt-in with a permanent display link or FPS hook.
+        for path in (REPO_ROOT / 'RepoPocket').glob('*.swift'):
+            source = path.read_text()
+            self.assertNotIn('CADisplayLink(', source, path.name)
+            self.assertNotIn('preferredFramesPerSecond = 120', source, path.name)
 
     def test_python_scripts_use_organized_existing_paths(self):
         import re
@@ -44,7 +55,7 @@ class BuildWorkflowTests(unittest.TestCase):
     def test_optional_update_probe_keeps_release_artifact_separate(self):
         self.assertIn('build_update_probe:', self.source)
         self.assertIn('default: false', self.source)
-        self.assertIn('if: ${{ inputs.build_update_probe }}', self.source)
+        self.assertIn('if: ${{ inputs.build_update_probe && !inputs.validate_only }}', self.source)
         self.assertIn('Set :CFBundleShortVersionString 1.0.3-rc.1', self.source)
         self.assertIn("Set :CFBundleVersion 4", self.source)
         self.assertIn('codesign --force --sign - --entitlements Entitlements.plist "$APP"', self.source)
@@ -53,15 +64,24 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertIn('probe/RepoPocket-1.0.3-rc.1.ipa.sha256', self.source)
         self.assertNotIn('gh release', self.source)
 
+    def test_validation_only_never_packages_or_uploads_an_ipa(self):
+        self.assertIn('validate_only:', self.source)
+        package = self.source.split('      - name: Ad-hoc sign and package IPA', 1)[1]
+        package = package.split('      - name: Package optional update probe', 1)[0]
+        self.assertEqual(package.count('if: ${{ !inputs.validate_only }}'), 2)
+        self.assertEqual(self.source.count('if: ${{ inputs.build_update_probe && !inputs.validate_only }}'), 2)
+        compile_step = self.source.split('      - name: Compile iOS app', 1)[1].split('      - name: Ad-hoc sign', 1)[0]
+        self.assertNotIn('if:', compile_step)
+
     def test_compile_and_package_verification_remain_enabled(self):
         commands = self.source
         for required in ('xcodebuild', 'CODE_SIGNING_ALLOWED=NO',
                          'codesign --verify --deep --strict',
-                         'unzip -t RepoPocket-1.0.4.ipa',
-                         'shasum -a 256 -c RepoPocket-1.0.4.ipa.sha256'):
+                         'unzip -t RepoPocket.ipa',
+                         'shasum -a 256 -c RepoPocket.ipa.sha256'):
             self.assertIn(required, commands)
         self.assertIn('uses: actions/upload-artifact@v4', commands)
-        self.assertIn('name: RepoPocket-1.0.4', commands)
+        self.assertIn('name: RepoPocket', commands)
 
 
 if __name__ == '__main__':

@@ -148,7 +148,7 @@ import ZIPFoundation
                             self.message = "下载完成，请选择应用安装"
                         } else { self.message = "下载完成，请选择应用安装" }
                         guard self.generation == token, accountSession == AccountStore.generation else { throw CancellationError() }
-                        let saved = try DownloadStore.shared.persist(file, session: accountSession)
+                        let saved = try await DownloadStore.shared.persist(file, session: accountSession)
                         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
                         self.message = "已保存到 " + DownloadStore.shared.label + "，请选择应用安装"
                         self.downloaded = saved
@@ -213,6 +213,7 @@ struct AppUpdateSection: View {
                 Text("新版本 " + release.displayVersionWithBuild).softGroupedRow()
                 DisclosureGroup("发布说明", isExpanded: $expanded) {
                     Text(String((release.body ?? "暂无发布说明").prefix(16_384))).font(.caption)
+                        .softGroupedRow()
                 }.softGroupedRow()
                 if release.ipaURL != nil {
                     if let ipa = release.ipaURL, TrollStoreInstallRules.installURL(for: ipa) != nil {

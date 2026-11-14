@@ -2,6 +2,16 @@ import Foundation
 
 /// File operations are bounded to an explicitly authorized parent. Never overwrite.
 enum DownloadRules {
+    /// Migrate old relative labels without opening a file provider during launch.
+    static func initialLabel(_ cached: String?, hasBookmark: Bool) -> String {
+        guard hasBookmark else { return "请选择保存位置" }
+        if let cached, cached.hasPrefix("/") { return cached }
+        return "已保留下载位置；下次下载时更新完整路径，也可重新选择。"
+    }
+    /// Selecting our existing download folder must not create RepoPocket/RepoPocket.
+    static func destinationFolder(in parent: URL) -> URL {
+        parent.lastPathComponent == "RepoPocket" ? parent : parent.appendingPathComponent("RepoPocket", isDirectory: true)
+    }
     static func safeName(_ raw: String) -> String {
         let name = (raw as NSString).lastPathComponent
         let clean = name.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) && $0 != ":" && $0 != "\\" }.map(String.init).joined()
@@ -29,7 +39,7 @@ enum DownloadRules {
         let fm = FileManager.default
         guard valid() else { throw CancellationError() }
         try rejectSymlinks(parent)
-        let folder = parent.appendingPathComponent("RepoPocket", isDirectory: true)
+        let folder = destinationFolder(in: parent)
         try rejectSymlinks(folder)
         if fm.fileExists(atPath: folder.path) {
             guard (try fm.attributesOfItem(atPath: folder.path)[.type] as? FileAttributeType) == .typeDirectory else { throw NSError(domain: "DownloadStore", code: 3, userInfo: [NSLocalizedDescriptionKey: "保存位置不是文件夹，请重新选择。"]) }
@@ -50,6 +60,7 @@ enum DownloadRules {
         try copy(source, staging)
         guard valid() else { throw CancellationError() }
         guard try fingerprint(staging) == expected else { throw NSError(domain: "DownloadStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "保存校验失败，请重试。"]) }
+        guard valid() else { throw CancellationError() }
         // moveItem is exclusive (throws on an existing destination), not a replace.
         try fm.moveItem(at: staging, to: target)
         return target

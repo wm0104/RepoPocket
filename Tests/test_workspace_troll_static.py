@@ -34,7 +34,8 @@ class WorkspaceTrollStaticTests(unittest.TestCase):
         self.assertIn("LocalStore.removeWorkspace(target)", self.workspace)
         self.assertIn("fm.moveItem(at: folder, to: savedFolder)", self.workspace)
         self.assertIn("fm.moveItem(at: savedFolder, to: folder)", self.workspace)
-        self.assertIn(".swipeActions", self.workspace)
+        self.assertNotIn(".swipeActions", self.workspace)
+        self.assertIn(".contextMenu", self.workspace)
 
     def test_troll_form_and_index_preservation(self):
         for field in ("trollName", "trollVersion", "trollDescription", "trollBundleID", "trollAuthor", "trollPreview"):
@@ -44,6 +45,14 @@ class WorkspaceTrollStaticTests(unittest.TestCase):
         self.assertNotIn("packages = packages.filter", self.github)
         self.assertIn('"force": false', self.github)
         self.assertIn('"parents": [head]', self.github)
+
+    def test_troll_upload_is_bounded_and_streamed(self):
+        self.assertIn('maximumTrollPluginBytes', self.upload)
+        self.assertIn('if trollMode {', self.upload)
+        troll = self.github.split('func trollPublish(', 1)[1].split('func metadataSnapshot(', 1)[0]
+        self.assertNotIn('Data(contentsOf: file', troll)
+        self.assertIn('uploadGitBlobFile(', troll)
+        self.assertIn('session.upload(for: uploadRequest, fromFile: bodyFile)', self.github)
 
 
 if __name__ == "__main__":

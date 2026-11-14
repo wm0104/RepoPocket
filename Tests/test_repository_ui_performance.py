@@ -53,7 +53,10 @@ class RepositoryUIPerformanceTests(unittest.TestCase):
         section = (ROOT/'RepoPocket/RepositorySections.swift').read_text()
         for value in ('let parent: RepositoryReference?', 'let fork: Bool?', 'repository.fork == true', 'parentActive < 3', 'parentTasks[key]', 'parentCache.count >= 512', 'Date().timeIntervalSince(cached.0) < 300', 'JSONDecoder().decode(Repository.self, from: bytes).parent'):
             self.assertIn(value, api)
-        self.assertNotIn('.source', api)
+        # Parent attribution must still use the immediate parent; network root
+        # metadata is now separately needed for existing-fork discovery.
+        parent_loader = api.split('func forkParent(', 1)[1].split('func ', 1)[0]
+        self.assertNotIn('.source', parent_loader)
         self.assertIn('Text("复刻自 " + parent.full_name)', UI)
         self.assertIn('guard !Task.isCancelled else { return }', UI)
         self.assertLess(UI.index('Text("复刻自'), UI.index('if let repository {', UI.index('Text("复刻自')))
@@ -70,6 +73,20 @@ class RepositoryUIPerformanceTests(unittest.TestCase):
         self.assertIn('if !loaded && !CredentialStore.read().isEmpty', home)
         self.assertNotIn('.onAppear', home)
         self.assertNotIn('.id(showSearch)', home)
+
+    def test_repository_pull_to_refresh_preserves_embedded_sections(self):
+        browser = APP[APP.index('struct BrowserView:'):APP.index('struct FileView:')]
+        highlights = (ROOT/'RepoPocket/RepositoryHomeHighlights.swift').read_text()
+        readme = (ROOT/'RepoPocket/RepositoryReadmeSection.swift').read_text()
+        self.assertIn('@StateObject private var homeRelease', browser)
+        self.assertIn('@StateObject private var homeRuns', browser)
+        self.assertIn('@StateObject private var readmeState', browser)
+        self.assertNotIn('homeRefreshRevision', browser)
+        self.assertNotIn('refreshID', highlights + readme)
+        self.assertIn('await loadRelease(refresh: true)', highlights)
+        self.assertIn('await loadRuns(refresh: true)', highlights)
+        self.assertIn('await load(refresh: true)', readme)
+        self.assertNotIn('releasePresence', browser)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'production Swift runs on macOS CI')
     def test_production_summary_rules(self):

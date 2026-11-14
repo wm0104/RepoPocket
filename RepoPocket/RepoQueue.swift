@@ -19,16 +19,23 @@ struct PendingRepoItem: Identifiable {
 }
 
 enum RepoQueue {
+    static let maximumFileBytes: Int64 = 10 * 1024 * 1024
+    static let maximumTotalUploadBytes: Int64 = 50 * 1024 * 1024
+    static let maximumTrollPluginBytes: Int64 = 20 * 1024 * 1024
+
     static func readiness(_ items: [PendingRepoItem], repo: String, message: String) -> String? {
         if repo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "请填写目标仓库" }
         if items.isEmpty { return "请先添加待提交文件或远端删除" }
         if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "请填写提交说明" }
+        var totalBytes: Int64 = 0
         for item in items {
             let label = item.local?.lastPathComponent ?? item.path ?? "远端删除"
             if item.path == nil || item.head == nil { return label + "：请先选择目标（仓库/分支变化后需重新选择）" }
             if let file = item.local {
                 if !FileManager.default.fileExists(atPath: file.path) { return label + "：本地临时文件已不存在，请重新选择" }
-                if item.size > 10 * 1024 * 1024 { return label + "：超过 10 MiB，请改用 Release" }
+                if item.size < 0 || item.size > maximumFileBytes { return label + "：超过 10 MiB，请改用 Release" }
+                guard totalBytes <= maximumTotalUploadBytes - item.size else { return "普通提交总大小不能超过 50 MiB，请改用 Release。" }
+                totalBytes += item.size
             }
         }
         return nil
@@ -37,13 +44,18 @@ enum RepoQueue {
     static func validate(_ items: [PendingRepoItem], head: String, files: [String: String], directories: Set<String>) throws {
         guard !items.isEmpty else { throw AppError(text: "队列为空") }
         var seen = Set<String>()
+        var totalBytes: Int64 = 0
         for item in items {
             guard let path = item.path, item.head == head else { throw AppError(text: "目标或远端已变化，请重新选择每项目标") }
             guard !path.contains("\\"), !path.contains(":"), !path.contains("\0"), path.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && $0 != ".git" }) else { throw AppError(text: "无效目标：" + path) }
             let key = path.precomposedStringWithCanonicalMapping.lowercased()
             guard seen.insert(key).inserted else { throw AppError(text: "重复目标：" + path) }
             guard files[path] == item.sha, item.local != nil || item.sha != nil else { throw AppError(text: "目标 SHA 已变化或未经明确选择替换：" + path) }
-            guard item.local == nil || item.size <= 10 * 1024 * 1024 else { throw AppError(text: path + " 超过上传 10 MiB，请使用 Release") }
+            if item.local != nil {
+                guard item.size >= 0, item.size <= maximumFileBytes else { throw AppError(text: path + " 超过上传 10 MiB，请使用 Release") }
+                guard totalBytes <= maximumTotalUploadBytes - item.size else { throw AppError(text: "普通提交总大小不能超过 50 MiB，请使用 Release") }
+                totalBytes += item.size
+            }
             let otherPaths = Array(files.keys) + Array(directories) + items.compactMap(\.path)
             guard !directories.contains(path), !otherPaths.contains(where: { other in
                 let o = other.precomposedStringWithCanonicalMapping.lowercased()

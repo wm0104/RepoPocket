@@ -20,3 +20,11 @@ struct DirectoryBrowserDestination: View {
 
     var body: AnyView { build() }
 }
+
+struct RepositoryCodeDestination: View {
+    private let build: () -> AnyView
+    init(api: GitHub, repo: String, branch: String) {
+        build = { AnyView(BrowserView(api: api, repo: repo, path: "", branch: branch, showFiles: true)) }
+    }
+    var body: AnyView { build() }
+}

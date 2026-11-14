@@ -96,6 +96,7 @@ struct Repository: Decodable, Identifiable {
     let language: String?
     let fork: Bool?
     let parent: RepositoryReference?
+    let source: RepositoryReference?
     struct Permissions: Decodable { let admin: Bool?; let push: Bool? }
     let permissions: Permissions?
 }
@@ -157,6 +158,10 @@ final class GitHub: ObservableObject {
     private var parentActive = 0
     private var parentWaiters: [CheckedContinuation<Void, Never>] = []
     private var collectionCache: [RepositoryHomeSection: [Repository]] = [:]
+    @Published private(set) var forkNames: [String: String] = [:]
+    private var forkChecks: [String: Task<String?, Error>] = [:]
+    private var forkCheckIDs: [String: UUID] = [:]
+    private var forkCheckedAt: [String: Date] = [:]
     lazy var stars = RepositoryStarStore(api: self)
     @Published private(set) var starRevision = 0
     func requireStarSession() throws {
@@ -315,6 +320,47 @@ final class GitHub: ObservableObject {
         }
         return bytes
     }
+    func descriptionContext(_ repository: Repository) -> RepositoryDescriptionContext {
+        RepositoryDescriptionContext(accountID: accountID, generation: accountGeneration, login: login,
+                                     repositoryID: repository.id, fullName: repository.full_name)
+    }
+    func updateRepositoryDescription(_ repository: Repository, context: RepositoryDescriptionContext,
+                                     description: String) async throws -> Repository {
+        try ensureActiveAccount()
+        guard context == descriptionContext(repository),
+              RepositoryDescriptionRules.canEdit(repository, login: login, sessionMatches: isCurrentSession) else {
+            throw AppError(text: RepositoryDescriptionRules.permissionHelp)
+        }
+        let updated = try await RepositoryDescriptionRules.execute(context: context, description: description,
+            current: { RepositoryDescriptionContext(accountID: AccountStore.activeID,
+                generation: AccountStore.generation, login: self.login,
+                repositoryID: repository.id, fullName: repository.full_name) },
+            fetch: { try await self.repository(context.fullName) },
+            update: { value in
+                try self.ensureActiveAccount()
+                // Metadata editing requires administration, not Contents/push permission.
+                // Send only description; never rename or change visibility/default branch.
+                let body = try JSONSerialization.data(withJSONObject: ["description": value])
+                let request = try self.request(self.url(Self.repoPath(context.fullName)), method: "PATCH", body: body)
+                let (data, response) = try await self.session.data(for: request)
+                do { try self.check(data, response, operation: "修改仓库描述") }
+                catch let error as GitHubAPIError {
+                    if [403, 404].contains(error.status) {
+                        throw AppError(text: error.localizedDescription + "\n" + RepositoryDescriptionRules.permissionHelp)
+                    }
+                    throw error
+                }
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                    throw AppError(text: "未收到 GitHub 保存成功确认，请刷新仓库核实。")
+                }
+                return try JSONDecoder().decode(Repository.self, from: data)
+            })
+        // Patch existing memory caches without publishing a global refresh signal.
+        for section in Array(collectionCache.keys) {
+            collectionCache[section] = collectionCache[section]?.map { $0.id == updated.id ? updated : $0 }
+        }
+        return updated
+    }
     func deletionContext(_ repository: Repository) -> RepositoryDeletionContext {
         RepositoryDeletionContext(accountID: accountID, generation: accountGeneration,
                                   repositoryID: repository.id, fullName: repository.full_name)
@@ -398,6 +444,56 @@ final class GitHub: ObservableObject {
                                        object: [String: Any]? = nil, query: [URLQueryItem] = []) async throws -> T {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(type, from: await data(path, method: method, object: object, query: query))
+    }
+    private func uploadGitBlobFile(_ file: URL, path: String, maximumBytes: Int64, expectedSize: Int64? = nil) async throws -> GitObject {
+        try ensureActiveAccount()
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular,
+              let number = attributes[.size] as? NSNumber else { throw AppError(text: "请选择有效的普通文件。") }
+        let sourceSize = number.int64Value
+        guard sourceSize >= 0, sourceSize <= maximumBytes,
+              expectedSize == nil || expectedSize == sourceSize else { throw AppError(text: "文件已变化或超过上传大小限制。") }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("RepoPocket-GitBlob-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bodyFile = directory.appendingPathComponent("request.json")
+        guard FileManager.default.createFile(atPath: bodyFile.path, contents: nil) else { throw AppError(text: "无法准备上传请求。") }
+        let writer = Task.detached(priority: .utility) { () throws -> Void in
+            let input = try FileHandle(forReadingFrom: file)
+            let output = try FileHandle(forWritingTo: bodyFile)
+            defer { try? input.close(); try? output.close() }
+            try output.write(contentsOf: Data("{\"content\":\"".utf8))
+            var carry = Data()
+            var totalBytes: Int64 = 0
+            while let chunk = try input.read(upToCount: 192 * 1024), !chunk.isEmpty {
+                try Task.checkCancellation()
+                let count = Int64(chunk.count)
+                guard totalBytes <= maximumBytes - count else { throw AppError(text: "文件超过上传大小限制。") }
+                totalBytes += count
+                carry.append(chunk)
+                let completeCount = (carry.count / 3) * 3
+                if completeCount > 0 {
+                    try output.write(contentsOf: Data(carry.prefix(completeCount)).base64EncodedData())
+                    carry = Data(carry.dropFirst(completeCount))
+                }
+            }
+            if !carry.isEmpty { try output.write(contentsOf: carry.base64EncodedData()) }
+            guard totalBytes == sourceSize else { throw AppError(text: "文件在上传准备期间发生变化，请重新选择。") }
+            try output.write(contentsOf: Data("\",\"encoding\":\"base64\"}".utf8))
+            try output.synchronize()
+        }
+        try await withTaskCancellationHandler {
+            try await writer.value
+        } onCancel: {
+            writer.cancel()
+        }
+        try ensureActiveAccount()
+        var uploadRequest = try request(url(path), method: "POST")
+        uploadRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (bytes, response) = try await session.upload(for: uploadRequest, fromFile: bodyFile)
+        try check(bytes, response, operation: "上传 Git 文件")
+        try ensureActiveAccount()
+        return try JSONDecoder().decode(GitObject.self, from: bytes)
     }
     func history(_ repo: String, branch: String, page: Int) async throws -> [DesktopCommit] {
         try await decoded([DesktopCommit].self, Self.repoPath(repo) + "/commits", query: [
@@ -570,18 +666,33 @@ final class GitHub: ObservableObject {
         guard !tree.truncated, tree.tree.count <= 20000, tree.tree.allSatisfy({ $0.type == "tree" || ($0.type == "blob" && ["100644", "100755"].contains($0.mode)) }) else { throw AppError(text: "不安全或截断的远端树") }
         let files = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.sha) })
         try RepoQueue.validate(items, head: head, files: files, directories: Set(tree.tree.filter { $0.type == "tree" }.map(\.path)))
-        let writes = try items.map { item -> WorkspaceWrite in
-            let data = try item.local.map { file -> Data in
-                let prepared = try DebControlEditor.prepareForUpload(file)
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError(text: "请填写提交说明") }
+        guard try await workspaceHead(repo, branch: branch) == head else { throw AppError(text: "远端分支已变化，请重新加载后再提交。") }
+        var entries: [[String: Any]] = []
+        var totalBytes: Int64 = 0
+        let modes = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.mode) })
+        for item in items {
+            guard let path = item.path else { throw AppError(text: "请选择每项的仓库目标。") }
+            _ = try Self.filePath(path)
+            let mode = modes[path] ?? "100644"
+            if let file = item.local {
+                let prepared = try await Task.detached(priority: .utility) { try DebControlEditor.prepareForUpload(file) }.value
                 defer { if prepared.file != file { try? FileManager.default.removeItem(at: prepared.file.deletingLastPathComponent()) } }
                 if let notice = prepared.notice { self.message = notice }
-                return try Data(contentsOf: prepared.file)
+                let size = (try FileManager.default.attributesOfItem(atPath: prepared.file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
+                guard size >= 0, size <= RepoQueue.maximumFileBytes else { throw AppError(text: path + " 超过上传 10 MiB，请使用 Release") }
+                guard totalBytes <= RepoQueue.maximumTotalUploadBytes - size else { throw AppError(text: "普通提交总大小不能超过 50 MiB，请使用 Release") }
+                totalBytes += size
+                let blob = try await uploadGitBlobFile(prepared.file, path: endpoint + "/git/blobs", maximumBytes: RepoQueue.maximumFileBytes, expectedSize: size)
+                entries += RepoQueue.treeEntries([(path, blob.sha, mode)])
+            } else {
+                entries += RepoQueue.treeEntries([(path, nil, mode)])
             }
-            guard data == nil || data!.count <= 10 * 1024 * 1024 else { throw AppError(text: item.path! + " 超过上传限制") }
-            return WorkspaceWrite(path: item.path!, bytes: data)
         }
-        let binding = WorkspaceBinding(repo: repo, branch: branch, head: head, tree: commit.tree.sha, modes: Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.mode) }), snapshot: LocalSnapshot())
-        _ = try await commitWorkspace(binding, writes: writes, message: message)
+        let newTree = try await decoded(GitObject.self, endpoint + "/git/trees", method: "POST", object: ["base_tree": commit.tree.sha, "tree": entries])
+        let newCommit = try await decoded(GitCommitInfo.self, endpoint + "/git/commits", method: "POST", object: ["message": message, "tree": newTree.sha, "parents": [head]])
+        guard try await workspaceHead(repo, branch: branch) == head else { throw AppError(text: "提交准备期间远端已变化，拒绝更新分支") }
+        _ = try await data(endpoint + "/git/refs/heads/" + Self.filePath(branch), method: "PATCH", object: ["sha": newCommit.sha, "force": false])
     }
     func identify() async throws {
         let user = try await decoded(User.self, "/user")
@@ -635,10 +746,77 @@ final class GitHub: ObservableObject {
         }
         return result
     }
-    func searchRepositories(_ query: String, page: Int) async throws -> RepositorySearchResponse {
-        let endpoint = RepositorySearchRules.endpoint(kind: .repositories, query: query, page: page)
+    func searchRepositories(_ query: String, page: Int, options: RepositorySearchOptions = .init()) async throws -> RepositorySearchResponse {
+        let endpoint = RepositorySearchRules.endpoint(kind: .repositories, query: query, page: page, options: options)
         let parts = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
         return try await decoded(RepositorySearchResponse.self, endpoint.path, query: parts.queryItems ?? [])
+    }
+    // Read-only gateway reuses the existing account checks, credential host guard
+    // and redirect policy. Community modules cannot bypass repository write guards.
+    func communityRead(_ path: String, query: [URLQueryItem] = []) async throws -> Data {
+        let bytes = try await data(path, query: query)
+        try Task.checkCancellation()
+        guard bytes.count <= 8 * 1024 * 1024 else { throw AppError(text: "响应过大，请在 GitHub 查看。") }
+        return bytes
+    }
+    func communityReadmeHTML(_ repo: String, branch: String) async throws -> String {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        var r = try request(url(Self.repoPath(repo) + "/readme", query: [.init(name: "ref", value: branch)]))
+        r.setValue("application/vnd.github.html+json", forHTTPHeaderField: "Accept")
+        let (bytes, response) = try await session.data(for: r, delegate: GitHubAPIRedirectPolicy())
+        try check(bytes, response); try Task.checkCancellation()
+        return try ReadmeDocumentRules.renderedHTML(bytes)
+    }
+    // Native collaboration transport: allowed routes and bodies are constructed
+    // by CommunityMutationRules, never from a user-supplied API path.
+    func communityMutate(_ repo: String, action: CommunityMutation, title: String = "", text: String = "") async throws -> Data {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let change = try CommunityMutationRules.request(action, title: title, text: text)
+        let path = try Self.repoPath(repo) + change.suffix
+        if change.requiresPush { try await requireWriteAccess(repo) }
+        if case .deleteRun = action {
+            struct RunStatus: Decodable { let status: String }
+            let current = try JSONDecoder().decode(RunStatus.self, from: await communityRead(path))
+            guard current.status == "completed" else { throw AppError(text: "此运行尚未结束，请先取消，待结束后再删除。") }
+        }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let body = try JSONSerialization.data(withJSONObject: change.body)
+        var r = try request(url(path), method: change.method, body: body)
+        if case .deleteRun = action { r.httpBody = nil }
+        let response = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        try check(response.0, response.1, operation: "仓库协作操作")
+        if case .deleteRun = action, (response.1 as? HTTPURLResponse)?.statusCode != 204 {
+            throw AppError(text: "未收到删除成功确认，请刷新运行列表核实，避免重复操作。")
+        }
+        try Task.checkCancellation()
+        return response.0
+    }
+    func communityStarDates(_ repo: String, page: Int) async throws -> [StarTimestamp] {
+        guard page > 0 else { throw AppError(text: "无效页码") }
+        var r = try request(url(Self.repoPath(repo) + "/stargazers", query: [.init(name: "page", value: String(page)), .init(name: "per_page", value: "100")]))
+        r.setValue("application/vnd.github.star+json", forHTTPHeaderField: "Accept")
+        let (bytes, response) = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        try check(bytes, response); try Task.checkCancellation()
+        guard bytes.count < 8 * 1024 * 1024 else { throw AppError(text: "Star 数据过大") }
+        return try JSONDecoder().decode([StarTimestamp].self, from: bytes)
+    }
+    func communityJobLog(_ repo: String, id: Int) async throws -> String {
+        guard id > 0 else { throw AppError(text: "无效任务编号") }
+        let r = try request(url(Self.repoPath(repo) + "/actions/jobs/\(id)/logs"))
+        let (stream, response) = try await session.bytes(for: r, delegate: WorkflowLogRedirectPolicy())
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AppError(text: "日志尚未就绪、已过期或缺少 Actions 读取权限。") }
+        var bytes = Data(); let limit = 256 * 1024
+        for try await byte in stream {
+            try Task.checkCancellation()
+            if bytes.count == limit { try ensureActiveAccount(); return String(decoding: bytes, as: UTF8.self) + "\n…日志预览已达256 KiB上限。" }
+            bytes.append(byte)
+        }
+        try ensureActiveAccount()
+        return String(decoding: bytes, as: UTF8.self)
+    }
+    func communityArtifact(_ repo: String, id: Int, name: String) async throws -> URL {
+        guard id > 0 else { throw AppError(text: "无效构建产物编号") }
+        return try await download(request(url(Self.repoPath(repo) + "/actions/artifacts/\(id)/zip")), name: DownloadRules.safeName(name) + ".zip", redirect: WorkflowLogRedirectPolicy())
     }
     func searchUsers(_ query: String, page: Int) async throws -> UserSearchResponse {
         let endpoint = RepositorySearchRules.endpoint(kind: .users, query: query, page: page)
@@ -691,6 +869,133 @@ final class GitHub: ObservableObject {
         if !branch.isEmpty { o["branch"] = branch }
         _ = try await data(Self.repoPath(repo) + "/contents/" + Self.filePath(entry.path), method: "DELETE", object: o)
     }
+    // Fork status is read only, on demand, and scoped to this account generation.
+    func existingFork(_ input: String, forceRefresh: Bool = false) async throws -> String? {
+        try requireStarSession()
+        let name = try RepositoryInput.parse(input), key = name.lowercased()
+        guard !RepositoryGroupRules.isOwned(name, login: login), !login.isEmpty else { return nil }
+        if forceRefresh { forkCheckedAt[key] = nil; forkNames[key] = nil }
+        if let date = forkCheckedAt[key] {
+            if Date().timeIntervalSince(date) < 300 { return forkNames[key] }
+            forkNames[key] = nil
+            forkCheckedAt[key] = nil
+        }
+        let task: Task<String?, Error>, requestID: UUID
+        if !forceRefresh, let pending = forkChecks[key], let pendingID = forkCheckIDs[key] {
+            task = pending; requestID = pendingID
+        } else {
+            task = Task<String?, Error> { try await self.findExistingFork(name, fresh: forceRefresh) }
+            requestID = UUID()
+            forkChecks[key] = task; forkCheckIDs[key] = requestID
+        }
+        let result: String?
+        do { result = try await task.value }
+        catch {
+            if forkCheckIDs[key] == requestID {
+                forkChecks[key] = nil; forkCheckIDs[key] = nil
+            }
+            throw error
+        }
+        // A cancelled waiter leaves the shared task available for another waiter.
+        try Task.checkCancellation()
+        try requireStarSession()
+        guard forkCheckIDs[key] == requestID else {
+            // Another waiter or a newer lookup may already have published. Never
+            // publish a result superseded by a forced confirmation lookup.
+            if let date = forkCheckedAt[key], Date().timeIntervalSince(date) < 300 {
+                return forkNames[key]
+            }
+            throw CancellationError()
+        }
+        forkChecks[key] = nil; forkCheckIDs[key] = nil
+        // A concurrent successful POST takes precedence over an earlier empty lookup.
+        if let date = forkCheckedAt[key], Date().timeIntervalSince(date) < 300,
+           let positive = forkNames[key] { return positive }
+        forkNames[key] = result
+        forkCheckedAt[key] = Date()
+        return result
+    }
+    private func findExistingFork(_ name: String, fresh: Bool) async throws -> String? {
+        let upstream = try await repository(name)
+        let candidates = fresh ? [] : (collectionCache[.owned] ?? [])
+        if let found = candidates.first(where: { RepositoryForkRules.matches($0, upstream: upstream, login: login) }) {
+            return found.full_name
+        }
+        let candidateName = login + "/" + (name.split(separator: "/").last.map(String.init) ?? "")
+        var inspected: [String: Repository] = [:]
+        do {
+            let candidate = try await repository(candidateName)
+            inspected[candidate.full_name.lowercased()] = candidate
+            if RepositoryForkRules.matches(candidate, upstream: upstream, login: login) { return candidate.full_name }
+        } catch let error as GitHubAPIError where error.status == 404 {
+            // A renamed fork cannot be found by its original repository name.
+        }
+        // Server-side viewer ownership filter avoids enumerating popular fork networks.
+        // Query both the immediate upstream and its network root for renamed forks.
+        let root = upstream.source?.full_name ?? upstream.full_name
+        let parts = root.split(separator: "/").map(String.init)
+        let target = upstream.full_name.split(separator: "/").map(String.init)
+        guard parts.count == 2, target.count == 2 else { throw AppError(text: "无法确认复刻状态") }
+        let query = """
+        query($owner: String!, $name: String!, $targetOwner: String!, $targetName: String!) {
+          root: repository(owner: $owner, name: $name) { forkCount direct: forks(first: 1) { totalCount } forks(first: 1, affiliations: [OWNER]) { nodes { nameWithOwner } } }
+          target: repository(owner: $targetOwner, name: $targetName) { forks(first: 1, affiliations: [OWNER]) { nodes { nameWithOwner } } }
+        }
+        """
+        let response = try await decoded(RepositoryForkLookup.self, "/graphql", method: "POST", object: [
+            "query": query, "variables": ["owner": parts[0], "name": parts[1], "targetOwner": target[0], "targetName": target[1]]])
+        guard response.errors?.isEmpty != false, let data = response.data,
+              let rootResult = data.root, let targetResult = data.target else {
+            throw AppError(text: "无法确认复刻状态，请重试。")
+        }
+        for node in targetResult.forks.nodes + rootResult.forks.nodes {
+            let candidate = try await repository(node.nameWithOwner)
+            inspected[candidate.full_name.lowercased()] = candidate
+            if RepositoryForkRules.matches(candidate, upstream: upstream, login: login) { return candidate.full_name }
+        }
+        // forks(affiliations: OWNER) only searches direct forks. An empty result
+        // is conclusive only when the root's whole network contains no indirect
+        // forks; otherwise my renamed fork may be below another owner's fork.
+        if let networkCount = rootResult.forkCount,
+           let directCount = rootResult.direct?.totalCount, networkCount == directCount { return nil }
+        // Enumerate only this account's repositories, never a popular upstream's
+        // entire fork network. A full page at the budget boundary remains unknown.
+        var detailCount = 0
+        for page in 1...3 {
+            let owned = try await decoded([Repository].self,
+                "/user/repos?affiliation=owner&per_page=100&sort=full_name&direction=asc&page=\(page)")
+            try ensureActiveAccount()
+            for item in owned {
+                guard let isFork = item.fork else { throw AppError(text: "复刻状态资料不完整，请重试。") }
+                if !isFork { continue }
+                guard RepositoryGroupRules.isOwned(item.full_name, login: login) else {
+                    throw AppError(text: "无法完整确认复刻状态，请重试。")
+                }
+                let key = item.full_name.lowercased()
+                let cached = candidates.first { $0.full_name.lowercased() == key }
+                if RepositoryForkRules.matches(item, upstream: upstream, login: login) { return item.full_name }
+                if let cached, RepositoryForkRules.matches(cached, upstream: upstream, login: login) { return cached.full_name }
+                let candidate: Repository
+                if let known = inspected[key] { candidate = known }
+                else if let cached, cached.source != nil { candidate = cached }
+                else if item.source != nil { candidate = item }
+                else {
+                    guard detailCount < 20 else { throw AppError(text: "复刻状态查询达到限额，请稍后重试。") }
+                    detailCount += 1
+                    candidate = try await repository(item.full_name)
+                    try ensureActiveAccount()
+                    inspected[key] = candidate
+                }
+                if RepositoryForkRules.matches(candidate, upstream: upstream, login: login) { return candidate.full_name }
+                guard candidate.fork == false || candidate.source != nil else {
+                    throw AppError(text: "复刻状态资料不完整，请重试。")
+                }
+            }
+            if owned.count < 100 { return nil }
+        }
+        throw AppError(text: "复刻状态查询达到限额，请稍后重试。")
+    }
+
     func fork(_ repo: String) async throws -> Repository {
         let endpoint = try Self.repoPath(repo)
         // Revalidate identity using the current credential, not cached UI state.
@@ -699,7 +1004,17 @@ final class GitHub: ObservableObject {
         guard owner.caseInsensitiveCompare(login) != .orderedSame else {
             throw AppError(text: "这是你自己的仓库（\(login)）。GitHub 不允许把自己的仓库 Fork 回同一个账号。\n\n更新文件请点“浏览这个仓库”或“提交 / 发布”。如果要另外复制一份，需要新建不同名字的仓库再复制内容；这不属于 Fork，本版尚未提供完整仓库复制。")
         }
-        return try await decoded(Repository.self, endpoint + "/forks", method: "POST", object: [:])
+        guard try await existingFork(repo) == nil else { throw AppError(text: "此仓库已复刻。") }
+        try ensureActiveAccount()
+        let result = try await decoded(Repository.self, endpoint + "/forks", method: "POST", object: [:])
+        try ensureActiveAccount()
+        // The accepted POST itself confirms this relationship, even before metadata is ready.
+        if RepositoryGroupRules.isOwned(result.full_name, login: login) {
+            let key = (try RepositoryInput.parse(repo)).lowercased()
+            forkNames[key] = result.full_name
+            forkCheckedAt[key] = Date()
+        }
+        return result
     }
     func createRepository(name: String, isPrivate: Bool) async throws -> Repository {
         guard !name.isEmpty, name.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil,
@@ -745,8 +1060,12 @@ final class GitHub: ObservableObject {
         let filename = file.lastPathComponent
         guard filename.lowercased().hasSuffix(".dylib"), !filename.contains("/") else { throw AppError(text: "请选择 .dylib 文件") }
         guard !name.isEmpty else { throw AppError(text: "请填写插件名字") }
-        let bytes = try Data(contentsOf: file, options: .mappedIfSafe)
-        guard !bytes.isEmpty else { throw AppError(text: "dylib 不能为空") }
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular,
+              let fileSize = attributes[.size] as? NSNumber else { throw AppError(text: "请选择有效的 dylib 文件") }
+        let size = fileSize.int64Value
+        guard size > 0 else { throw AppError(text: "dylib 不能为空") }
+        guard size <= RepoQueue.maximumTrollPluginBytes else { throw AppError(text: "TrollFools 插件不能超过 20 MiB") }
         let resolved = try await resolvedBranch(repo, branch: branch)
         let endpoint = try Self.repoPath(repo)
         let head = try await workspaceHead(repo, branch: resolved)
@@ -769,7 +1088,7 @@ final class GitHub: ObservableObject {
         let dylibURL = pagesBase + Self.component(filename)
         let normalizedVersion = version.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedVersion.isEmpty else { throw AppError(text: "请填写版本") }
-        var package: [String: Any] = ["name": name, "version": normalizedVersion, "description": (description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? description! : name), "dylib": dylibURL, "section": "插件", "size": Self.trollSize(bytes.count)]
+        var package: [String: Any] = ["name": name, "version": normalizedVersion, "description": (description?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? description! : name), "dylib": dylibURL, "section": "插件", "size": Self.trollSize(Int(size))]
         if let bundleID, !bundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { package["bundle"] = bundleID }
         if let author, !author.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { package["author"] = author }
         // Match by URL path, not host or string formatting, preserving other metadata and links.
@@ -783,7 +1102,7 @@ final class GitHub: ObservableObject {
         } else { packages.append(package) }
         index["packages"] = packages
         let json = try JSONSerialization.data(withJSONObject: index, options: [.prettyPrinted, .sortedKeys])
-        let dylibBlob = try await decoded(GitObject.self, endpoint + "/git/blobs", method: "POST", object: ["content": bytes.base64EncodedString(), "encoding": "base64"])
+        let dylibBlob = try await uploadGitBlobFile(file, path: endpoint + "/git/blobs", maximumBytes: RepoQueue.maximumTrollPluginBytes, expectedSize: size)
         let indexBlob = try await decoded(GitObject.self, endpoint + "/git/blobs", method: "POST", object: ["content": json.base64EncodedString(), "encoding": "base64"])
         let newTree = try await decoded(GitObject.self, endpoint + "/git/trees", method: "POST", object: ["base_tree": commit.tree.sha, "tree": [["path": dylibPath, "mode": "100644", "type": "blob", "sha": dylibBlob.sha], ["path": indexPath, "mode": "100644", "type": "blob", "sha": indexBlob.sha]]])
         let newCommit = try await decoded(GitCommitInfo.self, endpoint + "/git/commits", method: "POST", object: ["message": "Publish TrollFools plugin: \(name)", "tree": newTree.sha, "parents": [head]])

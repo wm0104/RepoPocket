@@ -30,20 +30,19 @@ struct SoftGroupShape: Shape {
 }
 
 extension View {
-    /// Draws the separator in the row background instead of using List's
-    /// content-inset separator. This keeps the line aligned with the complete
-    /// grouped row while leaving List scrolling, navigation and swipe actions
-    /// native.
-    func softGroupedRow(top: Bool = false, bottom: Bool = false, animateBackground: Bool = true) -> some View {
+    /// Keep the 1.0.4 shape; paint one inset line without native leading fragments.
+    func softGroupedRow(top: Bool = false, bottom: Bool = false, animateBackground: Bool = true, separatorInset: CGFloat = 20) -> some View {
         listRowSeparator(.hidden)
             .listRowBackground(
+                // As in 1.0.4, decoration belongs to this row's layout subtree.
+                // Never install a cover on the enclosing list: self-sizing rows
+                // can move without updating that cover's cached coordinates.
                 SoftGroupShape(top: top, bottom: bottom)
                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
                     .overlay(alignment: .bottom) {
                         if !bottom {
-                            Rectangle()
-                                .fill(Color(uiColor: .separator))
-                                .frame(height: 0.5)
+                            Rectangle().fill(Color(uiColor: .separator)).frame(height: 0.5)
+                                .padding(.leading, separatorInset).allowsHitTesting(false)
                         }
                     }
                     .clipShape(Rectangle())
@@ -54,5 +53,33 @@ extension View {
                         }
                     }
             )
+    }
+}
+
+/// Native sibling rows with one shared boundary calculation, including rows
+/// that appear after loading, permission checks or errors. No clipping of taps.
+struct SoftGroupRow: Identifiable {
+    let id: String
+    let content: AnyView
+    let separatorInset: CGFloat
+    init<Content: View>(_ id: String, separatorInset: CGFloat = 20, @ViewBuilder content: () -> Content) {
+        self.id = id; self.separatorInset = separatorInset; self.content = AnyView(content())
+    }
+}
+@resultBuilder enum SoftGroupRowsBuilder {
+    static func buildExpression(_ row: SoftGroupRow) -> [SoftGroupRow] { [row] }
+    static func buildBlock(_ groups: [SoftGroupRow]...) -> [SoftGroupRow] { groups.flatMap { $0 } }
+    static func buildOptional(_ rows: [SoftGroupRow]?) -> [SoftGroupRow] { rows ?? [] }
+    static func buildEither(first: [SoftGroupRow]) -> [SoftGroupRow] { first }
+    static func buildEither(second: [SoftGroupRow]) -> [SoftGroupRow] { second }
+    static func buildArray(_ groups: [[SoftGroupRow]]) -> [SoftGroupRow] { groups.flatMap { $0 } }
+}
+struct SoftGroupRows: View {
+    private let rows: [SoftGroupRow]
+    init(@SoftGroupRowsBuilder rows: () -> [SoftGroupRow]) { self.rows = rows() }
+    var body: some View {
+        ForEach(rows) { row in
+            row.content.softGroupedRow(top: row.id == rows.first?.id, bottom: row.id == rows.last?.id, separatorInset: row.separatorInset)
+        }
     }
 }

@@ -34,6 +34,7 @@ struct AccountManagementView: View {
                     }
                 }
                 Section {
+                    NavigationLink("使用 GitHub 浏览器授权") { DeviceOAuthView(api: api) }.softGroupedRow(top: true)
                     NavigationLink("添加 / 更新 GitHub 账号") {
                         Form {
                             SecureField("粘贴你自己的 Token", text: $token).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
@@ -57,7 +58,7 @@ struct AccountManagementView: View {
                             if busy { ProgressView().softGroupedRow() }
                             Link("在 GitHub 创建 Token", destination: URL(string: "https://github.com/settings/tokens")!).softGroupedRow(bottom: true)
                         }.navigationTitle("添加 / 更新账号").onDisappear { token = "" }
-                    }.softGroupedRow(top: true)
+                    }.softGroupedRow()
                     Text("仅移除本机凭据，不会删除 GitHub 账号、远端仓库或本地工作区。").font(.caption).softGroupedRow(bottom: error.isEmpty)
                     if !error.isEmpty { Text(error).font(.caption).softGroupedRow(bottom: true) }
                 }

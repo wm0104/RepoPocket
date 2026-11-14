@@ -9,8 +9,20 @@ class ReleaseManagementTests(unittest.TestCase):
         added = api.split('// These bounded endpoints',1)[1]
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
         app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text().split('struct BrowserView:',1)[1].split('struct FileView:',1)[0]
-        self.assertIn('if path.isEmpty {', app)
-        self.assertEqual(app.count('ReleaseManagementDestination(api: api, repo: repo)'),1)
+        self.assertNotIn('releasePresence', app)
+        self.assertIn('if path.isEmpty && !showFiles {', app)
+        self.assertEqual(app.count('RepositoryHomeHighlights(api: api, repo: repo,'),1)
+        appSource = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
+        fileView = appSource.split('struct FileView:',1)[1].split('struct SettingsView:',1)[0]
+        upload = (ROOT/'RepoPocket/UploadView.swift').read_text()
+        for screen in [app, fileView, ui, upload]:
+            self.assertNotIn('ShareSheet(url:', screen)
+        self.assertIn('downloadNotice = "已下载并保存到 " + DownloadStore.shared.label', app)
+        self.assertIn('downloadNotice = "已下载并保存到 " + DownloadStore.shared.label', upload)
+        update = (ROOT/'RepoPocket/UpdateFeature.swift').read_text()
+        self.assertIn('Button("分享 IPA 安装")', update)
+        highlights = (ROOT/'RepoPocket/RepositoryHomeHighlights.swift').read_text()
+        self.assertEqual(highlights.count('ReleaseManagementDestination(api: api, repo: repo)'),1)
         load = app.split('private func load() async',1)[1].split('private func deleteRemote',1)[0]
         self.assertNotIn('managedReleases', load)
         self.assertNotIn('managedAssets', load)
@@ -20,14 +32,15 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertNotIn('upload_url', added)
         self.assertIn('perPage: 1', added)
         self.assertIn('struct Presence: Decodable { let id: Int }', added)
-        self.assertIn('releasePresence.exists && api.isCurrentSession', app)
+        self.assertIn('if path.isEmpty && !showFiles {', app)
+        self.assertIn('api.isCurrentSession', highlights)
         self.assertIn('if path.isEmpty && canWrite', app)
         self.assertIn('暂无发行版', ui)
         self.assertIn('canWrite = false', ui)
         self.assertIn('复制下载链接', ui)
         self.assertIn('UIPasteboard.general.url = link', ui)
         self.assertIn('asset.browser_download_url, repo: state.repo', ui)
-        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'ForEach(state.rows)', 'ForEach(state.assets)', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', 'confirmation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "delete"', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'DownloadStore.shared.persist', 'state.saved', 'state.download(asset)', 'DisclosureGroup', 'if expanded', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
+        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'ForEach(state.rows)', 'ForEach(state.assets)', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', 'confirmation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "delete"', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'DownloadStore.shared.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup', 'if expanded', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
             self.assertIn(token,ui)
         self.assertNotIn('AsyncImage',ui)
         transfers=(ROOT/'RepoPocket/ReleaseTransfers.swift').read_text()

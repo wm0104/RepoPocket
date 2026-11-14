@@ -24,7 +24,7 @@ class UpdateTests(unittest.TestCase):
             self.assertIn(value, feature)
         self.assertIn('AppUpdateSection(api: api, checker: updateChecker)', Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text())
         api = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
-        update = api.split('func officialAppUpdateData()', 1)[1].split('func deletionContext', 1)[0]
+        update = api.split('func officialAppUpdateData()', 1)[1].split('func descriptionContext', 1)[0]
         self.assertEqual(update.count('try ensureActiveAccount()'), 2)
         self.assertIn('CredentialStore.read(account: accountID)', api)
         self.assertIn('guard canCheckAppUpdate else', update)

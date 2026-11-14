@@ -1,28 +1,85 @@
 # RepoPocket
 
-RepoPocket 是一款适用于 iOS 16+、TrollStore 的 GitHub 文件管理工具。
+![累计下载次数](https://img.shields.io/github/downloads/wm0104/RepoPocket/total?label=Downloads&color=007AFF&cacheSeconds=300&v=2)
+![最新版本](https://img.shields.io/github/v/release/wm0104/RepoPocket?label=Release&color=007AFF)
 
-部分功能根据个人使用需求开发，本项目由 AI 辅助编写、编译和整理。
+[下载 RepoPocket](https://github.com/wm0104/RepoPocket/releases/latest) · [TrollFools LSP 修改版插件源](https://github.com/wm0104/trollfools-repo)
 
-## 功能
+**让 iOS 16 上的 GitHub 浏览，省心一点。**
 
-- 管理多个 GitHub 账号
-- 浏览仓库、分支和文件
-- 新建、编辑、上传和删除文件
-- 提交文件修改并查看提交记录
-- 创建和切换分支
-- Fork 仓库和创建新仓库
-- 编辑并上传 `.deb` 插件文件
-- 管理 `.dylib` 插件的版本、名称、作者等元信息，目前适配 LSP 版 TrollFools 插件源格式，不涉及插件二进制代码修改
-- 管理本地工作区文件
+你是否也遇到过：用苹果自带的 Safari 打开 GitHub，页面布局错乱、按钮挤在一起，想点开代码，却怎么也点不进去？
 
-## 相关仓库
+以为是网络问题，换了几个节点；怀疑是浏览器缓存，又清理了一遍。折腾到最后，代码还是看不了，文件也打不开。换用官方 App，有些想用的功能又不够顺手。
 
-[TrollFools LSP 修改版插件源](https://github.com/wm0104/trollfools-repo)
+下面是 iOS 16 上实际遇到的 Safari 网页显示情况：
 
-## 下载
-[下载 RepoPocket](https://github.com/wm0104/RepoPocket/releases/latest)
+<table>
+  <tr><th>GitHub 首页</th><th>仓库与代码页面</th></tr>
+  <tr>
+    <td><img src="docs/images/safari-github-home-ios16.png" width="260" alt="iOS 16 Safari 打开 GitHub 首页时布局重叠、内容持续加载"></td>
+    <td><img src="docs/images/safari-github-repository-ios16.png" width="260" alt="iOS 16 Safari 打开 GitHub 仓库时按钮重叠、代码列表显示异常"></td>
+  </tr>
+</table>
 
-系统要求：iOS 16 或更高版本。低于 iOS 16 的系统未测试，请自行测试。
+**RepoPocket 就是为解决这些日常使用中的不便而开发的。**
 
-![累计下载次数](https://img.shields.io/github/downloads/wm0104/RepoPocket/total?label=Downloads&color=007AFF)
+它是一款借助 **Codex 辅助开发**的 iOS GitHub 工具，让你通过 App 浏览仓库、阅读代码、下载文件，也能完成常用的仓库管理操作。
+
+## App 预览
+
+浏览仓库、查看代码目录、管理发行版，常用操作在 App 内完成。
+
+<table>
+  <tr>
+    <th>仓库主页</th>
+    <th>代码目录</th>
+    <th>发行版</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/app-repository-home.png" width="240" alt="RepoPocket 仓库主页，展示项目简介、协作入口与发行版"></td>
+    <td><img src="docs/images/app-code-browser.png" width="240" alt="RepoPocket 代码目录，展示仓库文件夹和文件列表"></td>
+    <td><img src="docs/images/app-releases.png" width="240" alt="RepoPocket 发行版列表，展示版本记录和新建发行版入口"></td>
+  </tr>
+</table>
+
+## 主要功能
+
+📂 **浏览仓库与代码**<br>
+查看仓库目录、文件内容和代码预览，切换分支、查看提交历史，在手机上也能方便地翻阅项目。
+
+📖 **阅读项目自述文件**<br>
+支持 README 排版、图片与徽章展示，可展开正文或进入全屏阅读，快速了解项目介绍和使用方法。
+
+⬇️ **下载需要的文件**<br>
+下载单个文件、整个仓库 ZIP、发行版附件和 Actions 构建产物，支持选择保存文件夹。
+
+✏️ **编辑与提交文件**<br>
+在具备权限的仓库中编辑文本、上传或删除文件，并提交到指定分支。
+
+⭐ **收藏与复刻仓库**<br>
+为喜欢的项目添加星标，将仓库复刻到自己的账号，查看复刻来源和状态。
+
+📦 **管理发行版**<br>
+查看版本说明、下载附件，也能在有权限的仓库中创建、编辑发行版和管理附件。
+
+⚙️ **查看 GitHub Actions**<br>
+浏览工作流运行状态、任务与步骤，获取构建产物，并在具备权限时重新运行工作流。
+
+👤 **多账号切换**<br>
+支持添加和切换多个 GitHub 账号，按各账号的访问权限使用仓库功能。
+
+## 插件与更多功能
+
+- 编辑并上传 `.deb` 插件文件。
+- 管理 `.dylib` 插件的版本、名称、作者等元信息，适配 LSP 版 TrollFools 插件源格式，不修改插件二进制代码。
+- 查看 Issue / PR、讨论评论、审查记录、行内评论及 PR 文件差异。
+- 创建仓库和分支，搜索仓库并按语言筛选、排序。
+- 浏览用户资料、公开活动、关注动态、贡献者与语言统计。
+- 发现近期新建的热门仓库和活跃开发者。
+- 支持浏览器设备授权登录，以及跟随系统、浅色和深色外观。
+
+RepoPocket 源于个人使用需求，借助 AI 辅助编写、调试和完善。**目前主要在 iOS 16 上测试**，功能仍在持续改进，欢迎反馈使用中遇到的问题。
+
+系统要求：iOS 16 或更高版本，适用于 TrollStore。
+
+**少一点反复刷新，多一点顺手浏览。**

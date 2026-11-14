@@ -26,7 +26,152 @@ struct LocalChange: Identifiable {
     var relativePath: String { path.split(separator: "/").dropFirst().joined(separator: "/") }
 }
 
+enum LinkedWorkspaces {
+    struct Entry: Codable { let id: String; var path: String; var bookmark: Data; let identity: String }
+    private static let lock = NSRecursiveLock()
+    private static var scopes: [String: URL] = [:]
+    private static var scopedIDs: Set<String> = []
+    private static func identity(_ url: URL) throws -> String {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let device = attributes[.systemNumber] as? NSNumber,
+              let inode = attributes[.systemFileNumber] as? NSNumber else { throw AppError(text: "文件提供器未提供目录身份，无法安全关联") }
+        return device.stringValue + ":" + inode.stringValue
+    }
+    private static func ownDocuments(_ url: URL) throws -> Bool {
+        let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+        let base = documents.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let target = url.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        return target.count >= base.count && Array(target.prefix(base.count)) == base
+    }
+    private static func release(_ id: String) {
+        if let url = scopes.removeValue(forKey: id), scopedIDs.remove(id) != nil { url.stopAccessingSecurityScopedResource() }
+    }
+    private static func storage() throws -> URL {
+        try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("LinkedWorkspaces.json")
+    }
+    private static func entries() throws -> [Entry] {
+        let url = try storage()
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try JSONDecoder().decode([Entry].self, from: Data(contentsOf: url))
+    }
+    private static func save(_ entries: [Entry]) throws {
+        try JSONEncoder().encode(entries).write(to: storage(), options: .atomic)
+    }
+    static func identifier(_ url: URL) throws -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return try entries().first { $0.path == url.standardizedFileURL.path }?.id
+    }
+    static func registeredPaths() throws -> [URL] {
+        lock.lock(); defer { lock.unlock() }
+        return try entries().map { URL(fileURLWithPath: $0.path, isDirectory: true) }
+    }
+    static func detach(_ folder: URL) throws {
+        lock.lock(); defer { lock.unlock() }
+        var records = try entries()
+        guard let entry = records.first(where: { $0.path == folder.standardizedFileURL.path }) else { throw AppError(text: "未找到此目录的关联记录") }
+        let meta = try LocalStore.metadata(folder), remote = try LocalStore.bindingURL(folder)
+        records.removeAll { $0.id == entry.id }
+        try save(records)
+        release(entry.id)
+        // These two URLs are app-private metadata; the selected directory is untouched.
+        try? FileManager.default.removeItem(at: meta)
+        try? FileManager.default.removeItem(at: remote)
+    }
+    static func roots() throws -> [URL] {
+        lock.lock(); defer { lock.unlock() }
+        var records = try entries(), result: [URL] = []
+        for i in records.indices {
+            var stale = false
+            let url = try URL(resolvingBookmarkData: records[i].bookmark, options: [.withoutUI], relativeTo: nil, bookmarkDataIsStale: &stale)
+            if scopes[records[i].id]?.standardizedFileURL != url.standardizedFileURL {
+                let acquired = url.startAccessingSecurityScopedResource()
+                guard try acquired || ownDocuments(url) else { throw AppError(text: "工作区授权失效，请重新选择文件夹：" + url.lastPathComponent) }
+                release(records[i].id)
+                scopes[records[i].id] = url
+                if acquired { scopedIDs.insert(records[i].id) }
+            }
+            guard try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]).isDirectory == true,
+                  try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw AppError(text: "关联工作区不可用，请重新选择原目录") }
+            guard try identity(url) == records[i].identity else { throw AppError(text: "关联目录身份已变化，请重新确认原目录") }
+            records[i].path = url.standardizedFileURL.path
+            if stale { records[i].bookmark = try url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil) }
+            result.append(url)
+        }
+        try save(records)
+        return result
+    }
+    static func register(_ source: URL) throws -> URL {
+        lock.lock(); defer { lock.unlock() }
+        let url = source.standardizedFileURL
+        var records = try entries()
+        let existing = records.first { $0.path == url.path }
+        let id = existing?.id ?? UUID().uuidString
+        let acquired = url.startAccessingSecurityScopedResource()
+        guard try acquired || ownDocuments(url) else { throw AppError(text: "无法保留文件夹授权，请重新选择原目录") }
+        do {
+            let bookmark = try url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil)
+            let baseline = try LocalStore.coordinatedSnapshot(url)
+            let resourceIdentity = try identity(url)
+            if let existing, existing.identity != resourceIdentity { throw AppError(text: "原路径已换成其他目录，请先刷新并重新选择原目录") }
+            records.removeAll { $0.id == id }
+            records.append(Entry(id: id, path: url.path, bookmark: bookmark, identity: resourceIdentity))
+            try save(records)
+            if existing == nil {
+                do { try JSONEncoder().encode(baseline).write(to: LocalStore.metadata(url), options: .atomic) }
+                catch { records.removeAll { $0.id == id }; try save(records); throw error }
+            }
+            if scopes[id] == nil {
+                scopes[id] = url
+                if acquired { scopedIDs.insert(id) }
+            } else if acquired { url.stopAccessingSecurityScopedResource() }
+            return url
+        } catch { if acquired { url.stopAccessingSecurityScopedResource() }; throw error }
+    }
+    static func remove(_ folder: URL) throws {
+        lock.lock(); defer { lock.unlock() }
+        var records = try entries()
+        guard let entry = records.first(where: { $0.path == folder.standardizedFileURL.path }) else { throw AppError(text: "目录没有授权关联，拒绝删除") }
+        var stale = false
+        let registered = try URL(resolvingBookmarkData: entry.bookmark, options: [.withoutUI], relativeTo: nil, bookmarkDataIsStale: &stale)
+        guard registered.standardizedFileURL.path == folder.standardizedFileURL.path,
+              try identity(folder) == entry.identity else { throw AppError(text: "原目录已移动或被替换，拒绝删除；请刷新后重试") }
+        let meta = try LocalStore.metadata(folder), remote = try LocalStore.bindingURL(folder)
+        guard FileManager.default.fileExists(atPath: meta.path) else { throw AppError(text: "基线不存在，拒绝删除") }
+        let original = try folder.resourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier as? NSObject
+        let previousRecords = records
+        records.removeAll { $0.id == entry.id }
+        // Persist deregistration first: a metadata write failure must never follow
+        // a successful irreversible removal and leave an unusable registered root.
+        try save(records)
+        var failure: Error?, coordinationError: NSError?
+        NSFileCoordinator().coordinate(writingItemAt: folder, options: .forDeleting, error: &coordinationError) { target in
+            do {
+                let values = try target.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .fileResourceIdentifierKey])
+                guard target.standardizedFileURL == folder.standardizedFileURL, values.isDirectory == true, values.isSymbolicLink != true,
+                      let original, let current = values.fileResourceIdentifier as? NSObject, original == current,
+                      try identity(target) == entry.identity else { throw AppError(text: "删除目标已变化，拒绝删除") }
+                try FileManager.default.removeItem(at: target)
+            } catch { failure = error }
+        }
+        if let error = coordinationError ?? (failure as NSError?) {
+            do { try save(previousRecords) }
+            catch { throw AppError(text: "删除未完成且关联记录恢复失败；请保留原目录并重新关联：" + folder.path) }
+            throw error
+        }
+        release(entry.id)
+        try? FileManager.default.removeItem(at: meta)
+        try? FileManager.default.removeItem(at: remote)
+    }
+}
+
 enum LocalStore {
+    static func matchingRoot(_ selected: URL?, in roots: [URL]) -> URL? {
+        guard let selected else { return nil }
+        let path = selected.resolvingSymlinksInPath().standardizedFileURL.path
+        // Compare filesystem identity paths while retaining the bookmark URL and
+        // its scope; /var and /private/var may describe the same iOS/macOS folder.
+        return roots.first { $0.resolvingSymlinksInPath().standardizedFileURL.path == path }
+    }
     static func root() throws -> URL {
         let fm = FileManager.default
         let url = try fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Repositories", isDirectory: true)
@@ -37,9 +182,27 @@ enum LocalStore {
         let fm = FileManager.default
         let url = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("LocalBaselines", isDirectory: true)
         try fm.createDirectory(at: url, withIntermediateDirectories: true)
-        return url.appendingPathComponent(folder.lastPathComponent + ".json")
+        let name = try LinkedWorkspaces.identifier(folder).map { "linked-" + $0 } ?? folder.lastPathComponent
+        return url.appendingPathComponent(name + ".json")
     }
     static func snapshot(_ directory: URL) throws -> LocalSnapshot {
+        if try LinkedWorkspaces.identifier(directory) != nil {
+            return try coordinatedSnapshot(directory)
+        }
+        return try snapshotContents(directory)
+    }
+    static func coordinatedSnapshot(_ directory: URL) throws -> LocalSnapshot {
+            var result: LocalSnapshot?, failure: Error?, coordinationError: NSError?
+            NSFileCoordinator().coordinate(readingItemAt: directory, options: .withoutChanges, error: &coordinationError) { readable in
+                do { result = try snapshotContents(readable) } catch { failure = error }
+            }
+            if let error = coordinationError { throw error }
+            if let error = failure { throw error }
+            guard let result else { throw AppError(text: "文件提供器未返回工作目录") }
+            return result
+    }
+    private static func snapshotContents(_ directory: URL) throws -> LocalSnapshot {
+        guard try directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else { throw AppError(text: "工作区不是可读取的文件夹") }
         guard try directory.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw AppError(text: "工作区根目录不能是符号链接") }
         let root = directory.resolvingSymlinksInPath().standardizedFileURL
         let fm = FileManager.default
@@ -82,6 +245,13 @@ enum LocalStore {
         return result
     }
     static func removeWorkspace(_ folder: URL) throws {
+        let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+        let canonical = folder.resolvingSymlinksInPath().standardizedFileURL
+        guard canonical != documents.resolvingSymlinksInPath().standardizedFileURL,
+              canonical != documents.appendingPathComponent("Repositories", isDirectory: true).resolvingSymlinksInPath().standardizedFileURL else {
+            throw AppError(text: "不能删除 App 文档根目录或全部工作区根目录；请只选择具体项目")
+        }
+        if try LinkedWorkspaces.identifier(folder) != nil { try LinkedWorkspaces.remove(folder); return }
         let fm = FileManager.default
         let base = try root().standardizedFileURL
         guard folder.standardizedFileURL.deletingLastPathComponent() == base,
@@ -131,6 +301,7 @@ enum LocalStore {
     }
     // Explicit user operation; no automatic directory migration during refresh.
     static func renameWorkspace(_ folder: URL, to proposed: String) throws -> URL {
+        guard try LinkedWorkspaces.identifier(folder) == nil else { throw AppError(text: "关联原目录请在苹果“文件”中重命名，然后重新关联") }
         let fm = FileManager.default
         guard folder.standardizedFileURL.deletingLastPathComponent() == (try root()).standardizedFileURL,
               try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]).isDirectory == true,
@@ -208,6 +379,8 @@ struct WorkspaceView: View {
     @State private var resolvingPull = false
     @State private var checkPending: WorkspacePull?
     @State private var pendingDelete: URL?
+    @State private var pendingDetach: URL?
+    @State private var confirmDetach = false
     @State private var confirmDelete = false
     @State private var confirmDirtyDelete = false
     @State private var deletionIsDirty = false
@@ -221,97 +394,126 @@ struct WorkspaceView: View {
     private enum Field: Hashable { case remoteRepo, remoteBranch, associationRepo, associationBranch, baselineRevision, commitMessage }
     @FocusState private var focusedField: Field?
     var body: some View {
-        NavigationStack {
-            List {
-                localSection
-                if let folder = folder {
-                    workspaceManagement(folder)
-                    changesSection
-                }
+        NavigationStack { workspaceAlerts }
+    }
+
+    // Bound each opaque view expression without changing modifier order,
+    // navigation ownership, or presentation identity.
+    private var workspaceContent: some View {
+        List {
+            localSection
+            associationManagementSection
+            if let folder = folder {
+                workspaceManagement(folder)
+                changesSection
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("本地工作区")
-            .adaptiveWorkspaceLayout()
-            .refreshable { await scan() }
-            .scrollDismissesKeyboard(.interactively)
-            .onSubmit { focusedField = nil }
-            .onChange(of: importRequest?.id) { _ in focusedField = nil }
-            .onChange(of: folder) { _ in focusedField = nil }
-            .onDisappear { focusedField = nil }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button("下载远端建立可靠基线") { showRemoteImport = true }
-                        Button("导入一个或多个文件夹") { importRequest = WorkspaceImportRequest(kind: .folder) }
-                        Button("导入一个或多个 ZIP") { importRequest = WorkspaceImportRequest(kind: .zip) }
-                    } label: { Image(systemName: "plus") }.disabled(busy)
-                }
-                ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("完成") { focusedField = nil } } }
-            .sheet(isPresented: $showRemoteImport) {
-                NavigationStack { List { remoteSection }.navigationTitle("导入远端").toolbar { Button("关闭") { showRemoteImport = false }.disabled(busy) } }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("本地工作区")
+        .adaptiveWorkspaceLayout()
+        .refreshable { await scan() }
+        .scrollDismissesKeyboard(.interactively)
+        .onSubmit { focusedField = nil }
+        .onChange(of: importRequest?.id) { _ in focusedField = nil }
+        .onChange(of: folder) { _ in focusedField = nil }
+        .onDisappear { focusedField = nil }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button("下载远端建立可靠基线") { showRemoteImport = true }
+                    Button("导入一个或多个文件夹") { importRequest = WorkspaceImportRequest(kind: .folder) }
+                    Button("导入一个或多个 ZIP") { importRequest = WorkspaceImportRequest(kind: .zip) }
+                } label: { Image(systemName: "plus") }.disabled(busy)
             }
-            .sheet(isPresented: $showAssociation) {
-                NavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("关联仓库 / 分支").toolbar { Button("关闭") { showAssociation = false }.disabled(busy) } }
+            ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("完成") { focusedField = nil } } }
+    }
+
+    private var workspacePresentations: some View {
+        workspaceContent
+        .sheet(isPresented: $showRemoteImport) {
+            NavigationStack { List { remoteSection }.navigationTitle("导入远端").toolbar { Button("关闭") { showRemoteImport = false }.disabled(busy) } }
+        }
+        .sheet(isPresented: $showAssociation) {
+            NavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("关联仓库 / 分支").toolbar { Button("关闭") { showAssociation = false }.disabled(busy) } }
+        }
+        .sheet(isPresented: $showDetails) {
+            NavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("工作区详情").toolbar { Button("关闭") { showDetails = false } } }
+        }
+        .sheet(isPresented: $publishing) { ReleaseEntryView(api: api, initialRepo: binding?.repo ?? "", initialBranch: binding?.branch ?? "") }
+        .confirmationDialog("检查远端更新？此操作不会修改本地文件；检查完成后仍需确认才会拉取。", isPresented: $confirmPull, titleVisibility: .visible) {
+            Button("检查更新") { Task { await checkRemote() } }
+            Button("取消", role: .cancel) {}
+        }
+        .task { if !hasScanned { folder = selectionStore.session.rememberedFolder(accountID: api.accountID); await scan() } }
+        .sheet(item: $importRequest) { request in
+            WorkspaceDocumentPicker(request: request) { urls in
+                importRequest = nil
+                guard let urls else { return }
+                Task { await importItems(urls, zip: request.isZIP) }
             }
-            .sheet(isPresented: $showDetails) {
-                NavigationStack { List { if let folder { bindingSection(folder) } }.navigationTitle("工作区详情").toolbar { Button("关闭") { showDetails = false } } }
+            .id(request.id)
+        }
+        .sheet(isPresented: $resolvingPull, onDismiss: { discardPull() }) { conflictSheet }
+    }
+
+    private var workspaceConfirmations: some View {
+        workspacePresentations
+        .confirmationDialog("确认提交到 \(binding?.repo ?? "") · \(binding?.branch ?? "")？包含勾选的删除操作。", isPresented: $confirming, titleVisibility: .visible) {
+            Button("确认提交 \(selected.count) 项") { Task { await commit() } }
+            Button("取消", role: .cancel) {}
+        }
+        .confirmationDialog("永久删除所选实际目录及其全部内容？\n\(pendingDelete?.path ?? "")\n不会删除父目录、其他文件夹或 GitHub 远端。", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("继续删除所选目录", role: .destructive) { inspectDeletion() }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        }
+        .confirmationDialog("仅解除关联，保留原目录及全部文件：\n\(pendingDetach?.path ?? "")", isPresented: $confirmDetach, titleVisibility: .visible) {
+            Button("解除关联（保留文件）") {
+                guard let target = pendingDetach else { return }
+                do {
+                    try LinkedWorkspaces.detach(target)
+                    if folder == target { folder = nil }
+                    Task { await scan() }
+                } catch { message = error.localizedDescription }
+                pendingDetach = nil
             }
-            .sheet(isPresented: $publishing) { ReleaseEntryView(api: api, initialRepo: binding?.repo ?? "", initialBranch: binding?.branch ?? "") }
-            .confirmationDialog("检查远端更新？此操作不会修改本地文件；检查完成后仍需确认才会拉取。", isPresented: $confirmPull, titleVisibility: .visible) {
-                Button("检查更新") { Task { await checkRemote() } }
-                Button("取消", role: .cancel) {}
-            }
-            .task { if !hasScanned { folder = selectionStore.session.rememberedFolder(accountID: api.accountID); await scan() } }
-            .sheet(item: $importRequest) { request in
-                WorkspaceDocumentPicker(request: request) { urls in
-                    importRequest = nil
-                    guard let urls else { return }
-                    Task { await importItems(urls, zip: request.isZIP) }
-                }
-                .id(request.id)
-            }
-            .sheet(isPresented: $resolvingPull, onDismiss: { discardPull() }) { conflictSheet }
-            .confirmationDialog("确认提交到 \(binding?.repo ?? "") · \(binding?.branch ?? "")？包含勾选的删除操作。", isPresented: $confirming, titleVisibility: .visible) {
-                Button("确认提交 \(selected.count) 项") { Task { await commit() } }
-                Button("取消", role: .cancel) {}
-            }
-            .confirmationDialog("删除本地工作区？不会删除 GitHub 远端。", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("继续删除本地副本", role: .destructive) { inspectDeletion() }
-                Button("取消", role: .cancel) { pendingDelete = nil }
-            }
-            .confirmationDialog(deletionIsDirty ? "此工作区有未提交更改，删除后无法恢复。确定仍要删除？" : "再次确认永久删除此本地工作区及其关联记录？", isPresented: $confirmDirtyDelete, titleVisibility: .visible) {
-                Button("永久删除未提交更改与工作区", role: .destructive) { deleteSelected() }
-                Button("取消", role: .cancel) { pendingDelete = nil }
-            }
-            .alert("重命名实际工作区目录", isPresented: $confirmingRename) {
-                TextField("可读目录名", text: $renameName)
-                Button("重命名") { Task { await renameCurrentWorkspace() } }
-                Button("取消", role: .cancel) {}
-            } message: { Text("将同步移动文件及基线记录，保留勾选。不会修改远端；请勿同时在文件 App 移动目录。") }
-            .alert("提示", isPresented: Binding(get: { !message.isEmpty }, set: { if !$0 { message = "" } })) {
-                Button("好", role: .cancel) { message = "" }
-            } message: { Text(message) }
-            .sheet(item: $checkPending, onDismiss: { discardCheck() }) { pending in
-                NavigationStack {
-                    List {
-                        if pending.binding.head == binding?.head { Text("远端无新提交，本地更改保持不变。").softGroupedRow(top: true, bottom: true) }
-                        else {
-                            Text("下列路径是远端相对当前基线的实际变更；拉取会按三方合并，冲突另行逐项确认。").softGroupedRow(top: true)
-                            ForEach(WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot), id: \.path) { change in
-                                LabeledContent(change.path, value: change.kind).softGroupedRow(bottom: change.path == WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).last?.path)
-                            }
-                            if WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).isEmpty { Text("提交改变，但文件内容未变。").softGroupedRow(bottom: true) }
+            Button("取消", role: .cancel) { pendingDetach = nil }
+        }
+        .confirmationDialog((deletionIsDirty ? "此目录有未提交更改，删除后无法恢复。" : "再次确认永久删除实际目录及全部内容。") + "\n" + (pendingDelete?.path ?? ""), isPresented: $confirmDirtyDelete, titleVisibility: .visible) {
+            Button("永久删除未提交更改与工作区", role: .destructive) { deleteSelected() }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        }
+    }
+
+    private var workspaceAlerts: some View {
+        workspaceConfirmations
+        .alert("重命名实际工作区目录", isPresented: $confirmingRename) {
+            TextField("可读目录名", text: $renameName)
+            Button("重命名") { Task { await renameCurrentWorkspace() } }
+            Button("取消", role: .cancel) {}
+        } message: { Text("将同步移动文件及基线记录，保留勾选。不会修改远端；请勿同时在文件 App 移动目录。") }
+        .alert("提示", isPresented: Binding(get: { !message.isEmpty }, set: { if !$0 { message = "" } })) {
+            Button("好", role: .cancel) { message = "" }
+        } message: { Text(message) }
+        .sheet(item: $checkPending, onDismiss: { discardCheck() }) { pending in
+            NavigationStack {
+                List {
+                    if pending.binding.head == binding?.head { Text("远端无新提交，本地更改保持不变。").softGroupedRow(top: true, bottom: true) }
+                    else {
+                        Text("下列路径是远端相对当前基线的实际变更；拉取会按三方合并，冲突另行逐项确认。").softGroupedRow(top: true)
+                        ForEach(WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot), id: \.path) { change in
+                            LabeledContent(change.path, value: change.kind).softGroupedRow(bottom: change.path == WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).last?.path)
                         }
+                        if WorkspaceMerge.remoteChanges(base: binding?.snapshot ?? LocalSnapshot(), remote: pending.binding.snapshot).isEmpty { Text("提交改变，但文件内容未变。").softGroupedRow(bottom: true) }
                     }
-                    .navigationTitle("远端更新检查")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("稍后") { discardCheck() } }
-                        if pending.binding.head != binding?.head {
-                            ToolbarItem(placement: .confirmationAction) { Button("确认拉取") { Task { await pullChecked() } }.disabled(busy) }
-                        }
+                }
+                .navigationTitle("远端更新检查")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("稍后") { discardCheck() } }
+                    if pending.binding.head != binding?.head {
+                        ToolbarItem(placement: .confirmationAction) { Button("确认拉取") { Task { await pullChecked() } }.disabled(busy) }
                     }
-                }.interactiveDismissDisabled(busy)
-            }
+                }
+            }.interactiveDismissDisabled(busy)
         }
     }
     private var remoteSection: some View {
@@ -324,7 +526,7 @@ Section("从远端建立工作区") {
 
     private var localSection: some View {
 Section("本地工作目录") {
-                    Text("修改导入后的副本，再刷新变更。") .font(.caption).softGroupedRow(top: true, bottom: roots.isEmpty)
+                    Text("文件夹直接关联原目录，修改后刷新变更；ZIP 导入为内部副本。") .font(.caption).softGroupedRow(top: true, bottom: roots.isEmpty)
                     ForEach(roots, id: \.path) { root in
                         Button { folder = root; Task { await scan() } } label: {
                             VStack(alignment: .leading) {
@@ -335,9 +537,6 @@ Section("本地工作目录") {
                             }
                         }.disabled(busy)
                         .softGroupedRow(bottom: root == roots.last)
-                        .swipeActions {
-                            Button("删除", role: .destructive) { pendingDelete = root; confirmDelete = true }.disabled(busy)
-                        }
                         .contextMenu {
                             Button("删除本地工作区", role: .destructive) { pendingDelete = root; confirmDelete = true }
                         }
@@ -345,31 +544,55 @@ Section("本地工作目录") {
                 }
     }
 
+    private var associationManagementSection: some View {
+        let paths = (try? LinkedWorkspaces.registeredPaths()) ?? []
+        return Group {
+            if !paths.isEmpty {
+                Section("原目录授权") {
+                    Menu("管理关联（保留文件）") {
+                        ForEach(paths, id: \.path) { path in
+                            Button(path.path) { pendingDetach = path; confirmDetach = true }
+                        }
+                    }.disabled(busy).softGroupedRow(top: true, bottom: true)
+                }
+            }
+        }
+    }
+
     private func workspaceManagement(_ folder: URL) -> some View {
-        Section {
+        let linked = (try? LinkedWorkspaces.identifier(folder)) != nil
+        return Section {
             if let binding { Text(binding.repo + " / " + binding.branch).font(.headline).softGroupedRow(top: true) }
             Menu("工作区…") {
-                Button("检查远端更新") { focusedField = nil; confirmPull = true }.disabled(busy || binding == nil)
+                if !linked {
+                    Button("检查远端更新") { focusedField = nil; confirmPull = true }.disabled(busy || binding == nil)
+                }
                 Button("关联仓库 / 分支") { showAssociation = true }
-                Button("重命名实际目录") { renameName = folder.lastPathComponent; confirmingRename = true }
+                if !linked {
+                    Button("重命名实际目录") { renameName = folder.lastPathComponent; confirmingRename = true }
+                }
                 Button("工作区详情") { showDetails = true }
                 Button("发布为发行版") { publishing = true }
                 Button("删除本地工作区", role: .destructive) { pendingDelete = folder; confirmDelete = true }
-            }.disabled(busy).softGroupedRow(top: binding == nil, bottom: true)
+            }.disabled(busy).softGroupedRow(top: binding == nil, bottom: !linked)
+            if linked {
+                Text("直接使用苹果‘文件’中的原目录。重命名请在‘文件’中操作后重新关联；关联目录暂不支持拉取覆盖。").font(.caption).softGroupedRow(bottom: true)
+            }
         }
     }
 
     private func bindingSection(_ folder: URL) -> some View {
-Section("关联仓库 / 分支") {
-                        Text("实际副本：我的 iPhone / RepoPocket / Repositories / " + folder.lastPathComponent)
+        let linked = (try? LinkedWorkspaces.identifier(folder)) != nil
+        return Section("关联仓库 / 分支") {
+                        Text("实际工作目录：" + folder.path)
                             .font(.caption).textSelection(.enabled).softGroupedRow(top: true)
-                        Button("复制实际副本路径") { UIPasteboard.general.string = folder.path }.softGroupedRow()
+                        Button("复制实际工作目录路径") { UIPasteboard.general.string = folder.path }.softGroupedRow()
                         Text("包含隐藏文件，仅扫描时忽略 .git；拒绝符号链接。ZIP：最多 20,000 项、单文件 512 MiB、总计 1 GiB。").font(.caption2).softGroupedRow()
                         Text("绝对路径：" + folder.path).font(.caption2).textSelection(.enabled).softGroupedRow()
-                        Button("重命名实际目录") {
+                        if !linked { Button("重命名实际目录") {
                             renameName = binding?.repo.replacingOccurrences(of: "/", with: "-") ?? folder.lastPathComponent
                             focusedField = nil; confirmingRename = true
-                        }.disabled(busy).softGroupedRow()
+                        }.disabled(busy).softGroupedRow() }
                         if let binding = binding {
                             Text(binding.repo + " · " + binding.branch).softGroupedRow()
                             Text("基线 " + String(binding.head.prefix(12))).font(.caption).softGroupedRow()
@@ -377,9 +600,9 @@ Section("关联仓库 / 分支") {
                             if let d = binding.remoteCommitterDate { Text("最新提交 committer：" + d.formatted()).font(.caption).softGroupedRow() }
                             if let d = binding.lastChecked { Text("上次检查：" + d.formatted()).font(.caption).softGroupedRow() }
                             if let d = binding.lastPulled { Text("上次拉取：" + d.formatted()).font(.caption).softGroupedRow() }
-                            Button("检查更新") { focusedField = nil; confirmPull = true }
+                            if !linked { Button("检查更新") { focusedField = nil; confirmPull = true }
                                 .buttonStyle(.borderless)
-                                .disabled(busy).softGroupedRow()
+                                .disabled(busy).softGroupedRow() }
                             Button("删除本地工作区", role: .destructive) { pendingDelete = folder; confirmDelete = true }
                                 .buttonStyle(.borderless)
                                 .disabled(busy).softGroupedRow(bottom: true)
@@ -460,6 +683,7 @@ Section("本地变更预览 / 勾选提交") {
         for source in urls {
             do {
                 let imported = try await Task.detached(priority: .userInitiated) { () throws -> URL in
+                    if !zip { return try LinkedWorkspaces.register(source) }
                     let scoped = source.startAccessingSecurityScopedResource()
                     defer { if scoped { source.stopAccessingSecurityScopedResource() } }
                     var failure: Error?
@@ -479,7 +703,7 @@ Section("本地变更预览 / 勾选提交") {
                                 let children = try FileManager.default.contentsOfDirectory(at: stage, includingPropertiesForKeys: [.isDirectoryKey])
                                 let content = children.count == 1 && (try? children[0].resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true ? children[0] : stage
                                 destination = try LocalStore.importFolder(content, name: children.count == 1 && content != stage ? content.lastPathComponent : source.deletingPathExtension().lastPathComponent)
-                            } else { destination = try LocalStore.importFolder(readable) }
+                            }
                         } catch { failure = error }
                     }
                     if let error = coordinationError { throw error }
@@ -647,8 +871,8 @@ Section("本地变更预览 / 勾选提交") {
             let result = try await Task.detached(priority: .userInitiated) { () throws -> ([URL], URL?, WorkspaceBinding?, [LocalChange], LocalSnapshot?) in
                 let roots = try FileManager.default.contentsOfDirectory(at: LocalStore.root(), includingPropertiesForKeys: [.isDirectoryKey]).filter {
                     (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true && FileManager.default.fileExists(atPath: (try? LocalStore.metadata($0).path) ?? "")
-                }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-                let target = requestedFolder.flatMap { roots.contains($0) ? $0 : nil } ?? roots.first
+                } + (try LinkedWorkspaces.roots())
+                let target = LocalStore.matchingRoot(requestedFolder, in: roots) ?? roots.first
                 guard let target else { return (roots, nil, nil, [], nil) }
                 let binding = try? LocalStore.binding(target)
                 let before = try LocalStore.snapshot(target)
