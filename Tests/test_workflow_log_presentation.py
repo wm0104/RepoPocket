@@ -9,6 +9,91 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkflowLogPresentationTests(unittest.TestCase):
+    def test_refresh_finishes_layout_before_restoring_the_saved_reading_offset(self):
+        surface = (ROOT / 'RepoPocket/SourceTextSurface.swift').read_text(encoding='utf-8')
+        restore = surface.split('} else if let offset = pendingReadingOffset, height > 0 {', 1)[1].split('gutter.setNeedsDisplay()', 1)[0]
+        self.assertIn('textView.layoutManager.ensureLayout(for: textView.textContainer)', restore)
+        self.assertEqual(restore.count('textView.layoutIfNeeded()'), 2)
+        self.assertLess(restore.index('textView.layoutManager.ensureLayout('), restore.index('textView.setContentOffset(offset, animated: false)'))
+
+    def test_highlight_finishes_text_layout_before_restoring_the_reader_offset(self):
+        surface = (ROOT / 'RepoPocket/SourceTextSurface.swift').read_text(encoding='utf-8')
+        highlight = surface.split('private func scheduleHighlight()', 1)[1].split('fileprivate func drawNumbers', 1)[0]
+        complete = 'self.textView.layoutManager.ensureLayout(for: self.textView.textContainer)'
+        self.assertIn(complete, highlight)
+        self.assertLess(highlight.index('storage.endEditing()'), highlight.index(complete))
+        self.assertLess(highlight.index(complete), highlight.index('self.textView.layoutIfNeeded()'))
+        self.assertLess(highlight.index('self.textView.layoutIfNeeded()'), highlight.index('self.textView.setContentOffset(offset, animated: false)'))
+        self.assertNotIn('sleep(', highlight.split('storage.endEditing()', 1)[1])
+
+    def test_explicit_reveal_lays_out_and_scrolls_the_caret_even_for_an_empty_range(self):
+        surface = (ROOT / 'RepoPocket/SourceTextSurface.swift').read_text(encoding='utf-8')
+        reveal = surface.split('if let request = pendingReveal, height > 0, window != nil {', 1)[1].split('} else if let offset = pendingReadingOffset', 1)[0]
+        self.assertIn('DispatchQueue.main.async { [weak self]', reveal)
+        self.assertIn('self.lastRevealID == request.id, self.textView.text == text', reveal)
+        self.assertNotIn('sleep(', reveal)
+        self.assertIn('textView.layoutManager.ensureLayout(for: self.textView.textContainer)', reveal)
+        self.assertNotIn('ensureLayout(forCharacterRange: request.range)', reveal)
+        self.assertEqual(reveal.count('textView.layoutIfNeeded()'), 2)
+        self.assertIn('textView.layoutIfNeeded()', reveal)
+        self.assertIn('textView.caretRect(for: selection.start)', reveal)
+        self.assertIn('textView.scrollRectToVisible(', reveal)
+        self.assertNotIn('textView.scrollRangeToVisible(request.range)', reveal)
+        self.assertLess(reveal.index('textView.layoutIfNeeded()'), reveal.index('textView.scrollRectToVisible('))
+        self.assertIn('animated: false', reveal)
+        self.assertIn('textView.selectedRange = request.range', reveal)
+        self.assertIn('lastRevealID = nil; pendingReveal = nil', surface.split('func cancelTasks()', 1)[1])
+
+    def test_long_log_ui_matches_localized_line_numbers_without_dropping_navigation_checks(self):
+        ui = (ROOT / 'StyleUITests/WorkflowLogTests.swift').read_text(encoding='utf-8')
+        self.assertEqual(ui.count('position.label.contains(30001.formatted(.number))'), 2)
+        self.assertEqual(ui.count('position.label.contains(30010.formatted(.number))'), 1)
+        self.assertNotIn('position.label.contains("30001")', ui)
+        for token in ['position.label.contains("1/2")', 'report["selectedVisible"], "1"',
+                      'XCTAssertGreaterThan(Int(report["verticalOffset"]',
+                      'XCTAssertLessThanOrEqual(abs(after - before), 3', 'workflow-log-toggle-raw',
+                      'screenshot(app, "workflow-log-long-located")']:
+            self.assertIn(token, ui)
+
+    def test_native_regressions_check_tail_error_visibility_and_refresh_position(self):
+        ui = (ROOT / 'StyleUITests/WorkflowLogTests.swift').read_text(encoding='utf-8')
+        probe = (ROOT / 'RepoPocket/SourceStylePreview.swift').read_text(encoding='utf-8')
+        zip_test = (ROOT / 'Tests/test_workspace_zip.py').read_text(encoding='utf-8')
+        for token in ['assertLongErrorNavigation(app)', '30001', '30010', 'selectedVisible',
+                      'workflow-error-next', 'workflow-error-previous', 'abs(after - before)']:
+            self.assertIn(token, ui)
+        for token in ['count: 30000', 'viewport.intersects', 'text.caretRect', 'text.contentOffset.y']:
+            self.assertIn(token, probe)
+        for token in ['16*1024*1024+1', "count == 40002", 'readJob(', 'job-invalid.log', 'job-oversized.log']:
+            self.assertIn(token, zip_test)
+
+    def test_job_log_is_bounded_but_no_longer_silently_a_prefix(self):
+        github = (ROOT / 'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
+        method = github.split('func communityJobLog(', 1)[1].split('\n    }', 1)[0]
+        self.assertNotIn('256 * 1024', method)
+        self.assertNotIn('String(decoding:', method)
+        self.assertIn('WorkflowLogArchiveDownloadPolicy()', method)
+        self.assertIn('WorkflowLogArchiveRules.readJob', method)
+        self.assertIn('ensureActiveAccount()', method)
+
+    def test_error_navigation_is_explicit_and_initial_only(self):
+        reader = (ROOT / 'RepoPocket/WorkflowLogView.swift').read_text(encoding='utf-8')
+        for token in ['var failed = false', 'didAutoLocate', 'SourceTextReveal',
+                      'workflow-error-previous', 'workflow-error-next', 'workflow-error-position',
+                      'errorLocations', '未定位到更具体的报错']:
+            self.assertIn(token, reader)
+        self.assertNotIn('presentation.rawText == rawText {', reader)
+        surface = (ROOT / 'RepoPocket/SourceTextSurface.swift').read_text(encoding='utf-8')
+        for token in ['lastRevealID', 'pendingReveal', 'pendingReadingOffset',
+                      'scrollRangeToVisible', 'NSMaxRange(request.range)']:
+            self.assertIn(token, surface)
+        shipping = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8')
+        inline = shipping.split('struct WorkflowInlineLog:', 1)[1].split('struct WorkflowLogView:', 1)[0]
+        self.assertLess(inline.index('else if let output'), inline.index('else if loading'))
+        full_screen = shipping.split('if expandedSteps.contains(step.number), step.conclusion != \"skipped\",', 1)[1].split('SoftGroupRow(\"full-log-', 1)[0]
+        self.assertNotIn('!logs.loading', full_screen)
+        self.assertNotIn('logs.error.isEmpty', full_screen)
+
     def test_inline_log_controls_do_not_share_the_automatic_list_row_action(self):
         reader = (ROOT / 'RepoPocket/WorkflowLogView.swift').read_text(encoding='utf-8').split('SourceCodeView(', 1)[0]
         self.assertIn('.buttonStyle(.borderless)', reader)
@@ -17,15 +102,15 @@ class WorkflowLogPresentationTests(unittest.TestCase):
         archive = (ROOT / 'RepoPocket/WorkflowLogArchive.swift').read_text(encoding='utf-8')
         self.assertIn('WorkflowStepOutput(text: text, limited: false)', archive)
         self.assertNotIn('text.replacingOccurrences', archive)
-        for value in ['32 * 1024 * 1024', '2 * 1024 * 1024', 'count <= 5000',
+        for value in ['32 * 1024 * 1024', '16 * 1024 * 1024', 'count <= 5000',
                       'Task.checkCancellation()', 'String(data: bytes, encoding: .utf8)']:
             self.assertIn(value, archive)
 
     def test_reader_defaults_to_complete_read_only_context_and_copies_original(self):
         reader = (ROOT / 'RepoPocket/WorkflowLogView.swift').read_text(encoding='utf-8')
         self.assertIn('@State private var showingRaw = false', reader)
-        self.assertIn('UIPasteboard.general.string = rawText', reader)
-        self.assertIn('showingRaw ? rawText : presentation.displayText', reader)
+        self.assertIn('UIPasteboard.general.string = presentation.rawText', reader)
+        self.assertIn('showingRaw ? presentation.rawText : presentation.displayText', reader)
         self.assertIn('showingRaw ? [] : presentation.lines', reader)
         for forbidden in ['TextEditor(', 'becomeFirstResponder', '.filter(', 'errorsOnly']:
             self.assertNotIn(forbidden, reader)
@@ -63,6 +148,8 @@ import Foundation
         let clean = raw.replacingOccurrences(of: "\u{1B}[31m", with: "").replacingOccurrences(of: "\u{1B}[0m", with: "")
         precondition(value.displayText == clean)
         precondition(value.errorCount == 3 && value.warningCount == 2 && value.lines.count == 5)
+        precondition(value.lines[0].number == 2)
+        precondition((raw as NSString).substring(with: value.lines[0].rawRange).contains("\u{1B}[31m"))
         precondition(value.displayText.hasPrefix("before 😀 中文\r\n") && value.displayText.hasSuffix("after\n"))
         precondition(value.displayText.contains("\n\n##[group]keep group\n##[endgroup]\n"))
         let source = value.displayText as NSString
@@ -92,6 +179,18 @@ import Foundation
         let full = try WorkflowLogPresentation(rawText: large)
         precondition(full.rawText == large && full.displayText == large && full.errorCount == 1)
         precondition(full.lines[0].range.location == (large as NSString).range(of: "##[error]").location)
+        precondition(full.errorLocations.first?.number == 40_001)
+        let ordered = try WorkflowLogPresentation(rawText: "##[error]Process completed with exit code 1.\n"
+            + "ordinary context 😀\n2026-11-12T01:02:04Z ERROR: 具体错误\n"
+            + "/Users/runner/Sources/代码.swift:12:4: error: compile failed\n")
+        precondition(ordered.errorCount == 3 && ordered.errorLocations.count == 2)
+        precondition(ordered.errorLocations.map(\.number) == [3, 4])
+        precondition(!ordered.onlyExitSummary)
+        let summary = try WorkflowLogPresentation(rawText: "##[error]Process completed with exit code 1.")
+        precondition(summary.onlyExitSummary && summary.errorLocations.count == 1)
+        let crlf = try WorkflowLogPresentation(rawText: "a\r\n\u{1B}[31mERROR: 中文😀\u{1B}[0m\r\nb\r\n")
+        precondition(crlf.errorLocations[0].number == 2)
+        precondition((crlf.rawText as NSString).substring(with: crlf.errorLocations[0].rawRange).contains("\u{1B}[31m"))
         print("PASS production Actions log explicit error/warning markers, invalid lookalikes, exact originals/full context/CRLF, ANSI display only and UTF16 search")
     }
 }

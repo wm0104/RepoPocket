@@ -22,7 +22,8 @@ struct SourceCodeView: View {
     let text: String
     let filename: String
     var logLines: [WorkflowLogPresentation.Line] = []
-    var body: some View { SourceCodeEditor(text: .constant(text), filename: filename, readOnly: true, logLines: logLines) }
+    var revealRequest: SourceTextReveal? = nil
+    var body: some View { SourceCodeEditor(text: .constant(text), filename: filename, readOnly: true, logLines: logLines, revealRequest: revealRequest) }
 }
 
 /// The preview and editor use the same native text surface and language rules.
@@ -31,6 +32,7 @@ struct SourceCodeEditor: View {
     let filename: String
     var readOnly = false
     var logLines: [WorkflowLogPresentation.Line] = []
+    var revealRequest: SourceTextReveal? = nil
     @State private var findRequest = 0
     @State private var scale = 1.0
     @Environment(\.colorScheme) private var colorScheme
@@ -48,7 +50,7 @@ struct SourceCodeEditor: View {
                 Text(readOnly ? "超过 512 KiB，已关闭语法解析，全文仍可查找。" : "超过 512 KiB，已关闭语法解析，全文仍可查找和编辑。").font(.caption).foregroundStyle(.secondary).padding(.horizontal)
             }
             Divider()
-            SourceTextSurface(text: $text, filename: filename, editable: !readOnly && isEnabled, dark: colorScheme == .dark, findRequest: findRequest, scale: scale, onScaleChange: { scale = $0 }, logLines: logLines)
+            SourceTextSurface(text: $text, filename: filename, editable: !readOnly && isEnabled, dark: colorScheme == .dark, findRequest: findRequest, scale: scale, onScaleChange: { scale = $0 }, logLines: logLines, revealRequest: revealRequest)
         }.background(Color(uiColor: .systemBackground))
     }
 }

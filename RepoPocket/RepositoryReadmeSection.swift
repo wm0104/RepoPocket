@@ -42,7 +42,7 @@ struct RepositoryReadmeSection: View {
                                 Task { await load(refresh: true) }
                             }
                         ]).frame(width: 44, height: 44)
-                    }
+                    }.listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
                 }
                 if let document {
                     SoftGroupRow("body") {

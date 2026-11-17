@@ -256,6 +256,11 @@ class BrowserRollbackTests(unittest.TestCase):
         collection_start = normalized.index('    func starListGraphQL(')
         collection_end = normalized.index('    func starRequest(', collection_start)
         normalized = normalized[:collection_start] + normalized[collection_end:]
+        # URL content search is covered by test_repository_search_routing.py; keep other APIs byte-exact.
+        search_start = normalized.index('    func searchCode(')
+        search_end = normalized.index('    func searchUsers(', search_start)
+        self.assertNotIn('\n    func ', normalized[search_start + 5:search_end])
+        normalized = normalized[:search_start] + normalized[search_end:]
         self.assertEqual(normalized.rstrip() + '\n}\n', api_original)
         self.assertEqual(BROWSER.count('.task { await load() }'), 1)
         self.assertIn('metadataFresh && RepositoryWriteRules.canWrite', BROWSER)

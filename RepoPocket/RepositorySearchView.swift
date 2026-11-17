@@ -10,6 +10,9 @@ struct RepositorySearchView: View {
     @State private var kind = RepositorySearchKind.repositories
     @State private var repositories: [Repository] = []
     @State private var users: [User] = []
+    @State private var codeResults: [CodeSearchResult] = []
+    @State private var incomplete = false
+    @State private var readingLink: ReadingLink?
     @State private var history: [RepositoryRecentSearch] = []
     @State private var generation = UUID()
     @State private var requestTask: Task<Void, Never>?
@@ -23,7 +26,7 @@ struct RepositorySearchView: View {
     @State private var lastSubmittedKind = RepositorySearchKind.repositories
     private var store: RepositorySearchHistory { RepositorySearchHistory(accountID: api.accountID) }
     private var clean: String { RepositorySearchRules.normalized(query) }
-    private var invalidLink: Bool { RepositorySearchRouting.isLink(submitted) && RepositorySearchRouting.repository(submitted) == nil }
+    private var invalidLink: Bool { kind != .code && RepositorySearchRouting.isLink(submitted) && RepositorySearchRouting.repository(submitted) == nil }
     var body: some View {
         AppNavigationStack {
             List {
@@ -33,6 +36,7 @@ struct RepositorySearchView: View {
                     Picker("搜索类型", selection: $kind) {
                         Text("仓库").tag(RepositorySearchKind.repositories)
                         Text("用户").tag(RepositorySearchKind.users)
+                        Text("代码").tag(RepositorySearchKind.code)
                     }.pickerStyle(.segmented)
                     } }
                 if kind == .repositories {
@@ -60,7 +64,7 @@ struct RepositorySearchView: View {
                             for item in history.filter({ selectRepository == nil || $0.kind == .repositories }) {
                                 SoftGroupRow("history-\(item.id)") {
                                 Button { query = item.query; begin(item.kind) } label: {
-                                    Label(item.query, systemImage: item.kind == .repositories ? "shippingbox" : "person")
+                                    Label(item.query, systemImage: item.kind == .repositories ? "shippingbox" : item.kind == .code ? "doc.text.magnifyingglass" : "person")
                                 }
                                 .swipeActions { Button("删除", role: .destructive) { store.remove(item); history = store.read() } }
                                 }
@@ -69,6 +73,7 @@ struct RepositorySearchView: View {
                             SoftGroupRow("suggestion-heading") { Text("搜索建议").font(.caption).foregroundStyle(.secondary) }
                             SoftGroupRow("suggest-repository") { Button { begin(.repositories) } label: { Label("搜索仓库：" + clean, systemImage: "shippingbox") } }
                             if selectRepository == nil { SoftGroupRow("suggest-user") { Button { begin(.users) } label: { Label("搜索用户：" + clean, systemImage: "person") } } }
+                             if selectRepository == nil { SoftGroupRow("suggest-code") { Button { begin(.code) } label: { Label("搜索代码内容：" + clean, systemImage: "doc.text.magnifyingglass") } } }
                             if let repo = try? RepositoryInput.parse(clean) {
                                 SoftGroupRow("direct-repository") {
                                 if selectRepository != nil {
@@ -81,7 +86,13 @@ struct RepositorySearchView: View {
                             }
                     }
                 } else {
-                        SoftGroupRow("results-heading") { Text(kind == .repositories ? "仓库结果" : "用户结果").font(.caption).foregroundStyle(.secondary) }
+                        SoftGroupRow("results-heading") { Text(kind == .repositories ? "仓库结果" : kind == .code ? "代码结果" : "用户结果").font(.caption).foregroundStyle(.secondary) }
+                        if kind == .code {
+                            SoftGroupRow("code-scope") {
+                                Text("仅搜索 GitHub 已索引的默认分支内容，可用 repo:用户名/仓库名 缩小范围。")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                         for repository in repositories {
                             SoftGroupRow("repository-\(repository.id)") {
                             if selectRepository != nil {
@@ -103,7 +114,17 @@ struct RepositorySearchView: View {
                             }.accessibilityIdentifier("search-user-" + user.login)
                             }
                         }
-                        if !busy && repositories.isEmpty && users.isEmpty && error.isEmpty { SoftGroupRow("empty") { Text("没有搜索结果").foregroundStyle(.secondary) } }
+                        for item in codeResults {
+                            SoftGroupRow("code-" + item.id) {
+                                Button {
+                                    if let url = item.fileURL { readingLink = ReadingLink(url: url) }
+                                } label: { CodeSearchResultRow(item: item) }
+                                .buttonStyle(.plain).disabled(item.fileURL == nil)
+                                .accessibilityIdentifier("search-code-" + item.id)
+                            }
+                        }
+                        if incomplete { SoftGroupRow("incomplete") { Text("本次仅返回部分搜索结果，请缩小范围后重新搜索。").font(.caption).foregroundStyle(.secondary) } }
+                        if !busy && repositories.isEmpty && users.isEmpty && codeResults.isEmpty && !incomplete && error.isEmpty { SoftGroupRow("empty") { Text("没有搜索结果").foregroundStyle(.secondary) } }
                         if more { SoftGroupRow("next") { Button("加载更多") { startLoad() }.disabled(busy) } }
                 }
                     if busy { SoftGroupRow("busy") { ProgressView("搜索中…") } }
@@ -117,7 +138,7 @@ struct RepositorySearchView: View {
             // Do not animate structural List mutations during keyboard/sheet transitions.
             // Native sheet and navigation animations remain enabled.
             .navigationTitle("搜索").navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索仓库或用户")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: selectRepository == nil ? "搜索仓库、用户或代码内容" : "搜索仓库")
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .onSubmit(of: .search) { begin(kind) }
             .onChange(of: kind) { selected in
@@ -145,25 +166,27 @@ struct RepositorySearchView: View {
                 history = records
             }
             .onDisappear { invalidate() }
+            .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
         }
     }
     private func begin(_ selected: RepositorySearchKind) {
         guard !clean.isEmpty else { return }
-        if let target = RepositorySearchRouting.repository(clean) {
+        if selected != .code, let target = RepositorySearchRouting.repository(clean) {
             if selectRepository != nil { chooseDirect(target); return }
-            invalidate(); submitted = clean; repositories = []; users = []; more = false; error = ""
+            invalidate(); submitted = clean; repositories = []; users = []; codeResults = []; incomplete = false; more = false; error = ""
             store.record(clean, kind: .repositories); history = store.read()
             directRepository = target
             return
         }
-        if RepositorySearchRouting.isLink(clean) {
-            invalidate(); submitted = clean; repositories = []; users = []; more = false
+        if selectRepository != nil && RepositorySearchRouting.isLink(clean) {
+            invalidate(); submitted = clean; repositories = []; users = []; codeResults = []; incomplete = false; more = false
             error = RepositoryInput.Invalid().localizedDescription
             return
         }
+        let selected = selectRepository == nil && RepositorySearchRouting.isLink(clean) ? .code : selected
         invalidate(); lastSubmittedKind = selected; kind = selected; submitted = clean
         requestedOptions = options
-        repositories = []; users = []; page = 1; more = false; busy = false; error = ""
+        repositories = []; users = []; codeResults = []; incomplete = false; page = 1; more = false; busy = false; error = ""
         store.record(submitted, kind: selected); history = store.read()
         startLoad()
     }
@@ -204,6 +227,13 @@ struct RepositorySearchView: View {
                 guard RepositorySearchRules.accepts(token, current: generation, account: account, currentAccount: AccountStore.generation) else { return }
                 let ids = Set(repositories.map { $0.id }); repositories += value.items.filter { !ids.contains($0.id) }
                 more = value.items.count == 30 && repositories.count < min(value.total_count, 1000)
+            } else if requestedKind == .code {
+                let value = try await api.searchCode(requested, page: requestedPage)
+                guard RepositorySearchRules.accepts(token, current: generation, account: account, currentAccount: AccountStore.generation) else { return }
+                var ids = Set(codeResults.map { $0.id })
+                codeResults += value.items.filter { ids.insert($0.id).inserted }
+                incomplete = incomplete || value.incomplete_results
+                more = value.items.count == 30 && requestedPage * 30 < min(value.total_count, 1000)
             } else {
                 let value = try await api.searchUsers(requested, page: requestedPage)
                 guard RepositorySearchRules.accepts(token, current: generation, account: account, currentAccount: AccountStore.generation) else { return }
@@ -270,5 +300,27 @@ private struct SearchDismissButton: View {
             dismissSearch()
             action()
         }
+    }
+}
+
+private struct CodeSearchResultRow: View {
+    let item: CodeSearchResult
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(item.repository.full_name).font(.caption).foregroundStyle(.secondary)
+            Label(item.path, systemImage: "doc.text").font(.callout)
+                .foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+            ForEach(Array((item.text_matches ?? []).prefix(3).enumerated()), id: \.offset) { _, match in
+                Text(highlighted(match)).font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary).lineLimit(6)
+            }
+        }.padding(.vertical, 4)
+    }
+    private func highlighted(_ match: CodeSearchMatch) -> AttributedString {
+        var text = AttributedString(match.fragment)
+        for item in match.matches ?? [] where !item.text.isEmpty {
+            if let range = text.range(of: item.text) { text[range].backgroundColor = .yellow.opacity(0.25) }
+        }
+        return text
     }
 }

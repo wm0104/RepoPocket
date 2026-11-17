@@ -329,16 +329,16 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.2.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.2.2"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "15.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.2.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.2.2"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.2.1"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.2.1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.2.2"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.2.2"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$EXT/Info.plist")" = "15.0"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
@@ -362,9 +362,9 @@ jobs:
           bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor roothide --sign-mode preserve
           bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor rootless --sign-mode preserve
           cd dist
-          test -s RepoPocket_1.2.1_iphoneos-arm64e.deb
-          test -s RepoPocket_1.2.1_iphoneos-arm64.deb
-          shasum -a 256 RepoPocket.ipa RepoPocket.tipa RepoPocket_1.2.1_iphoneos-arm64e.deb RepoPocket_1.2.1_iphoneos-arm64.deb > SHA256SUMS
+          test -s RepoPocket_1.2.2_iphoneos-arm64e.deb
+          test -s RepoPocket_1.2.2_iphoneos-arm64.deb
+          shasum -a 256 RepoPocket.ipa RepoPocket.tipa RepoPocket_1.2.2_iphoneos-arm64e.deb RepoPocket_1.2.2_iphoneos-arm64.deb > SHA256SUMS
           shasum -a 256 -c SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.validate_only }}
@@ -374,8 +374,8 @@ jobs:
             dist/RepoPocket.ipa
             dist/RepoPocket.ipa.sha256
             dist/RepoPocket.tipa
-            dist/RepoPocket_1.2.1_iphoneos-arm64e.deb
-            dist/RepoPocket_1.2.1_iphoneos-arm64.deb
+            dist/RepoPocket_1.2.2_iphoneos-arm64e.deb
+            dist/RepoPocket_1.2.2_iphoneos-arm64.deb
             dist/*.deb.sha256
             dist/*.deb.verification.json
             dist/SHA256SUMS

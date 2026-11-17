@@ -199,9 +199,10 @@ final class StyleBoundaryTests: XCTestCase {
         let right = (0..<80).first { pixel(app.frame.width - 1 - CGFloat($0), frame.midY).allSatisfy { $0 > 250 } }
         guard let left, let right else { return XCTFail("No visible row fill: \(identifier), \(frame)") }
         let fill = pixel(CGFloat(left) + 3, frame.midY)
-        for (y, rounded) in [(frame.minY + 3, top), (frame.maxY - 4, bottom)] {
+        // Three points is inside the new 10pt curve; sample nearer the true outside corner.
+        for (y, rounded) in [(frame.minY + 1, top), (frame.maxY - 2, bottom)] {
             let expected = rounded ? background : fill
-            for x in [CGFloat(left) + 3, app.frame.width - CGFloat(right) - 4] {
+            for x in [CGFloat(left) + 1, app.frame.width - CGFloat(right) - 2] {
                 let corner = pixel(x, y)
                 XCTAssertEqual(corner.count, 3)
                 XCTAssertLessThanOrEqual(zip(corner, expected).map { abs($0 - $1) }.max() ?? 255, 8,

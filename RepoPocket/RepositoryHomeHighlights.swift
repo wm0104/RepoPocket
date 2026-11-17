@@ -32,7 +32,7 @@ struct RepositoryHomeHighlights: View {
                         NativeActionMenu(title: "发行版操作", items: [
                             NativeMenuItem(id: "refresh", title: "刷新发行版", symbol: "arrow.clockwise", enabled: !releaseLoading) { Task { await loadRelease(refresh: true) } }
                         ]).frame(width: 44, height: 44)
-                    }
+                    }.listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
                 }
                 if let release {
                     SoftGroupRow("latest") {
@@ -62,7 +62,7 @@ struct RepositoryHomeHighlights: View {
                         NativeActionMenu(title: "运行状态操作", items: [
                             NativeMenuItem(id: "refresh", title: "刷新运行状态", symbol: "arrow.clockwise", enabled: !runLoading) { Task { await loadRuns(refresh: true) } }
                         ]).frame(width: 44, height: 44)
-                    }
+                    }.listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12))
                 }
                 if let run {
                     SoftGroupRow("latest") {

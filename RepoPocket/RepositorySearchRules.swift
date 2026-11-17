@@ -1,6 +1,6 @@
 import Foundation
 
-enum RepositorySearchKind: String, Codable { case repositories, users }
+enum RepositorySearchKind: String, Codable { case repositories, users, code }
 enum RepositorySearchSort: String, CaseIterable, Identifiable {
     case best, stars, forks, updated
     var id: String { rawValue }
@@ -69,3 +69,33 @@ struct RepositorySearchHistory {
 }
 struct RepositorySearchResponse: Decodable { let items: [Repository]; let total_count: Int }
 struct UserSearchResponse: Decodable { let items: [User]; let total_count: Int }
+struct CodeSearchResponse: Decodable {
+    let items: [CodeSearchResult]
+    let total_count: Int
+    let incomplete_results: Bool
+}
+struct CodeSearchResult: Decodable, Identifiable {
+    let name: String
+    let path: String
+    let html_url: String
+    let repository: Repository
+    let text_matches: [CodeSearchMatch]?
+    var id: String { String(repository.id) + ":" + path }
+    var fileURL: URL? {
+        guard let parts = URLComponents(string: html_url), parts.scheme == "https",
+              parts.host?.lowercased() == "github.com", parts.user == nil, parts.password == nil,
+              parts.port == nil || parts.port == 443, parts.query == nil,
+              let url = parts.url else { return nil }
+        let segments = parts.path.split(separator: "/").map(String.init)
+        guard segments.count >= 5, segments[2] == "blob",
+              (segments[0] + "/" + segments[1]).lowercased() == repository.full_name.lowercased(),
+              segments.dropFirst(4).joined(separator: "/") == path,
+              !segments.contains("."), !segments.contains("..") else { return nil }
+        return url
+    }
+}
+struct CodeSearchMatch: Decodable {
+    struct Match: Decodable { let text: String }
+    let fragment: String
+    let matches: [Match]?
+}

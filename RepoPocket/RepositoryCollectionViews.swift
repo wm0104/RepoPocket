@@ -42,16 +42,16 @@ struct RepositoryFavoritesView: View {
     var body: some View {
         List {
             Section {
-                if searchVisible { ListSearchField(query: $query, title: "收藏夹").softGroupedRow(top: true, bottom: true) }
+                if searchVisible { ListSearchField(query: $query, title: "收藏夹").softGroupedRow(top: true) }
                 if values.isEmpty {
                     Text(query.isEmpty ? "暂无收藏。点右上角…搜索并添加仓库。" : "没有匹配仓库")
-                        .foregroundStyle(.secondary).softGroupedRow(top: true, bottom: true)
+                        .foregroundStyle(.secondary).softGroupedRow(top: !searchVisible, bottom: true)
                 }
                 ForEach(Array(values.enumerated()), id: \.element.id) { offset, repository in
                     NavigationLink { BrowserView(api: api, repo: repository.full_name, path: "", branch: repository.default_branch ?? "") }
                         label: { RepositoryCard(repository: repository, account: api.login, api: api) }
                         .accessibilityIdentifier("favorite-repository-\(repository.id)")
-                        .softGroupedRow(top: offset == 0, bottom: offset == values.count - 1)
+                        .softGroupedRow(top: offset == 0 && !searchVisible, bottom: offset == values.count - 1)
                 }
                 .onDelete { offsets in
                     do { try favorites.remove(Set(offsets.map { values[$0].id })) } catch { api.message = error.localizedDescription }

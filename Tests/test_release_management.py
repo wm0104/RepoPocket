@@ -87,7 +87,8 @@ class ReleaseManagementTests(unittest.TestCase):
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
         row = ui.split('for asset in state.assets {',1)[1].split('if state.assets.isEmpty',1)[0]
         self.assertEqual(row.count('SoftGroupRow("asset-\\(asset.id)")'), 1)
-        for token in ['LocalGitFileLabel(name: asset.name, size: Int64(asset.size))', 'Menu {', '.buttonStyle(.borderless)', 'assetActions(asset)', 'if state.canWrite', 'prepareDelete(r, asset: asset)', 'ReleaseAssetDownloadStatusView(']: self.assertIn(token,row)
+        for token in ['Text(asset.name)', '.frame(width: 24)', 'minHeight: 44', 'ByteCountFormatter.string(fromByteCount: Int64(asset.size)', 'Menu {', '.buttonStyle(.borderless)', 'assetActions(asset)', 'if state.canWrite', 'prepareDelete(r, asset: asset)', 'ReleaseAssetDownloadStatusView(']: self.assertIn(token,row)
+        self.assertNotIn('LocalGitFileLabel(', row)
         self.assertNotIn('.softGroupedRow(', row)
         self.assertIn('SoftGroupRow("asset-help")', ui)
         self.assertNotIn('Divider()',row)

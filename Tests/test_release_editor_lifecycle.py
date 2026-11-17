@@ -27,7 +27,7 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
             self.skipTest('Bash is required to execute the production test selector')
         runner = (ROOT / 'Scripts/run_style_preview.sh').read_text()
         cases = re.findall(r'case "\$\{RP_STYLE_TEST_SCOPE:-all\}" in\n.*?\nesac', runner, re.S)
-        result = subprocess.run([bash, '-c', 'set -euo pipefail\nRP_STYLE_TEST_SCOPE=upload-viewer\n' + cases[-1] + '\nprintf "%s\\n" "${TEST_ARGUMENTS[@]}"'], capture_output=True, text=True)
+        result = subprocess.run([bash, '-s'], input='set -euo pipefail\nRP_STYLE_TEST_SCOPE=upload-viewer\n' + cases[-1] + '\nprintf "%s\\n" "${TEST_ARGUMENTS[@]}"', capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(set(result.stdout.splitlines()), {
             '-only-testing:RepoPocketStyleUITests/UploadEditorTests',

@@ -22,7 +22,7 @@ struct SoftGroupShape: Shape {
     var top: Bool
     var bottom: Bool
     func path(in rect: CGRect) -> Path {
-        let radius: CGFloat = 22
+        let radius: CGFloat = 10
         let extended = CGRect(x: rect.minX, y: rect.minY - (top ? 0 : radius),
                               width: rect.width, height: rect.height + (top ? 0 : radius) + (bottom ? 0 : radius))
         return RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: extended)
@@ -30,7 +30,7 @@ struct SoftGroupShape: Shape {
 }
 
 extension View {
-    /// Keep the 1.0.4 shape; paint one inset line without native leading fragments.
+    /// Paint one shared small-corner group and inset divider without clipping native rows.
     func softGroupedRow(top: Bool = false, bottom: Bool = false, animateBackground: Bool = false, separatorInset: CGFloat = 20, spacingBefore: CGFloat = 0) -> some View {
         padding(.top, spacingBefore)
             .listRowSeparator(.hidden)

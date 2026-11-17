@@ -12,7 +12,18 @@ struct WorkflowStepLogs {
 /// Read each real step file, rather than guessing boundaries from coarse timestamps.
 enum WorkflowLogArchiveRules {
     static let archiveLimit = 32 * 1024 * 1024
-    static let stepLimit = 2 * 1024 * 1024
+    static let stepLimit = 16 * 1024 * 1024
+    static func readJob(_ file: URL) throws -> String {
+        try Task.checkCancellation()
+        guard (try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= archiveLimit else {
+            throw AppError(text: "任务日志超过 32 MiB，请在 GitHub 查看完整日志。")
+        }
+        let bytes = try Data(contentsOf: file)
+        try Task.checkCancellation()
+        guard bytes.count <= archiveLimit else { throw AppError(text: "任务日志超过读取预算。") }
+        guard let text = String(data: bytes, encoding: .utf8) else { throw AppError(text: "任务日志不是有效 UTF-8 文本。") }
+        return text
+    }
     static func read(_ file: URL, job: String, steps: Set<Int>) throws -> WorkflowStepLogs {
         let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         guard size <= archiveLimit else { throw AppError(text: "日志归档超过 32 MiB，已停止读取。") }
@@ -34,7 +45,7 @@ enum WorkflowLogArchiveRules {
             }
             folder = String(parts[0])
             guard entry.uncompressedSize <= UInt64(stepLimit), total + Int(entry.uncompressedSize) <= archiveLimit else {
-                output[number] = WorkflowStepOutput(text: "此步骤日志超过 2 MiB 或本次归档读取预算。", limited: true)
+                output[number] = WorkflowStepOutput(text: "此步骤日志超过 16 MiB 或本次归档读取预算，请在 GitHub 查看完整日志。", limited: true)
                 continue
             }
             var bytes = Data()

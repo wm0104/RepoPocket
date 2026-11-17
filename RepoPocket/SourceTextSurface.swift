@@ -1,6 +1,11 @@
 import SwiftUI
 import UIKit
 
+struct SourceTextReveal: Equatable {
+    let id = UUID()
+    let range: NSRange
+}
+
 struct SourceTextSurface: UIViewRepresentable {
     @Binding var text: String
     let filename: String
@@ -10,12 +15,14 @@ struct SourceTextSurface: UIViewRepresentable {
     var scale = 1.0
     var onScaleChange: (Double) -> Void = { _ in }
     var logLines: [WorkflowLogPresentation.Line] = []
+    var revealRequest: SourceTextReveal? = nil
     func makeUIView(context: Context) -> SourceTextContainer { SourceTextContainer() }
     func updateUIView(_ view: SourceTextContainer, context: Context) {
         view.changed = { text = $0 }
         view.scaleChanged = onScaleChange
         view.configure(text: text, filename: filename, editable: editable, dark: dark, scale: scale, logLines: logLines)
         view.find(request: findRequest)
+        view.reveal(request: revealRequest)
     }
     static func dismantleUIView(_ view: SourceTextContainer, coordinator: ()) { view.cancelTasks() }
 }
@@ -89,6 +96,12 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
     private var findBarHeight: NSLayoutConstraint!
     private var activeFindTerm: String?
     private var findTask: Task<Void, Never>?
+    private var lastRevealID: UUID?
+    private var pendingReveal: SourceTextReveal?
+    private var pendingReadingOffset: CGPoint?
+    #if DEBUG
+    private(set) var revealDiagnostic = ""
+    #endif
     private var searchManager: SourceSearchLayoutManager { textView.layoutManager as! SourceSearchLayoutManager }
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -158,11 +171,62 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
         let canvas = max(horizontal.bounds.width, textView.sourceWidth)
         textView.frame = CGRect(x: 0, y: 0, width: canvas, height: height)
         horizontal.contentSize = CGSize(width: canvas, height: height)
+        if let request = pendingReveal, height > 0, window != nil {
+            pendingReveal = nil; pendingReadingOffset = nil
+            let text = textView.text
+            // UIKit must finish this layout pass before it can resolve a distant caret and scroll it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.lastRevealID == request.id, self.textView.text == text else { return }
+                let length = self.textView.text.utf16.count
+                if request.range.location >= 0, request.range.length >= 0,
+                   request.range.location <= length, request.range.length <= length - request.range.location,
+                   NSMaxRange(request.range) <= length {
+                    self.textView.layoutIfNeeded()
+                    self.textView.layoutManager.ensureLayout(for: self.textView.textContainer)
+                    self.textView.layoutIfNeeded()
+                    self.textView.selectedRange = request.range
+                    #if DEBUG
+                    self.revealDiagnostic = "window:\(self.window != nil),selection:\(self.textView.selectedTextRange != nil),height:\(self.textView.bounds.height),content:\(self.textView.contentSize.height),before:\(self.textView.contentOffset.y)"
+                    #endif
+                    if let selection = self.textView.selectedTextRange {
+                        #if DEBUG
+                        self.revealDiagnostic += ",caret:\(self.textView.caretRect(for: selection.start))"
+                        #endif
+                        self.textView.scrollRectToVisible(self.textView.caretRect(for: selection.start), animated: false)
+                    }
+                    self.revealSelection()
+                    #if DEBUG
+                    self.revealDiagnostic += ",after:\(self.textView.contentOffset.y)"
+                    #endif
+                }
+            }
+        } else if let offset = pendingReadingOffset, height > 0 {
+            pendingReadingOffset = nil
+            textView.layoutIfNeeded()
+            textView.layoutManager.ensureLayout(for: textView.textContainer)
+            textView.layoutIfNeeded()
+            textView.setContentOffset(offset, animated: false)
+            #if DEBUG
+            revealDiagnostic += ",restored:\(offset.y)"
+            #endif
+        }
         gutter.setNeedsDisplay()
+    }
+    func reveal(request: SourceTextReveal?) {
+        guard let request, request.id != lastRevealID else { return }
+        lastRevealID = request.id; pendingReveal = request
+        setNeedsLayout()
     }
     func configure(text: String, filename: String, editable: Bool, dark: Bool, scale: Double = 1, logLines: [WorkflowLogPresentation.Line] = []) {
         let recolor = !configured || self.filename != filename || self.dark != dark || textView.text != text
-        if textView.text != text { textView.text = text; rebuildLines(); textView.invalidateSourceGeometry() }
+        if textView.text != text {
+            let selection = textView.selectedRange
+            if configured { pendingReadingOffset = textView.contentOffset }
+            textView.text = text
+            let location = min(selection.location, text.utf16.count)
+            textView.selectedRange = NSRange(location: location, length: min(selection.length, text.utf16.count - location))
+            rebuildLines(); textView.invalidateSourceGeometry()
+        }
         self.filename = filename; self.dark = dark
         self.scale = scale; refreshFont()
         if textView.isEditable != editable {
@@ -359,10 +423,17 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) { gutter.setNeedsDisplay() }
     private func rebuildLines() {
         lineStarts = [0]
-        for (index, unit) in (textView.text ?? "").utf16.enumerated() where unit == 10 { lineStarts.append(index + 1) }
+        let source = (textView.text ?? "") as NSString
+        var location = 0
+        while location < source.length {
+            var end = 0, contentEnd = 0
+            source.getLineStart(nil, end: &end, contentsEnd: &contentEnd, for: NSRange(location: location, length: 0))
+            if contentEnd < end { lineStarts.append(end) }
+            location = end
+        }
         gutter.setNeedsDisplay()
     }
-    func cancelTasks() { cancelHighlight(); findTask?.cancel(); findTask = nil }
+    func cancelTasks() { cancelHighlight(); findTask?.cancel(); findTask = nil; lastRevealID = nil; pendingReveal = nil; pendingReadingOffset = nil }
     func cancelHighlight() { highlight?.cancel(); highlight = nil }
     private func scheduleHighlight() {
         cancelHighlight()
@@ -385,7 +456,12 @@ final class SourceTextContainer: UIView, UITextViewDelegate {
             storage.endEditing()
             self.textView.undoManager?.enableUndoRegistration()
             self.textView.selectedRange = selection
+            self.textView.layoutManager.ensureLayout(for: self.textView.textContainer)
+            self.textView.layoutIfNeeded()
             self.textView.setContentOffset(offset, animated: false)
+            #if DEBUG
+            if !self.revealDiagnostic.isEmpty { self.revealDiagnostic += ",highlight:\(offset.y)->\(self.textView.contentOffset.y)" }
+            #endif
             self.gutter.setNeedsDisplay()
         }
     }

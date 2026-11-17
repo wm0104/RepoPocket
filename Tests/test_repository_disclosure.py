@@ -28,7 +28,7 @@ assert '.swipeActions(edge: .trailing, allowsFullSwipe: false)' in sections
 assert 'api.starredRepositories()' in sections
 assert 'api.fork(repository.full_name)' in sections
 assert 'RoundedRectangle(cornerRadius: radius, style: .continuous)' in style
-assert 'let radius: CGFloat = 22' in style
+assert 'let radius: CGFloat = 10' in style
 for forbidden in ['withAnimation', 'DisclosureGroup', 'RepositorySectionContainer', 'List { List']:
     assert forbidden not in sections
 assert 'Section("直接打开仓库")' not in home
@@ -37,4 +37,4 @@ assert 'Image(systemName: "magnifyingglass")' in home
 assert 'NativeActionMenu(title: "仓库操作"' in home
 assert 'NativeMenuItem(id: "open", title: "打开仓库"' in home
 assert 'perform: { showOpen = true }' in home
-print('PASS inline sibling rows, native swipe, real terminal-row 22pt corners, no synthetic footer, no morph animations, settings navigation; device appearance unverified')
+print('PASS inline sibling rows, native swipe, real terminal-row 10pt corners, no synthetic footer, no morph animations, settings navigation; device appearance unverified')

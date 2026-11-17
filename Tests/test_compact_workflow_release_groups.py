@@ -32,7 +32,8 @@ class CompactWorkflowReleaseGroupsTests(unittest.TestCase):
         self.assertIn('总耗时按最后更新时间估算', run)
         job = view(text, 'WorkflowJobView')
         self.assertIn('SoftGroupRow("steps-heading")', job)
-        self.assertIn('WorkflowLogReader(rawText: output.text)', job)
+        self.assertIn('WorkflowLogReader(rawText: output.text, failed: step.conclusion == "failure")', job)
+        self.assertIn('.id(logIdentity +', job)
         self.assertIn('workflow-job-log', job)
 
     def test_dispatch_hint_and_permissions_remain_in_native_rows(self):

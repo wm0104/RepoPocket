@@ -920,6 +920,21 @@ final class GitHub: ObservableObject {
         let parts = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
         return try await decoded(RepositorySearchResponse.self, endpoint.path, query: parts.queryItems ?? [])
     }
+    func searchCode(_ query: String, page: Int) async throws -> CodeSearchResponse {
+        let endpoint = RepositorySearchRules.endpoint(kind: .code, query: query, page: page)
+        var r = try request(endpoint)
+        r.setValue("application/vnd.github.text-match+json", forHTTPHeaderField: "Accept")
+        let (bytes, response) = try await session.data(for: r, delegate: GitHubAPIRedirectPolicy())
+        try check(bytes, response); try Task.checkCancellation()
+        guard bytes.count <= 8 * 1024 * 1024 else { throw AppError(text: "搜索响应过大，请缩小范围后重试。") }
+        let worker = Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            return try JSONDecoder().decode(CodeSearchResponse.self, from: bytes)
+        }
+        let result = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+        try Task.checkCancellation(); try ensureActiveAccount()
+        return result
+    }
     // Read-only gateway reuses the existing account checks, credential host guard
     // and redirect policy. Community modules cannot bypass repository write guards.
     func communityRead(_ path: String, query: [URLQueryItem] = []) async throws -> Data {
@@ -1069,16 +1084,19 @@ final class GitHub: ObservableObject {
     func communityJobLog(_ repo: String, id: Int) async throws -> String {
         guard id > 0 else { throw AppError(text: "无效任务编号") }
         let r = try request(url(Self.repoPath(repo) + "/actions/jobs/\(id)/logs"))
-        let (stream, response) = try await session.bytes(for: r, delegate: WorkflowLogRedirectPolicy())
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AppError(text: "日志尚未就绪、已过期或缺少 Actions 读取权限。") }
-        var bytes = Data(); let limit = 256 * 1024
-        for try await byte in stream {
-            try Task.checkCancellation()
-            if bytes.count == limit { try ensureActiveAccount(); return String(decoding: bytes, as: UTF8.self) + "\n…日志预览已达256 KiB上限。" }
-            bytes.append(byte)
+        let policy = WorkflowLogArchiveDownloadPolicy()
+        let file: URL
+        do {
+            file = try await download(r, name: "workflow-job.log", redirect: policy)
+        } catch {
+            if policy.exceededBudget { throw AppError(text: "任务日志超过 32 MiB，请在 GitHub 查看完整日志。") }
+            throw error
         }
-        try ensureActiveAccount()
-        return String(decoding: bytes, as: UTF8.self)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let worker = Task.detached(priority: .utility) { try WorkflowLogArchiveRules.readJob(file) }
+        let text = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
+        try Task.checkCancellation(); try ensureActiveAccount()
+        return text
     }
     func communityArtifact(_ repo: String, id: Int, name: String) async throws -> URL {
         guard id > 0 else { throw AppError(text: "无效构建产物编号") }

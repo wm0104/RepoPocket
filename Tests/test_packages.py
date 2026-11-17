@@ -135,6 +135,22 @@ class PackageTests(unittest.TestCase):
                 deb = self.pack(flavor)
                 report = json.loads(Path(str(deb) + '.verification.json').read_text())
                 self.assertEqual(report['version'], '1.2.0')
+                fields = pkg.control_fields(subprocess.check_output(
+                    ['dpkg-deb', '--field', str(deb)], text=True))
+                expected = {
+                    'Package': 'com.wm0104.repopocket', 'Name': 'RepoPocket',
+                    'Maintainer': 'wm0104', 'Author': 'wm0104', 'Section': 'Codex',
+                    'Homepage': 'https://github.com/wm0104/RepoPocket',
+                    'Description': 'iOS GitHub 客户端，支持仓库浏览、代码编辑、上传发布与本地 Git 管理。',
+                    'Icon': 'https://wm0104.github.io/repo/depictions/com.wm0104.repopocket/icon.png',
+                    'SileoDepiction': 'https://wm0104.github.io/repo/depictions/com.wm0104.repopocket/depiction.json',
+                    'Depends': 'firmware (>= 15.0), uikittools',
+                }
+                for field, value in expected.items():
+                    self.assertEqual(fields.get(field), value, field)
+                self.assertEqual(fields['Version'], report['version'])
+                self.assertEqual(fields['Architecture'], pkg.FLAVORS[flavor][0])
+                self.assertGreater(int(fields['Installed-Size']), 0)
                 self.assertEqual(len(report['macho']), 3)
                 self.assertEqual(report['deb_sha256'], hashlib.sha256(deb.read_bytes()).hexdigest())
                 self.assertTrue(all(p.startswith(pkg.FLAVORS[flavor][1] + '/') for p in report['files_sha256']))
@@ -201,6 +217,25 @@ class PackageTests(unittest.TestCase):
             control = root / 'DEBIAN/control'
             control.write_text(control.read_text().replace('iphoneos-arm64e', 'iphoneos-arm64'))
         self.check_rejected(self.rebuild(deb, change))
+
+    def test_missing_or_changed_repository_metadata_is_rejected(self):
+        deb = self.pack()
+        for field, replacement in (
+            ('Icon', None), ('SileoDepiction', None),
+            ('Description', '测试'), ('Icon', 'https://example.invalid/icon.png'),
+            ('SileoDepiction', 'https://example.invalid/depiction.json'),
+        ):
+            with self.subTest(field=field, replacement=replacement):
+                def change(root):
+                    control = root / 'DEBIAN/control'
+                    lines = [line for line in control.read_text().splitlines()
+                             if not line.startswith(field + ': ')]
+                    if replacement is not None:
+                        lines.append(f'{field}: {replacement}')
+                    control.write_text('\n'.join(lines) + '\n')
+                self.check_rejected(self.rebuild(deb, change))
+                pkg.remove_tree(self.root / 'repack')
+        self.assertEqual(pkg.snapshot(self.app), self.before)
 
     def test_payload_daemon_rejected(self):
         deb = self.pack()
