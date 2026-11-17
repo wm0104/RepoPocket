@@ -35,7 +35,7 @@ expected.update({'issue-delete-confirmation-home-issue-4', 'issue-delete-confirm
 expected.update({'account-connections-home', 'account-followers-list', 'account-following-user-profile',
                  'home-owned-destination', 'home-grouped-navigation', 'issue-quoted-reply', 'activity-daily-calendar'})
 expected.update({'workflow-step-output', 'local-folder-selection', 'long-patch-leading', 'local-import-picker', 'recorded-patch-leading'})
-expected.update({'local-deb-editor', 'local-whole-folder-import'})
+expected.update({'local-deb-ordinary-file', 'local-whole-folder-import'})
 expected.update({'account-session-after-switch', 'local-delete-confirmation', 'local-import-destination'})
 expected.update({'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
                  'local-commit-patch', 'local-history-after-folding'})
@@ -46,13 +46,14 @@ profiles.update({'profile-public-contacts', 'profile-contacts-retry'})
 profiles.update({'social-accounts-managed', 'social-accounts-permission', 'social-accounts-long-press'})
 actions = {'release-compact-attachments', 'release-inline-progress', 'profile-following-action', 'profile-follow-status-error', 'repository-owner-profile'}
 actions.update({'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'})
-file_feedback = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-editor'}
+file_feedback = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-ordinary-file'}
 download_lifecycle = file_feedback | {'local-file-sheet-dismissed', 'release-compact-attachments', 'release-inline-progress'}
 file_edit = {'remote-file-editor-cancelled', 'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'}
 file_edit.update({'mobile-editor-saved-preview', 'source-native-file-search', 'repository-file-folder-search', 'repository-search-opened-code'})
 diagnostics = {'account-switch-failure', 'account-control-failure'}
 diagnostics.update({'mobile-editor-create-menu', 'source-native-find-start'})
 diagnostics.add('workflow-log-long-located')
+diagnostics.update({'download-readiness-timing-and-ax', 'disclosure-stability-timing-and-ax'})
 maintenance = {'local-project-compact', 'local-project-information', 'local-branch-create-confirmation',
                'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
                'local-commit-patch', 'local-history-after-folding', 'local-import-destination',
@@ -69,8 +70,7 @@ branch_merge = {'local-branch-merge-preview', 'remote-branch-merge-preview',
 release_editor = {'release-editor-filled', 'release-editor-inbox', 'release-editor-attached',
                   'release-editor-scrolled', 'release-editor-confirmation',
                   'release-editor-account-changed', 'release-editor-denied'}
-upload_viewer = {'deb-first-open-common-fields', 'upload-inherited-preview', 'deb-original-expanded',
-                 'deb-more-fields-expanded', 'upload-explicit-replacement', 'upload-multiple-independent-targets',
+upload_viewer = { 'upload-explicit-replacement', 'upload-multiple-independent-targets',
                  'source-zoom-200', 'editor-zoom-keyboard', 'commit-highlight-zoom-200', 'commit-raw-zoom-200',
                  'local-diff-zoom-200', 'local-original-zoom-200', 'local-budget-original',
                  'readme-zoom-200', 'markdown-reader-zoom-200', 'local-project-compact', 'local-project-information'}
@@ -94,7 +94,48 @@ reading_layout.update('settings-official-releases-' + str(attempt) for attempt i
 reading_layout.update('group-corners-' + name + '-' + str(cycle) for name in ('仓库', '本地 Git', '设置') for cycle in range(4))
 workflow_log_navigation = {'workflow-log-highlighted-context', 'workflow-log-long-located',
     'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'}
-if scope == 'path-time':
+download_features = {'download-center-records', 'download-center-deleted-copy-retained',
+    'download-center-completed-file-actions', 'commit-complete-file-readonly', 'home-issues-native-expanded'}
+download_preview = {'download-preview-native-done', 'download-preview-returned-to-center',
+    'download-preview-share-cancel', 'download-preview-records-retained'}
+transition_phases = {page + '-' + phase for page in ('appearance', 'home-issues', 'repository-more')
+                     for phase in ('opening', 'closing-and-reopening', 'closing')}
+disclosure_transitions = {name + '-sample-' + str(index) for name in transition_phases for index in range(12)}
+disclosure_transitions.update(name + '-timing-and-ax' for name in transition_phases)
+download_features.update(disclosure_transitions)
+download_features.update(download_preview)
+editor_extensions.update(download_features)
+production_theme = {'settings-production-root-collapsed', 'settings-production-root-expanded-after-folding'}
+production_theme.update('settings-production-root-' + value + '-checked' for value in ('light', 'dark', 'system'))
+readme_first_open = {'readme-first-open-formatted'}
+more_expanded = {'repository-overview-continuous-rows'} | {'repository-more-expanded-' + str(cycle) for cycle in range(3)}
+editor_extensions.update(production_theme)
+expected.update(readme_first_open)
+maintenance.update(more_expanded)
+recovery_regressions = production_theme | readme_first_open | more_expanded | download_preview | disclosure_transitions | {'home-issues-native-expanded'} | {
+    'settings-compact-native-menu', 'settings-theme-light-checked', 'settings-theme-dark-checked',
+    'settings-theme-system-checked', 'repository-more-after-rapid-folding', 'readme-badges',
+    'download-center-records', 'download-center-deleted-copy-retained', 'download-center-completed-file-actions'}
+recovery_recheck = {'download-center-records'}
+if scope == 'boundary-feedback-recheck':
+    expected = {'local-project-compact', 'local-project-information',
+                'release-compact-attachments', 'release-inline-progress'}
+    expected.update('group-corners-' + name + '-' + str(cycle)
+                    for name in ('仓库', '本地 Git', '设置') for cycle in range(4))
+elif scope == 'device-feedback-recheck':
+    expected = file_feedback | {'local-deb-ordinary-file', 'settings-compact-native-menu',
+                                'settings-official-releases-1', 'settings-official-releases-2'}
+elif scope == 'recovery-recheck':
+    expected = recovery_recheck
+elif scope == 'recovery-regressions':
+    expected = recovery_regressions
+elif scope == 'download-actions-recheck':
+    expected = {'settings-compact-native-menu'}
+elif scope == 'download-actions':
+    expected = download_features | {'settings-compact-native-menu', 'local-deb-ordinary-file',
+        'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure',
+        'upload-explicit-replacement', 'upload-multiple-independent-targets'}
+elif scope == 'path-time':
     expected = path_time
 elif scope == 'ui-fixes-failed':
     expected = ui_fixes_failed
@@ -129,7 +170,7 @@ elif scope == 'download-lifecycle':
 elif scope == 'file-edit':
     expected = file_edit
 elif scope == 'review-regressions':
-    expected = {'account-session-after-switch', 'local-deb-editor', 'profile-public-contacts',
+    expected = {'account-session-after-switch', 'local-deb-ordinary-file', 'profile-public-contacts',
                 'profile-contacts-retry', 'readme-badges'}
 elif scope == 'maintenance-regressions':
     expected = maintenance
@@ -177,8 +218,9 @@ while pending:
             name = item.get('name', {}).get('_value', '')
             payload = item.get('payloadRef', {}).get('id', {}).get('_value')
             if payload and name in expected | diagnostics:
+                extension = '.txt' if name.endswith('-timing-and-ax') else '.png'
                 subprocess.run(['xcrun', 'xcresulttool', 'export', 'object', '--legacy', '--type', 'file', '--path', bundle,
-                                '--id', payload, '--output-path', str(destination / (name + '.png'))], check=True)
+                                '--id', payload, '--output-path', str(destination / (name + extension))], check=True)
                 if name in expected:
                     exported.add(name)
             stack.extend(item.values())

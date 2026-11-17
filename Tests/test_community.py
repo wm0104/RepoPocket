@@ -14,12 +14,13 @@ class WorkflowDeletionIntegrationTests(unittest.TestCase):
         source = (ROOT/'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8')
         runs = source.split('struct WorkflowRunsView: View {', 1)[1].split('struct WorkflowRunView:', 1)[0]
         filters = runs.split('Section {', 1)[1].split('if store.busy', 1)[0]
-        for component in ['SoftGroupRows {', 'SoftGroupRow("branch")', 'SoftGroupRow("failed")']:
+        for component in ['SoftGroupRows {', 'SoftGroupRow("filters")', 'workflow-filter-summary']:
             self.assertIn(component, filters)
         self.assertEqual(runs.count('WorkflowRunSummary(run: run)'), 2)
         self.assertIn('selection.remove(target, api: api)', runs)
         self.assertIn('failedOnly: requestedFailedOnly', runs)
-        self.assertIn('.onChange(of: failedOnly)', runs)
+        self.assertIn('.onChange(of: statusFilter)', runs)
+        self.assertIn('.onChange(of: workflowID)', runs)
         self.assertIn('.onChange(of: selectableIDs)', runs)
         self.assertIn('selection.reconcile(store.items)', runs)
         self.assertIn('.onDisappear { visible = false; store.cancel(); selection.cancel() }', runs)

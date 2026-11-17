@@ -5,16 +5,15 @@ extension Notification.Name {
 }
 
 /// The caller retains its source; each destination makes its own private copy.
-/// Cancelling a route never consumes an inbox item or the generated deb.
+/// Cancelling a route never consumes an inbox item.
 struct ExternalFileActions: View {
     @ObservedObject var api: GitHub
     let file: URL
     var repo = ""
     var branch = ""
-    var allowsDebEditing = false
     @State private var route: Route?
     private enum Route: String, Identifiable {
-        case repository, release, share, editor
+        case repository, release, share
         var id: String { rawValue }
     }
     var body: some View {
@@ -23,9 +22,7 @@ struct ExternalFileActions: View {
             NativeMenuItem(id: "repository", title: "提交到仓库", symbol: "arrow.up.doc", perform: { route = .repository }),
             NativeMenuItem(id: "release", title: "作为发行附件", symbol: "paperclip", perform: { route = .release }),
             NativeMenuItem(id: "share", title: "存储 / 分享", symbol: "square.and.arrow.up", perform: { route = .share })
-        ] + (allowsDebEditing && file.pathExtension.lowercased() == "deb" ? [
-            NativeMenuItem(id: "editor", title: "编辑包信息（导出副本）", symbol: "shippingbox", perform: { route = .editor })
-        ] : []))
+        ])
         .sheet(item: $route) { route in
             switch route {
             case .repository:
@@ -34,8 +31,6 @@ struct ExternalFileActions: View {
                 ReleaseEntryView(api: api, initialRepo: repo, initialBranch: branch, initialFiles: [file])
             case .share:
                 ShareSheet(url: file)
-            case .editor:
-                DebEditorView(api: api, initialFile: file)
             }
         }
     }
@@ -51,9 +46,10 @@ struct ExternalInboxSection: View {
         Group {
             if !files.isEmpty {
                 Section("外部文件") {
-                    ForEach(files, id: \.self) { file in
-                        ExternalFileActions(api: api, file: file, allowsDebEditing: true)
-                            .softGroupedRow(top: file == files.first, bottom: file == files.last)
+                    SoftGroupRows {
+                        for file in files {
+                            SoftGroupRow(file.absoluteString) { ExternalFileActions(api: api, file: file) }
+                        }
                     }
                 }
             }

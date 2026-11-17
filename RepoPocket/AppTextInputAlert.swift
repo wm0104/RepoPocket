@@ -23,9 +23,10 @@ private struct AppTextInputAlert: ViewModifier {
     let verbatimInput: Bool
     let confirmAction: () -> Void
 
-    func body(content: Content) -> some View {
+    // Keep the inactive OS branch out of the modifier's associated type on older runtimes.
+    func body(content: Content) -> AnyView {
         if #available(iOS 16.0, *) {
-            content.alert(title, isPresented: $isPresented) {
+            return AnyView(content.alert(title, isPresented: $isPresented) {
                 inputField
                 // Keep enabled actions as plain Buttons for SwiftUI's alert bridge.
                 if enabled {
@@ -34,9 +35,9 @@ private struct AppTextInputAlert: ViewModifier {
                     Button(confirmTitle) {}.disabled(true)
                 }
                 Button("取消", role: .cancel) { isPresented = false }
-            } message: { Text(message) }
+            } message: { Text(message) })
         } else {
-            content.sheet(isPresented: $isPresented) {
+            return AnyView(content.sheet(isPresented: $isPresented) {
                 NavigationView {
                     Form {
                         Section {
@@ -54,7 +55,7 @@ private struct AppTextInputAlert: ViewModifier {
                         }
                     }
                 }.navigationViewStyle(.stack)
-            }
+            })
         }
     }
 

@@ -306,21 +306,6 @@ class PackageTests(unittest.TestCase):
         self.pack(success=False)
 
 
-class LegacyDebFixtureTests(unittest.TestCase):
-    def test_normal_control_directory_has_traversal_permission(self):
-        import ast
-        import io
-        import tarfile
-        # Execute the production fixture generator function without creating its files.
-        path = REPO / 'DebControlEditorTests/fixtures.py'
-        module = ast.parse(path.read_text())
-        generator = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == 'tar')
-        namespace = {'io': io, 'tarfile': tarfile, 'control': b'Package: fixture\n'}
-        exec(compile(ast.Module(body=[generator], type_ignores=[]), str(path), 'exec'), namespace)
-        with tarfile.open(fileobj=io.BytesIO(namespace['tar']())) as archive:
-            self.assertEqual(archive.getmember('.').mode, 0o755)
-            self.assertEqual(archive.getmember('./control').mode, 0o644)
-            self.assertEqual(archive.getmember('./postinst').mode, 0o755)
 
 
 if __name__ == '__main__':

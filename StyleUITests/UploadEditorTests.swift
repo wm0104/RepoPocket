@@ -1,59 +1,25 @@
 import XCTest
 
 final class UploadEditorTests: XCTestCase {
-    func testFirstOpenLoadsDebAndEditedCopyKeepsInheritedDestination() {
+    func testDebRemainsOrdinaryUploadWithoutEditor() {
         let app = launch()
         assertTarget(app, "debs/upload-editor-fixture.deb")
-        XCTAssertTrue(app.buttons["upload-branch"].label.contains("test"))
-        openEditor(app)
-        let version = app.textFields["deb-version"]
-        XCTAssertTrue(version.waitForExistence(timeout: 10), "First presentation must load the selected file: " + app.debugDescription)
-        XCTAssertEqual(version.value as? String, "1.0")
-        XCTAssertEqual(app.textFields["deb-package"].value as? String, "com.example.upload-fixture")
-        XCTAssertFalse(app.textFields["deb-author"].exists)
-        screenshot(app, "deb-first-open-common-fields")
-        version.tap()
-        let keyboardIntroduction = app.buttons["Continue"]
-        if keyboardIntroduction.waitForExistence(timeout: 2) { keyboardIntroduction.tap() }
-        version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "2.0\n")
-        reveal(app.buttons["deb-generate"], in: app)
-        app.buttons["deb-generate"].tap()
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
-            object: app.navigationBars["编辑 deb 包信息"])], timeout: 15), .completed)
-        assertTarget(app, "debs/upload-editor-fixture.deb")
-        openEditor(app)
-        XCTAssertTrue(version.waitForExistence(timeout: 10))
-        XCTAssertEqual(version.value as? String, "2.0", "Only the original queue item should be replaced")
-        closeEditor(app)
+        let menu = app.buttons["文件操作：upload-editor-fixture.deb"]
+        reveal(menu, in: app, coordinateTap: true)
+        menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["更改位置"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["移除此待处理项"].exists)
+        XCTAssertFalse(app.buttons["编辑包信息"].exists)
+        app.tap()
         reveal(app.buttons["upload-preview"], in: app); app.buttons["upload-preview"].tap()
-        XCTAssertTrue(app.navigationBars["确认原子提交"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["确认原子提交"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["新增：debs/upload-editor-fixture.deb"].exists)
-        screenshot(app, "upload-inherited-preview")
         app.buttons["取消"].tap()
         assertReadOnly(app)
     }
 
-    func testOriginalAndOptionalFieldsAreCollapsedAndPreserved() {
-        let app = launch()
-        assertTarget(app, "debs/upload-editor-fixture.deb")
-        openEditor(app)
-        XCTAssertTrue(app.textFields["deb-version"].waitForExistence(timeout: 10))
-        let original = app.buttons["deb-original"]
-        reveal(original, in: app); original.tap()
-        XCTAssertTrue(app.staticTexts["Upload Fixture"].exists)
-        screenshot(app, "deb-original-expanded")
-        original.tap()
-        let more = app.buttons["deb-more-fields"]
-        reveal(more, in: app); more.tap()
-        let author = app.textFields["deb-author"]
-        reveal(author, in: app)
-        XCTAssertEqual(author.value as? String, "Fixture Author")
-        screenshot(app, "deb-more-fields-expanded")
-        reveal(more, in: app); more.tap()
-        XCTAssertFalse(author.exists)
-        closeEditor(app)
-        assertReadOnly(app)
-    }
+
+
 
     func testExistingFilenameRequiresExplicitReplacement() {
         let app = launch(collision: true)
@@ -74,42 +40,7 @@ final class UploadEditorTests: XCTestCase {
         assertReadOnly(app)
     }
 
-    func testEditedCollidingDebCanCancelAndConfirmReplacementAfterEditorDismissal() {
-        let app = launch(collision: true)
-        openEditor(app)
-        let version = app.textFields["deb-version"]
-        XCTAssertTrue(version.waitForExistence(timeout: 10))
-        version.tap()
-        let introduction = app.buttons["Continue"]
-        if introduction.waitForExistence(timeout: 2) { introduction.tap() }
-        version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "2.0\n")
-        let generate = app.buttons["deb-generate"]
-        reveal(generate, in: app); generate.tap()
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
-            object: app.navigationBars["编辑 deb 包信息"])], timeout: 15), .completed,
-            "Save returns only after the queue has adopted its own verified copy")
-        XCTAssertFalse(app.buttons["使用新 deb 提交 / 发布"].exists)
-        let replace = app.buttons["确认替换同名文件…"]
-        reveal(replace, in: app); replace.tap()
-        XCTAssertTrue(app.buttons["确认替换"].waitForExistence(timeout: 5), app.debugDescription)
-        app.buttons["取消"].tap()
-        XCTAssertTrue(replace.waitForExistence(timeout: 5), "Cancel must leave the collision unconfirmed")
-        replace.tap()
-        let confirm = app.buttons["确认替换"]
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
-        assertTarget(app, "debs/upload-editor-fixture.deb")
-        openEditor(app)
-        XCTAssertTrue(version.waitForExistence(timeout: 10))
-        XCTAssertEqual(version.value as? String, "2.0", "Confirmation must retain the edited file")
-        closeEditor(app)
-        let preview = app.buttons["upload-preview"]
-        reveal(preview, in: app); preview.tap()
-        XCTAssertTrue(app.navigationBars["确认原子提交"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["替换：debs/upload-editor-fixture.deb"].exists)
-        XCTAssertTrue(app.staticTexts["原 SHA：cccccccccccccccccccccccccccccccccccccccc"].exists)
-        app.buttons["取消"].tap()
-        assertReadOnly(app)
-    }
+
 
     func testMultipleFilesInheritFolderAndOneCanMoveIndependently() {
         let app = launch()
@@ -205,16 +136,8 @@ final class UploadEditorTests: XCTestCase {
         reveal(target, in: app)
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", path), object: target)], timeout: 15), .completed, app.debugDescription)
     }
-    private func openEditor(_ app: XCUIApplication) {
-        chooseFileAction("编辑包信息", file: "upload-editor-fixture.deb", in: app)
-    }
-    private func closeEditor(_ app: XCUIApplication) {
-        let navigation = app.navigationBars["编辑 deb 包信息"]
-        let close = navigation.buttons["关闭"]
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true AND hittable == true"), object: close)], timeout: 5), .completed)
-        close.tap()
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: navigation)], timeout: 10), .completed)
-    }
+
+
     private func chooseFileAction(_ title: String, file: String, in app: XCUIApplication) {
         let menu = app.buttons["文件操作：" + file]
         // The Menu's AX wrapper reports non-hittable; test its visible touch target and real menu result.
@@ -232,10 +155,6 @@ final class UploadEditorTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: clean, object: nil)], timeout: 5), .completed, app.debugDescription)
     }
     private func reveal(_ element: XCUIElement, in app: XCUIApplication, coordinateTap: Bool = false) {
-        if element.exists && element.identifier == "deb-generate" {
-            XCTAssertTrue(app.navigationBars.firstMatch.frame.intersects(element.frame), "Generate must remain in the native navigation bar")
-            return
-        }
         for attempt in 0..<20 {
             let scroll = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
             let frame = scroll.frame.intersection(app.frame)

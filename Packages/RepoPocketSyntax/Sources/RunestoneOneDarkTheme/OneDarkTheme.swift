@@ -64,6 +64,23 @@ public final class OneDarkTheme: EditorTheme {
 
 private extension UIColor {
     convenience init(namedInModule name: String) {
-        self.init(named: name, in: .module, compatibleWith: nil)!
+        if let color = UIColor(named: name, in: .module, compatibleWith: nil) {
+            self.init(cgColor: color.cgColor)
+            return
+        }
+        // Exact Colors.xcassets palette if the device cannot read its compiled catalog.
+        switch name {
+        case "OneDarkAqua": self.init(red: 0.337, green: 0.714, blue: 0.761, alpha: 1.000)
+        case "OneDarkBackground": self.init(red: 0.157, green: 0.173, blue: 0.204, alpha: 1.000)
+        case "OneDarkBlue": self.init(red: 0.380, green: 0.686, blue: 0.937, alpha: 1.000)
+        case "OneDarkComment": self.init(red: 0.471, green: 0.490, blue: 0.529, alpha: 1.000)
+        case "OneDarkCurrentLine": self.init(red: 0.212, green: 0.224, blue: 0.255, alpha: 1.000)
+        case "OneDarkForeground": self.init(red: 0.671, green: 0.698, blue: 0.749, alpha: 1.000)
+        case "OneDarkGreen": self.init(red: 0.596, green: 0.765, blue: 0.475, alpha: 1.000)
+        case "OneDarkPurple": self.init(red: 0.776, green: 0.471, blue: 0.867, alpha: 1.000)
+        case "OneDarkRed": self.init(red: 0.878, green: 0.424, blue: 0.459, alpha: 1.000)
+        case "OneDarkYellow": self.init(red: 0.898, green: 0.753, blue: 0.482, alpha: 1.000)
+        default: self.init(cgColor: UIColor.label.cgColor)
+        }
     }
 }

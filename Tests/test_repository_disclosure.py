@@ -12,10 +12,10 @@ assert 'ownedExpanded' not in home and 'starredExpanded' not in home
 assert 'home-collection-' in sections
 assert 'RepositoryCollectionView(api: api, section: .owned)' not in settings
 assert 'RepositoryCollectionView(api: api, section: .starred)' not in settings
-# Settings keeps profile/About continuous; only General/storage move to native menu.
+# Profile/About stay visible; appearance is inline and external folder selection is removed.
 assert 'Text("关于")' in settings
-assert 'NativeMenuItem.submenu("通用"' in settings
-assert 'NativeMenuItem(id: "download-folder"' in settings
+assert 'DisclosureGroup(isExpanded: $appearanceExpanded)' in settings
+assert 'download-folder' not in settings
 assert 'Token 仅保存在本机钥匙串' not in settings
 assert 'RepoPocket ' in settings
 assert 'SoftGroupRows {' in sections

@@ -54,7 +54,7 @@ private final class WorkflowSelectionPreviewProtocol: URLProtocol {
         lock.lock(); let phase = Self.phase; lock.unlock()
         let paginated = ProcessInfo.processInfo.arguments.contains("-workflow-pagination-preview")
         return (1...(paginated ? 30 : 4)).map { id in
-            var row: [String: Any] = ["id": id, "name": "Build IPA", "run_number": id, "head_sha": "fixture-sha",
+            var row: [String: Any] = ["id": id, "workflow_id": id == 4 ? 42 : 41, "name": id == 4 ? "Tests" : "Build IPA", "run_number": id, "head_sha": "fixture-sha",
                 "created_at": "2026-10-20T00:00:00Z", "run_started_at": "2026-10-20T00:00:00Z",
                 "updated_at": "2026-10-20T00:08:00Z", "event": "workflow_dispatch"]
             row["display_title"] = ["失败运行一", "失败运行二", "进行中的运行", "另一分支成功运行"][(id-1) % 4]
@@ -93,8 +93,8 @@ private final class WorkflowSelectionPreviewProtocol: URLProtocol {
         var payload: Any = [String: Any]()
         let cornerFixture = ProcessInfo.processInfo.arguments.contains("-workflow-filter-corners-preview")
         let workflow: [String: Any] = ["id": 41, "name": "Build IPA", "path": ".github/workflows/build.yml", "state": "active"]
-        if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/actions/workflows" {
-            payload = ["workflows": [workflow]]
+        if allowed, request.httpMethod == "GET", path == root + "/actions/workflows" {
+            payload = ["workflows": [workflow, ["id": 42, "name": "Tests", "path": ".github/workflows/tests.yml", "state": "active"]]]
         } else if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/actions/workflows/41" {
             payload = workflow
         } else if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/branches" {
@@ -104,8 +104,12 @@ private final class WorkflowSelectionPreviewProtocol: URLProtocol {
         } else if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/contents/.github/workflows/build.yml" {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             if query.first(where: { $0.name == "ref" })?.value == "main" {
-                payload = ["type": "file", "encoding": "base64", "content": Data(Self.inputsYAML.utf8).base64EncodedString(),
-                           "sha": "fixture-workflow-schema", "size": Self.inputsYAML.utf8.count]
+                let arguments = ProcessInfo.processInfo.arguments
+                let yaml = arguments.contains("-workflow-no-inputs-preview") ? "on: workflow_dispatch\n"
+                    : (arguments.contains("-workflow-required-inputs-preview") ? "on: {workflow_dispatch: {inputs: {message: {type: string, required: true}}}}\n" : Self.inputsYAML)
+                payload = ["type": "file", "encoding": "base64", "content": Data(yaml.utf8).base64EncodedString(),
+                           "sha": "fixture-workflow-schema", "size": yaml.utf8.count]
+                if arguments.contains("-workflow-schema-failure-preview") { code = 403; payload = ["message": "模拟参数读取失败"] }
             } else { code = 404 }
         } else if allowed, cornerFixture, request.httpMethod == "GET", path == root + "/environments" {
             payload = ["total_count": 1, "environments": [["name": "preview"]]]
@@ -115,12 +119,15 @@ private final class WorkflowSelectionPreviewProtocol: URLProtocol {
             code = 204
         } else if allowed, request.httpMethod == "GET", path == root {
             payload = ["id": 1, "name": "sample", "full_name": "fixture-owner/sample", "html_url": "https://github.com/fixture-owner/sample", "permissions": ["push": true]]
-        } else if allowed, request.httpMethod == "GET", path == root + "/actions/runs" {
+        } else if allowed, request.httpMethod == "GET", [root + "/actions/runs", root + "/actions/workflows/41/runs", root + "/actions/workflows/42/runs"].contains(path) {
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let branch = query.first { $0.name == "branch" }?.value, status = query.first { $0.name == "status" }?.value
+            let workflowID = path.contains("/workflows/") ? Int(path.split(separator: "/").dropLast().last ?? "") : nil
             Self.lock.lock(); let deleted = Self.deleted; let fail = Self.failNext; Self.failNext = false; Self.lock.unlock()
             let rows = Self.runs.filter {
-                !deleted.contains($0["id"] as! Int) && (branch == nil || $0["head_branch"] as? String == branch) && (status == nil || $0["conclusion"] as? String == status)
+                !deleted.contains($0["id"] as! Int) && (branch == nil || $0["head_branch"] as? String == branch)
+                    && (workflowID == nil || $0["workflow_id"] as? Int == workflowID)
+                    && (status == nil || $0["conclusion"] as? String == status || $0["status"] as? String == status)
                     && (!ProcessInfo.processInfo.arguments.contains("-workflow-refresh-preview") || $0["id"] as? Int == 3)
             }
             payload = ["workflow_runs": query.first { $0.name == "page" }?.value == "1" ? rows : []]

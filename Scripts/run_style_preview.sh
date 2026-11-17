@@ -43,7 +43,7 @@ xcrun simctl status_bar "$DEVICE" override --time 9:41 --batteryState charged --
 # cannot exercise CredentialStore (errSecMissingEntitlement / -34018).
 SIGNING_ARGUMENTS=("CODE_SIGN_ENTITLEMENTS=$PWD/Scripts/Simulator.entitlements")
 case "${RP_STYLE_TEST_SCOPE:-all}" in
-  all|release-editor|upload-viewer)
+  all|release-editor|upload-viewer|download-actions|recovery-regressions|recovery-recheck)
     # ShareInboxStore.live() needs a real app-group container, not a picker mock.
     mkdir -p preview-build
     python3 - <<'PY_INBOX_ENTITLEMENTS'
@@ -146,6 +146,29 @@ TEST_STATUS=0
 select_test_scope() {
 local RP_STYLE_TEST_SCOPE="$1"
 case "${RP_STYLE_TEST_SCOPE:-all}" in
+  boundary-feedback-recheck) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testCompactLocalProjectKeepsMetadataAndImportsAccessible
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSharedGroupCornersSurviveRefreshAndBackNavigation
+  ) ;;
+  device-feedback-recheck) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/SettingsTests/testUpdateMenuReturnsFromOfficialReleasesAfterThemeChanges
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryZIPCompletionIsNativeDismissibleAndReusable
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProjectFilesUseLongPressDeletionAndKeepPreview
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBHasNoPackageEditingAction
+  ) ;;
+  recovery-recheck) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/DownloadCenterTests/testCompletedFilesAndInterruptedRecordsRemainAfterRelaunch
+  ) ;;
+  recovery-regressions) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/SettingsTests/testProductionRootThemeCheckmarksAndSchemePersistWithoutPreviewProbe
+    -only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWithInlineAppearance
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryMoreReusesDisclosureAndRemovesConditionalTailRows
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReadmeBadgesAndInAppLink
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReadmeOpensFormattedWithoutManualReload
+    -only-testing:RepoPocketStyleUITests/NativeDisclosureTests
+    -only-testing:RepoPocketStyleUITests/DownloadCenterTests
+  ) ;;
   workflow-log-navigation) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/WorkflowLogTests/testExplicitLineHighlightsKeepTheCompleteReadOnlyContext
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSourcePreviewAndEditorHorizontalScrolling
@@ -158,6 +181,20 @@ case "${RP_STYLE_TEST_SCOPE:-all}" in
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testDirectRepositorySearchAndTypedUserNavigation
   ) ;;
+  download-actions) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/DownloadCenterTests
+    -only-testing:RepoPocketStyleUITests/CommitFileTests
+    -only-testing:RepoPocketStyleUITests/NativeDisclosureTests
+    -only-testing:RepoPocketStyleUITests/SettingsTests
+    -only-testing:RepoPocketStyleUITests/WorkflowInputsTests
+    -only-testing:RepoPocketStyleUITests/UploadEditorTests
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowFiltersAndSelectionKeepGroupedRows
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowBatchDeleteKeepsOtherRowsAndRetriesFailures
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBHasNoPackageEditingAction
+  ) ;;
+  download-actions-recheck) TEST_ARGUMENTS=(
+    -only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWithInlineAppearance
+  ) ;;
   upload-viewer) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/UploadEditorTests
     -only-testing:RepoPocketStyleUITests/ContentZoomTests
@@ -169,7 +206,7 @@ case "${RP_STYLE_TEST_SCOPE:-all}" in
   path-time) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch) ;;
   ui-fixes-failed) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests/testPartialBatchRemovalKeepsSuccessAndOffersOnlyRemainingItems
-    -only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWhileThemeAndFolderUseNativeMenu
+    -only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWithInlineAppearance
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch
   ) ;;
   ui-fixes) TEST_ARGUMENTS=(
@@ -191,7 +228,7 @@ case "${RP_STYLE_TEST_SCOPE:-all}" in
     -only-testing:RepoPocketStyleUITests/RepositoryOperationsTests/testActionsManualRefreshRetainsFailuresAndAutomaticallyFollowsTheSameRun
     -only-testing:RepoPocketStyleUITests/ContentZoomTests/testEditorZoomPreservesSelectionKeyboardAndTypedText
     -only-testing:RepoPocketStyleUITests/ReadingZoomTests/testHTMLPageZoomChangesContentWithoutReloadingOrResettingScroll
-    -only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWhileThemeAndFolderUseNativeMenu
+    -only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWithInlineAppearance
   ) ;;
   branch-merge) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalMergePreviewUsesCurrentBranchAndDoesNotPush
@@ -219,7 +256,7 @@ case "${RP_STYLE_TEST_SCOPE:-all}" in
   review-regressions) TEST_ARGUMENTS=(
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testAccountTokenAdditionStillWorksAfterSwitching
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testAccountTokenAdditionWorksWithoutSwitching
-    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBUsesExistingEditorAndSavesToProject
+    -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBHasNoPackageEditingAction
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile
     -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReadmeBadgesAndInAppLink
   ) ;;
@@ -233,8 +270,8 @@ case "${RP_STYLE_TEST_SCOPE:-all}" in
   all) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests) ;;
   profiles) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testIssueAndCommentAuthorsOpenTheirProfiles -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSettingsSocialAccountsAddEditDeleteAndPermissionRecovery) ;;
   actions) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSharedProfileFollowStateAndFailureHandling -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testDirectRepositorySearchAndTypedUserNavigation -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowFiltersAndSelectionKeepGroupedRows -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testWorkflowBatchDeleteKeepsOtherRowsAndRetriesFailures) ;;
-  file-feedback) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryZIPCompletionIsNativeDismissibleAndReusable -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProjectFilesUseLongPressDeletionAndKeepPreview -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBUsesExistingEditorAndSavesToProject) ;;
-  download-lifecycle) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryZIPCompletionIsNativeDismissibleAndReusable -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProjectFilesUseLongPressDeletionAndKeepPreview -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBUsesExistingEditorAndSavesToProject -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalFileSheetStaysClosedAfterInteractiveDismissal -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates) ;;
+  file-feedback) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryZIPCompletionIsNativeDismissibleAndReusable -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProjectFilesUseLongPressDeletionAndKeepPreview -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBHasNoPackageEditingAction) ;;
+  download-lifecycle) TEST_ARGUMENTS=(-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryZIPCompletionIsNativeDismissibleAndReusable -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProjectFilesUseLongPressDeletionAndKeepPreview -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBHasNoPackageEditingAction -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalFileSheetStaysClosedAfterInteractiveDismissal -only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates) ;;
   *) echo 'Unknown UI test scope'; exit 1 ;;
 esac
 }
@@ -260,6 +297,9 @@ if [ "${RP_STYLE_TEST_SCOPE:-all}" = all ]; then
       fi
       ;;
     editors) TEST_ARGUMENTS=(
+      -only-testing:RepoPocketStyleUITests/DownloadCenterTests
+      -only-testing:RepoPocketStyleUITests/CommitFileTests
+      -only-testing:RepoPocketStyleUITests/NativeDisclosureTests
       -only-testing:RepoPocketStyleUITests/UploadEditorTests
       -only-testing:RepoPocketStyleUITests/ContentZoomTests
       -only-testing:RepoPocketStyleUITests/ReadingZoomTests
@@ -270,6 +310,8 @@ if [ "${RP_STYLE_TEST_SCOPE:-all}" = all ]; then
       -only-testing:RepoPocketStyleUITests/WorkflowLogTests
       -only-testing:RepoPocketStyleUITests/RepositoryOperationsTests
       -only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests
+      # 用户已真机验收并允许跳过；保留 device-feedback-recheck 独立诊断，不计作自动通过。
+      -skip-testing:RepoPocketStyleUITests/SettingsTests/testUpdateMenuReturnsFromOfficialReleasesAfterThemeChanges
     ) ;;
     selected) ;;
     *) echo 'Unknown UI test group'; exit 1 ;;

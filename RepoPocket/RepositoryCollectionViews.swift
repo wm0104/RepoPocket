@@ -3,9 +3,12 @@ import SwiftUI
 struct RepositoryFavoritesHomeLink: View {
     @ObservedObject var api: GitHub
     @ObservedObject var favorites: RepositoryFavoritesState
+    var showsIndicator = false
     var body: some View {
         NavigationLink { RepositoryFavoritesView(api: api, favorites: favorites) } label: {
-            HStack { Label("收藏夹", systemImage: "bookmark"); Spacer(); Text(favorites.repositories.count.formatted()).foregroundStyle(.secondary) }
+            QuotaNavigationLabel(showsIndicator: showsIndicator) {
+                HStack { Label { Text("收藏夹") } icon: { Image(systemName: "bookmark").foregroundStyle(Color.accentColor) }; Spacer(); Text(favorites.repositories.count.formatted()).foregroundStyle(.secondary) }
+            }
         }.accessibilityIdentifier("home-collection-favorites")
     }
 }

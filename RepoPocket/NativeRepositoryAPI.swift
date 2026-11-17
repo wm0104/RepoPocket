@@ -11,14 +11,16 @@ final class WorkflowLogRedirectPolicy: NSObject, URLSessionTaskDelegate {
     }
 }
 extension GitHub {
-    func workflowRuns(_ repo: String, branch: String, page: Int, failedOnly: Bool = false, headSHA: String = "") async throws -> [WorkflowRun] {
+    func workflowRuns(_ repo: String, branch: String, page: Int, failedOnly: Bool = false, headSHA: String = "", workflowID: Int? = nil, status: WorkflowRunStatusFilter = .all) async throws -> [WorkflowRun] {
+        if let workflowID, workflowID <= 0 { throw AppError(text: "无效工作流编号") }
         guard headSHA.isEmpty || (headSHA.utf8.count == 40 && headSHA.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) })) else {
             throw AppError(text: "提交 SHA 无效，未查询其他提交的运行。")
         }
         let query = try CommunityRules.page(page) + (branch.isEmpty ? [] : [.init(name: "branch", value: branch)])
-            + (failedOnly ? [.init(name: "status", value: "failure")] : [])
+            + (failedOnly || status != .all ? [.init(name: "status", value: failedOnly ? "failure" : status.rawValue)] : [])
             + (headSHA.isEmpty ? [] : [.init(name: "head_sha", value: headSHA)])
-        let bytes = try await communityRead(Self.repoPath(repo) + "/actions/runs", query: query)
+        let suffix = workflowID.map { "/actions/workflows/\($0)/runs" } ?? "/actions/runs"
+        let bytes = try await communityRead(Self.repoPath(repo) + suffix, query: query)
         let runs = try JSONDecoder().decode(WorkflowRuns.self, from: bytes).workflow_runs
         return runs.filter { headSHA.isEmpty || ($0.head_sha == headSHA && (branch.isEmpty || $0.head_branch == branch)) }
     }

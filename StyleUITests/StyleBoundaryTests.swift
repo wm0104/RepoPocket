@@ -7,28 +7,25 @@ final class StyleBoundaryTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-workflow-selection-style-preview", "-workflow-filter-corners-preview"]
         app.launch()
-        let branch = app.switches["workflow-filter-branch"]
-        let failed = app.switches["workflow-filter-failed"]
-        XCTAssertTrue(branch.waitForExistence(timeout: 20))
+        let filters = app.buttons["workflow-filters"]
+        var branchOnly = false, failureOnly = false
+        XCTAssertTrue(filters.waitForExistence(timeout: 20))
         func assertWorkflowGroup() {
-            let refresh = app.buttons["刷新"]
-            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)], timeout: 10), .completed)
             for _ in 0..<4 {
-                let cell = app.cells.containing(.any, identifier: "workflow-filter-branch").firstMatch
-                if branch.isHittable && cell.frame.minY >= app.navigationBars.firstMatch.frame.maxY { break }
+                let cell = app.cells.containing(.any, identifier: "workflow-filter-summary").firstMatch
+                if filters.isHittable && cell.frame.minY >= app.navigationBars.firstMatch.frame.maxY { break }
                 app.swipeDown()
             }
-            assertGroupCorners(app, identifier: "workflow-filter-branch", top: true, bottom: false)
-            assertGroupCorners(app, identifier: "workflow-filter-failed", top: false, bottom: false)
+            assertGroupCorners(app, identifier: "workflow-filter-summary", top: true, bottom: false)
             let firstRun = app.buttons["workflow-run-1"]
             XCTAssertTrue(firstRun.waitForExistence(timeout: 10))
-            let filterCell = app.cells.containing(.any, identifier: "workflow-filter-failed").firstMatch
+            let filterCell = app.cells.containing(.any, identifier: "workflow-filter-summary").firstMatch
             let runCell = app.cells.containing(.any, identifier: "workflow-run-1").firstMatch
             let gap = runCell.frame.minY - filterCell.frame.maxY
             let roundingError = max(runCell.frame.minY.ulp, filterCell.frame.maxY.ulp) * 8
             XCTAssertGreaterThanOrEqual(gap, -roundingError)
             XCTAssertLessThanOrEqual(gap, 2, "Filters and runs must remain one continuous group")
-            let lastID = (failed.value as? String) == "1" ? 2 : ((branch.value as? String) == "1" ? 3 : 4)
+            let lastID = failureOnly ? 2 : (branchOnly ? 3 : 4)
             let lastRun = app.buttons["workflow-run-\(lastID)"]
             XCTAssertTrue(lastRun.waitForExistence(timeout: 10))
             let freshness = app.descendants(matching: .any)["content-freshness"].firstMatch
@@ -51,14 +48,13 @@ final class StyleBoundaryTests: XCTestCase {
             assertGroupCorners(app, identifier: "workflow-run-\(lastID)", top: false, bottom: false)
             assertGroupCorners(app, identifier: "content-freshness", top: false, bottom: true)
             for _ in 0..<4 {
-                let cell = app.cells.containing(.any, identifier: "workflow-filter-branch").firstMatch
-                if branch.isHittable && cell.frame.minY >= app.navigationBars.firstMatch.frame.maxY { break }
+                let cell = app.cells.containing(.any, identifier: "workflow-filter-summary").firstMatch
+                if filters.isHittable && cell.frame.minY >= app.navigationBars.firstMatch.frame.maxY { break }
                 app.swipeDown()
             }
         }
         assertWorkflowGroup()
-        let open = app.buttons["workflow-dispatch-open"]
-        XCTAssertTrue(open.waitForExistence(timeout: 10)); open.tap()
+        chooseWorkflowAction("运行工作流", in: app)
         let picker = app.buttons["workflow-dispatch-workflow"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10)); picker.tap()
         app.buttons["Build IPA · .github/workflows/build.yml"].tap()
@@ -73,17 +69,16 @@ final class StyleBoundaryTests: XCTestCase {
         reveal(result, in: app)
         XCTAssertTrue(result.waitForExistence(timeout: 15), app.debugDescription)
         app.buttons["关闭"].tap()
-        XCTAssertTrue(branch.waitForExistence(timeout: 10))
-        let first = app.cells.containing(.any, identifier: "workflow-filter-branch").firstMatch
-        XCTAssertTrue(first.staticTexts["main"].exists, "The dispatched branch must stay inside the toggle's native cell")
+        branchOnly = true
+        XCTAssertTrue(filters.waitForExistence(timeout: 10))
+        let first = app.cells.containing(.any, identifier: "workflow-filter-summary").firstMatch
+        XCTAssertTrue(first.staticTexts.matching(NSPredicate(format: "label CONTAINS 'main'")).firstMatch.exists, "The dispatched branch must stay in the compact filter summary")
         for cycle in 0..<3 {
             assertWorkflowGroup()
             keepScreenshot(app, name: "workflow-filter-dispatch-\(cycle)")
-            setSwitch(app, label: "workflow-filter-failed", enabled: (failed.value as? String) != "1")
-            let refresh = app.buttons["刷新"]
-            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)], timeout: 10), .completed)
-            refresh.tap()
-            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: refresh)], timeout: 10), .completed)
+            failureOnly.toggle()
+            chooseWorkflowFilter(failureOnly ? "仅看失败记录" : "全部状态", group: "状态", in: app)
+            chooseWorkflowAction("刷新", in: app)
             assertWorkflowGroup()
         }
     }
@@ -179,7 +174,8 @@ final class StyleBoundaryTests: XCTestCase {
             previous = value
             return stableSamples >= 2
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [stable], timeout: 10), .completed)
+        XCTAssertEqual(XCTWaiter.wait(for: [stable], timeout: 10), .completed,
+                       "Group frame did not settle: " + identifier + " " + app.debugDescription)
         guard let image = app.screenshot().image.cgImage else { return XCTFail("Missing screenshot") }
         let frame = cell.frame
         let scale = CGFloat(image.width) / app.frame.width
@@ -498,6 +494,7 @@ final class StyleBoundaryTests: XCTestCase {
         func openAuthor(_ flags: [String] = []) {
             app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-profile-contacts-preview"] + flags
             app.launch()
+            expandHomeIssues(in: app)
             let issue = app.buttons["home-issue-4"]
             XCTAssertTrue(issue.waitForExistence(timeout: 20)); issue.tap()
             let author = app.buttons["issue-author"]
@@ -602,31 +599,72 @@ final class StyleBoundaryTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-upstream-sync-style-preview"]; app.launch()
-        let more = app.buttons["repository-more"]
+        let more = app.buttons["更多"]
+        func requireMore(_ checkpoint: String) -> Bool {
+            guard more.exists else {
+                keepScreenshot(app, name: "repository-more-missing-" + checkpoint)
+                let hierarchy = XCTAttachment(string: app.debugDescription)
+                hierarchy.name = "repository-more-missing-" + checkpoint + "-ax"
+                hierarchy.lifetime = .keepAlways; add(hierarchy)
+                XCTFail("Header must remain on the repository page: " + checkpoint)
+                return false
+            }
+            return true
+        }
         XCTAssertTrue(more.waitForExistence(timeout: 20))
-        let visibleRows = app.cells.allElementsBoundByIndex.filter { $0.isHittable && $0.frame.height > 0 }
-            .sorted { $0.frame.minY < $1.frame.minY }
-        XCTAssertGreaterThanOrEqual(visibleRows.count, 3)
-        for (first, next) in zip(visibleRows, visibleRows.dropFirst()) {
-            let gap = next.frame.minY - first.frame.maxY
-            let roundingError = max(first.frame.maxY.ulp, next.frame.minY.ulp) * 8
-            XCTAssertGreaterThanOrEqual(gap, -roundingError)
-            XCTAssertLessThanOrEqual(gap, 2, "Related repository overview rows must not be separate cards")
+        XCTAssertFalse(app.staticTexts["最近一次 Actions · 所有分支"].exists)
+        XCTAssertFalse(app.buttons["全部运行"].exists)
+        XCTAssertTrue(app.buttons["全部发行版"].exists, "Removing the Actions summary must not remove releases")
+        let community = disclosureCard(app, headerID: "repository-more")
+        XCTAssertTrue(community.exists)
+        let entryRows = [app.buttons["议题"], app.buttons["拉取请求"],
+                         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Actions")).firstMatch, more]
+        for row in entryRows {
+            XCTAssertTrue(row.isHittable)
+            XCTAssertTrue(community.frame.contains(row.frame), "All four entries belong to one clipped card")
+        }
+        for (first, next) in zip(entryRows, entryRows.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(next.frame.minY, first.frame.maxY)
+            XCTAssertLessThanOrEqual(next.frame.minY - first.frame.maxY, 26, "Only the reference card's 12pt row padding and divider separate entries")
+        }
+        for title in ["议题", "拉取请求", "操作 · Actions", "更多"] {
+            assertNeutralNavigationText(app, title: title)
         }
         keepScreenshot(app, name: "repository-overview-continuous-rows")
         let tools = app.buttons["repository-more-tools"], owner = app.buttons["repository-more-owner"]
-        XCTAssertEqual(more.value as? String, "已折叠")
         XCTAssertFalse(tools.exists); XCTAssertFalse(owner.exists)
-        for _ in 0..<3 {
-            more.tap()
+        for cycle in 0..<3 {
+            tapNativeDisclosureHeader(more, trailing: cycle.isMultiple(of: 2))
+            guard requireMore("expanded-\(cycle)") else { return }
             XCTAssertEqual(more.value as? String, "已展开")
             XCTAssertTrue(tools.waitForExistence(timeout: 5)); XCTAssertTrue(owner.exists)
-            more.tap()
-            XCTAssertEqual(more.value as? String, "已折叠")
+            assertDisclosureCard(app, headerID: "repository-more", childIDs: ["repository-more-tools", "repository-more-owner"])
+            keepScreenshot(app, name: "repository-more-expanded-\(cycle)")
+            tapNativeDisclosureHeader(more, trailing: !cycle.isMultiple(of: 2))
+            guard requireMore("collapsed-\(cycle)") else { return }
+            XCTAssertEqual(more.value as? String, "已折叠", "Absent children alone can also mean accidental navigation")
+            XCTAssertFalse(app.navigationBars["统计与工具"].exists)
+            XCTAssertFalse(app.navigationBars["fixture-owner"].exists)
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: tools)], timeout: 5), .completed)
             XCTAssertFalse(tools.exists); XCTAssertFalse(owner.exists)
+            assertDisclosureCard(app, headerID: "repository-more", childIDs: [])
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Actions")).firstMatch.exists)
         }
         keepScreenshot(app, name: "repository-more-after-rapid-folding")
+        tapNativeDisclosureHeader(more, trailing: true)
+        XCTAssertTrue(tools.waitForExistence(timeout: 5))
+        tools.tap()
+        XCTAssertTrue(app.navigationBars["统计与工具"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["fixture-owner"].exists, "Tools must not also activate the owner link in the same cell")
+        app.navigationBars["统计与工具"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        XCTAssertTrue(owner.exists); owner.tap()
+        XCTAssertTrue(app.navigationBars["fixture-owner"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["统计与工具"].exists, "Owner must navigate independently, not through Tools")
+        app.navigationBars["fixture-owner"].buttons.element(boundBy: 0).tap()
+        guard requireMore("returned-from-owner") else { return }
+        XCTAssertTrue(tools.exists); XCTAssertTrue(owner.exists)
+        assertDisclosureCard(app, headerID: "repository-more", childIDs: ["repository-more-tools", "repository-more-owner"])
     }
 
     func testWorkflowFiltersAndSelectionKeepGroupedRows() {
@@ -634,36 +672,32 @@ final class StyleBoundaryTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-workflow-selection-style-preview"]; app.launch()
         XCTAssertTrue(app.buttons["workflow-run-1"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.switches["仅当前分支"].exists)
-        XCTAssertTrue(app.switches["仅看失败记录"].exists)
+        XCTAssertTrue(app.buttons["workflow-filters"].exists)
         keepScreenshot(app, name: "workflow-runs-normal")
-        setSwitch(app, label: "仅当前分支", enabled: true)
-        XCTAssertEqual(app.switches["仅当前分支"].value as? String, "1")
+        chooseWorkflowFilter("仅当前分支", in: app)
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["workflow-run-4"])], timeout: 10), .completed)
         XCTAssertTrue(app.buttons["workflow-run-1"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["workflow-run-4"].exists)
-        setSwitch(app, label: "仅看失败记录", enabled: true)
-        XCTAssertEqual(app.switches["仅看失败记录"].value as? String, "1")
+        chooseWorkflowFilter("仅看失败记录", group: "状态", in: app)
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["workflow-run-3"])], timeout: 10), .completed)
         XCTAssertTrue(app.buttons["workflow-run-2"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["workflow-run-3"].exists)
-        let multiple = app.buttons["多选"]
-        XCTAssertTrue(multiple.waitForExistence(timeout: 10)); multiple.tap()
+        chooseWorkflowAction("多选", in: app)
         app.buttons["workflow-run-1"].tap()
         XCTAssertEqual(app.buttons["workflow-run-1"].value as? String, "已选中")
         XCTAssertTrue(app.buttons["删除（1）"].isEnabled)
         keepScreenshot(app, name: "workflow-runs-selection")
         app.buttons["全选已加载"].tap()
         XCTAssertTrue(app.buttons["删除（2）"].isEnabled)
-        app.buttons["完成"].tap()
-        XCTAssertTrue(app.buttons["多选"].exists)
+        chooseWorkflowAction("完成", in: app)
+        XCTAssertFalse(app.buttons["删除（2）"].exists)
     }
     func testWorkflowBatchDeleteKeepsOtherRowsAndRetriesFailures() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-workflow-selection-style-preview"]; app.launch()
-        let multiple = app.buttons["多选"]
-        XCTAssertTrue(multiple.waitForExistence(timeout: 20)); multiple.tap()
+        XCTAssertTrue(app.buttons["workflow-run-1"].waitForExistence(timeout: 20))
+        chooseWorkflowAction("多选", in: app)
         let first = app.buttons["workflow-run-1"], second = app.buttons["workflow-run-2"]
         XCTAssertTrue(first.waitForExistence(timeout: 10)); first.tap(); second.tap()
         let running = app.buttons["workflow-run-3"]
@@ -701,7 +735,7 @@ final class StyleBoundaryTests: XCTestCase {
             completed.tap()
             let alert = app.alerts["下载完成"]
             XCTAssertTrue(alert.waitForExistence(timeout: 5))
-            XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'my-python.zip' AND label CONTAINS 'RepoPocket'")).firstMatch.exists)
+            XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'my-python.zip' AND label CONTAINS '下载中心'")).firstMatch.exists)
             XCTAssertFalse(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS '/private/'")).firstMatch.exists)
             if attempt == 0 { keepScreenshot(app, name: "repository-zip-completion") }
             alert.buttons["好"].tap()
@@ -733,7 +767,8 @@ final class StyleBoundaryTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-local-git-style-preview"]; app.launch()
-        XCTAssertTrue(app.buttons["localgit.branches"].waitForExistence(timeout: 40))
+        XCTAssertTrue(app.buttons["localgit.branches"].waitForExistence(timeout: 40),
+                      "Local project did not become ready: " + app.debugDescription)
         XCTAssertTrue(app.buttons["浏览与编辑项目文件"].exists)
         XCTAssertFalse(app.buttons["导入文件"].exists)
         XCTAssertFalse(app.buttons["导入文件夹"].exists)
@@ -799,7 +834,11 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["debs"].waitForExistence(timeout: 10))
         let deb = app.buttons["local-project-file-debs/package-01.deb"]
         XCTAssertTrue(deb.waitForExistence(timeout: 10)); deb.tap()
-        XCTAssertTrue(app.textFields["Version"].waitForExistence(timeout: 15), "Tapping DEB still opens the established editor")
+        XCTAssertTrue(app.navigationBars["package-01.deb"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["不是可编辑的 UTF-8 文本，不会截断或转换保存。"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.textFields["Version"].exists, "Binary packages must not reopen the removed DEB editor")
+        app.buttons["关闭"].tap()
+        XCTAssertTrue(deb.waitForExistence(timeout: 10), "Closing an unsupported file must retain the original package")
     }
     func testMobileEditorCreatesSavesAndGuardsUnsavedChanges() {
         continueAfterFailure = false
@@ -871,6 +910,30 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(file.waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["release-asset-3"].exists)
         XCTAssertFalse(app.buttons["下载并保存"].exists)
+        let disclosure = app.buttons["发布说明"]
+        let description = app.staticTexts["Download preview"]
+        XCTAssertTrue(disclosure.waitForExistence(timeout: 5))
+        XCTAssertFalse(description.exists)
+        let card = app.otherElements["release-detail-card"]
+        XCTAssertTrue(card.exists)
+        let collapsedCardHeight = card.frame.height
+        let collapsedAssetY = file.frame.minY
+        for _ in 0..<3 {
+            disclosure.tap()
+            XCTAssertTrue(description.waitForExistence(timeout: 5))
+            let opened = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                description.isHittable && file.frame.minY > collapsedAssetY + 10
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [opened], timeout: 10), .completed)
+            disclosure.tap()
+            let closed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !description.exists && abs(file.frame.minY - collapsedAssetY) <= 1 &&
+                    abs(card.frame.height - collapsedCardHeight) <= 1
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 10), .completed,
+                           "Closing the notes must restore the attachment position without a blank gap")
+            XCTAssertTrue(file.isHittable)
+        }
         keepScreenshot(app, name: "release-compact-attachments")
         file.tap()
         XCTAssertTrue(app.buttons["下载并保存"].waitForExistence(timeout: 5))
@@ -881,7 +944,9 @@ final class StyleBoundaryTests: XCTestCase {
         // Tap its background coordinate as a user would to dismiss the menu.
         app.navigationBars["发行版详情"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["下载并保存"])], timeout: 5), .completed)
-        file.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.7)).tap()
+        // Tap inside the card's trailing edge, including the former row-wrapper padding.
+        card.coordinate(withNormalizedOffset: CGVector(dx: 0.99,
+            dy: (file.frame.midY - card.frame.minY) / card.frame.height)).tap()
         XCTAssertTrue(app.buttons["删除附件"].waitForExistence(timeout: 5)); app.buttons["删除附件"].tap()
         XCTAssertTrue(app.buttons["删除"].waitForExistence(timeout: 5)); app.buttons["取消"].tap()
         // Copy alert and delete cancellation must not lock the next presentation.
@@ -912,6 +977,7 @@ final class StyleBoundaryTests: XCTestCase {
         let app = XCUIApplication()
         func openAuthor(_ flags: [String] = []) {
             app.launchArguments = ["-style-preview", "-user-connections-style-preview"] + flags; app.launch()
+            expandHomeIssues(in: app)
             let issue = app.buttons["home-issue-4"]
             XCTAssertTrue(issue.waitForExistence(timeout: 20)); issue.tap()
             let author = app.buttons["issue-author"]
@@ -950,7 +1016,9 @@ final class StyleBoundaryTests: XCTestCase {
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20)); field.tap(); field.typeText("https://github.com/fixture-owner/sample\n")
         let owner = app.buttons["repository-owner-link"]
-        XCTAssertTrue(owner.waitForExistence(timeout: 20)); owner.tap()
+        XCTAssertTrue(owner.waitForExistence(timeout: 20))
+        assertNeutralNavigationText(app, title: "fixture-owner", leadingIconWidth: 0)
+        owner.tap()
         XCTAssertTrue(app.navigationBars["fixture-owner"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["user-follow-action"].exists, "Self profiles have no follow action")
         keepScreenshot(app, name: "repository-owner-profile")
@@ -972,6 +1040,7 @@ final class StyleBoundaryTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-user-connections-style-preview"]; app.launch()
+        expandHomeIssues(in: app)
         let issue = app.buttons["home-issue-4"]
         XCTAssertTrue(issue.waitForExistence(timeout: 20)); issue.tap()
         let author = app.buttons["issue-author"]
@@ -1024,6 +1093,7 @@ final class StyleBoundaryTests: XCTestCase {
             let app = XCUIApplication()
             app.launchArguments = ["-style-preview", "-user-connections-style-preview"] + (extra.hasPrefix("-") ? [extra] : [])
             app.launch()
+            if !extra.hasPrefix("-") { expandHomeIssues(in: app) }
             if extra == "personal" {
                 let all = app.buttons["home-personal-issues"]
                 XCTAssertTrue(all.waitForExistence(timeout: 20)); all.tap()
@@ -1085,6 +1155,7 @@ final class StyleBoundaryTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-user-connections-style-preview"]; app.launch()
+        expandHomeIssues(in: app)
         let issue = app.buttons["home-issue-4"]
         XCTAssertTrue(issue.waitForExistence(timeout: 20)); issue.tap()
         let comments = app.buttons["讨论评论"]
@@ -1238,55 +1309,20 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertEqual(add.label, "添加到目标/子目录")
         keepScreenshot(app, name: "local-import-destination")
     }
-    func testLocalDEBUsesExistingEditorAndSavesToProject() {
+    func testLocalDEBHasNoPackageEditingAction() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-local-git-style-preview"]
         app.launch()
         let folder = app.buttons["localgit.folder.debs"]
         XCTAssertTrue(folder.waitForExistence(timeout: 40)); folder.tap()
-        let menu = app.buttons["更多操作：package-01.deb"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 10)); menu.tap()
-        app.buttons["编辑包信息"].tap()
-        let version = app.textFields["Version"]
-        XCTAssertTrue(version.waitForExistence(timeout: 20))
-        XCTAssertEqual(version.value as? String, "1.0")
-        version.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
-        // Wait for each edit to reach the SwiftUI field before sending the next
-        // phase; batching deletes with replacement text can race keyboard focus.
-        version.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3))
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
-            // XCUITest may expose the placeholder as value when actual text is empty.
-            predicate: NSPredicate { _, _ in
-                let value = version.value as? String
-                return value == nil || value == "" || value == version.placeholderValue
-            }, object: version)], timeout: 10), .completed,
-            "Cleared field: value=\(String(describing: version.value)), placeholder=\(String(describing: version.placeholderValue))")
-        version.typeText("2.0")
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == '2.0'"), object: version)], timeout: 10), .completed)
-        XCTAssertEqual(version.value as? String, "2.0")
-        let returnKey = app.keyboards.buttons["return"]
-        if returnKey.exists { returnKey.tap() }
-        let form = app.collectionViews["deb-editor-form"]
-        XCTAssertTrue(form.waitForExistence(timeout: 5))
-        let generate = app.buttons["生成新的 deb（验证后保存）"]
-        reveal(generate, in: app, scroll: form); generate.tap()
-        let save = app.buttons["保存到本地项目"]
-        reveal(save, in: app, scroll: form)
-        keepScreenshot(app, name: "local-deb-editor")
-        save.tap()
-        XCTAssertTrue(folder.waitForExistence(timeout: 20))
-        // Wait for the scan; SwiftUI's Menu wrapper can lack an AX hit point even when enabled.
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in menu.exists && menu.isEnabled }, object: nil)], timeout: 20), .completed)
-        menu.tap()
-        let edit = app.buttons["编辑包信息"]
-        XCTAssertTrue(edit.waitForExistence(timeout: 5)); edit.tap()
-        XCTAssertTrue(version.waitForExistence(timeout: 20))
-        XCTAssertEqual(version.value as? String, "2.0", "The edited DEB must be saved to its original project path")
-        app.buttons["关闭"].tap()
+        let file = app.staticTexts["package-01.deb"]
+        XCTAssertTrue(file.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["更多操作：package-01.deb"].exists)
+        file.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["删除文件"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["编辑包信息"].exists)
+        keepScreenshot(app, name: "local-deb-ordinary-file")
     }
 
     func testLocalWholeFolderImportsAllChildrenAndSelectsThem() {
@@ -1840,6 +1876,24 @@ final class StyleBoundaryTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testReadmeOpensFormattedWithoutManualReload() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-readme-style-preview"]
+        app.launch()
+        // Fixed HTML exercises the production WebKit renderer, not a network recovery.
+        // No reload, refresh or other interaction is allowed before these assertions.
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["readme-document-ready"].waitForExistence(timeout: 30))
+        XCTAssertTrue(web.staticTexts["自述文件格式预览"].waitForExistence(timeout: 10))
+        XCTAssertTrue(web.images["累计下载次数"].waitForExistence(timeout: 30))
+        XCTAssertTrue(web.images["最新版本"].waitForExistence(timeout: 10))
+        XCTAssertTrue(web.staticTexts["GitHub 排版结果"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["排版暂不可用，已显示原文。"].exists)
+        XCTAssertFalse(app.buttons["重新加载排版"].exists)
+        keepScreenshot(app, name: "readme-first-open-formatted")
     }
 
     func testReadmeBadgesAndInAppLink() {

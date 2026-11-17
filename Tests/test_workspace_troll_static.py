@@ -48,7 +48,7 @@ class WorkspaceTrollStaticTests(unittest.TestCase):
     def test_common_upload_stays_bounded_and_streamed(self):
         self.assertNotIn('maximumTrollPluginBytes', self.upload)
         self.assertIn('RepoQueue.addingUploadBytes', self.upload)
-        self.assertIn('DebControlEditor.prepareForUpload', self.upload)
+        self.assertNotIn('DebControlEditor.prepareForUpload', self.upload)
         self.assertIn('session.upload(for: uploadRequest, fromFile: bodyFile)', self.github)
         self.assertIn('uploadGitBlobFile(', self.github)
 

@@ -29,7 +29,7 @@ class RepositoryCollectionsTests(unittest.TestCase):
     def test_shipping_entry_points_account_cleanup_and_ui_regressions_are_connected(self):
         sections = (ROOT/'RepoPocket/RepositorySections.swift').read_text(encoding='utf-8')
         self.assertIn('StarListsView(api: api', sections)
-        self.assertIn('RepositoryFavoritesHomeLink(api: api, favorites: api.favorites)', sections)
+        self.assertIn('RepositoryFavoritesHomeLink(api: api, favorites: api.favorites, showsIndicator: connected)', sections)
         self.assertIn('RepositoryFavorites.removeAccount(id)', (ROOT/'RepoPocket/GitHubAccounts.swift').read_text(encoding='utf-8'))
         search = (ROOT/'RepoPocket/RepositorySearchView.swift').read_text(encoding='utf-8')
         self.assertIn('var selectRepository: ((Repository) throws -> Void)? = nil', search)

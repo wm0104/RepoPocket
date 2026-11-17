@@ -8,8 +8,7 @@ class WorkflowFilterLayoutTests(unittest.TestCase):
     def test_corner_regression_checks_the_connected_group_not_an_old_filter_card(self):
         source = (ROOT / 'StyleUITests/StyleBoundaryTests.swift').read_text(encoding='utf-8')
         case = source.split('func testWorkflowFilterCornersSurviveDispatchAndRefresh()', 1)[1].split('func testLocalMergePreview', 1)[0]
-        self.assertIn('identifier: "workflow-filter-failed", top: false, bottom: false', case)
-        self.assertNotIn('identifier: "workflow-filter-failed", top: false, bottom: true', case)
+        self.assertIn('identifier: "workflow-filter-summary", top: true, bottom: false', case)
         self.assertIn('identifier: "workflow-run-\\(lastID)", top: false, bottom: false', case)
         self.assertIn('identifier: "content-freshness", top: false, bottom: true', case)
         self.assertIn('lastCell.frame.minY - lastRunCell.frame.maxY', case)
@@ -19,8 +18,8 @@ class WorkflowFilterLayoutTests(unittest.TestCase):
         self.assertIn('gap, 2', case)
         self.assertIn('for cycle in 0..<3', case)
         self.assertIn('run.tap()', case)
-        self.assertIn('refresh.tap()', case)
-        self.assertIn('setSwitch(app, label: "workflow-filter-failed", enabled: (failed.value as? String) != "1")', case)
+        self.assertIn('chooseWorkflowAction("刷新", in: app)', case)
+        self.assertIn('chooseWorkflowFilter(failureOnly ? "仅看失败记录" : "全部状态", group: "状态", in: app)', case)
         self.assertIn('lastCell.frame.maxY, bottom', case)
         self.assertIn('lastCell.frame.minY, top', case)
         self.assertIn('if freshness.exists && lastRun.isHittable', case)
@@ -47,10 +46,9 @@ class WorkflowFilterLayoutTests(unittest.TestCase):
     def test_refresh_regression_exits_selection_with_the_actual_done_button(self):
         source = (ROOT / 'StyleUITests/RepositoryOperationsTests.swift').read_text(encoding='utf-8')
         case = source.split('func testActionsManualRefreshRetainsFailuresAndAutomaticallyFollowsTheSameRun()', 1)[1].split('func testVersionGroups', 1)[0]
-        self.assertIn('Button(selection.active ? "完成" : "多选")', self.source)
-        self.assertIn('let done = app.buttons["完成"]', case)
-        self.assertIn('waitForEnabled(done); done.tap()', case)
-        self.assertEqual(case.count('waitForEnabled(app.buttons["多选"])'), 1)
+        self.assertIn('title: selection.active ? "完成" : "多选"', self.source)
+        self.assertIn('chooseWorkflowAction("完成", in: app)', case)
+        self.assertEqual(case.count('chooseWorkflowAction("多选", in: app)'), 1)
         selector = (ROOT / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8').split('  regression-recheck)', 1)[1].split(';;', 1)[0]
         self.assertIn('/testWorkflowLastCardToLoadMoreUsesCompactGap', selector)
         self.assertIn('/testActionsManualRefreshRetainsFailuresAndAutomaticallyFollowsTheSameRun', selector)
@@ -63,13 +61,13 @@ class WorkflowFilterLayoutTests(unittest.TestCase):
     def setUp(self):
         self.source = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text()
 
-    def test_branch_toggle_and_subtitle_are_one_layout_container(self):
-        row = self.source.split('SoftGroupRow("branch") {', 1)[1].split('} else {', 1)[0]
-        self.assertIn('VStack(alignment: .leading, spacing: 4)', row)
-        self.assertLess(row.index('VStack('), row.index('Toggle("仅当前分支"'))
-        self.assertIn('if let dispatchedBranch', row)
-        self.assertIn('Text(dispatchedBranch)', row)
-        self.assertRegex(self.source, r'SoftGroupRow\("failed"\)\s*\{\s*Toggle\("仅看失败记录"')
+    def test_filter_summary_keeps_workflow_status_and_branch_in_one_native_row(self):
+        row = self.source.split('SoftGroupRow("filters") {', 1)[1].split('if !headSHA.isEmpty', 1)[0]
+        for token in ['VStack(alignment: .leading, spacing: 3)', 'Text(workflowTitle)',
+                      'statusFilter.title', 'displayedBranch', 'NativeActionMenu', 'workflow-filter-summary']:
+            self.assertIn(token, row)
+        self.assertIn('selectedState: { currentBranchOnly }', self.source)
+        self.assertIn('private var failedOnly: Bool { statusFilter == .failure }', self.source)
 
     def test_dispatch_is_a_confirmation_toolbar_action_not_a_card(self):
         page = self.source.split('struct WorkflowDispatchView: View {', 1)[1].split('struct WorkflowRunView:', 1)[0]
@@ -87,7 +85,7 @@ class WorkflowFilterLayoutTests(unittest.TestCase):
         page = self.source.split('struct WorkflowDispatchView: View {', 1)[1].split('struct WorkflowRunView:', 1)[0]
         self.assertIn('private var hasStatus: Bool { state.busy || !state.result.isEmpty || !state.error.isEmpty || !api.isCurrentSession }', page)
         self.assertIn('if hasStatus {\n                    SoftGroupRows(top: false)', page)
-        self.assertIn('SoftGroupRows(top: false, bottom: !hasStatus)', page)
+        self.assertIn('SoftGroupRows(top: false, bottom: !hasStatus, animateBackground: true)', page)
         self.assertEqual(page.count('Section {'), 1)
         for item in ['busy', 'result', 'error', 'account']:
             self.assertIn(f'SoftGroupRow("{item}")', page)

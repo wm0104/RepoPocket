@@ -1,7 +1,7 @@
 #if DEBUG
 import SwiftUI
 
-/// Real upload/editor screens and archive parsing; intercepted API writes fail closed.
+/// Real ordinary-file upload screens; intercepted API writes fail closed.
 struct UploadEditorStylePreview: View {
     @State private var api: GitHub?
     @State private var file: URL?

@@ -9,16 +9,6 @@ class CompactMetadataStatisticsTests(unittest.TestCase):
   self.assertIn('TextField("提交说明", text: $commitMessage)',text)
   self.assertIn('.frame(minHeight: 44)',text)
   self.assertIn('commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty',text)
- def test_deb_editor_related_panels_share_one_native_section(self):
-  text=(ROOT/'RepoPocket/DebEditorView.swift').read_text(encoding='utf-8').split('private var editorNavigation:',1)[0]
-  self.assertEqual(text.count('Section {'),1)
-  self.assertNotIn('Section("',text)
-  for token in ['SoftGroupRows(bottom: original.isEmpty && !showsOutput)', 'SoftGroupRows(top: false, bottom: differences.isEmpty && !showsOutput)', 'SoftGroupRows(top: false, bottom: !showsOutput)', 'Text("编辑").font(.subheadline)', 'Text("已生成 · 未替换原文件")']:
-   self.assertIn(token,text)
- def test_deb_editor_keeps_validation_and_lifecycle(self):
-  text=(ROOT/'RepoPocket/DebEditorView.swift').read_text(encoding='utf-8')
-  for token in ['.disabled(busy).transaction { $0.animation = nil; $0.disablesAnimations = true }', 'UIRules.withoutAnimation', 'DebControlEditor.releaseFields', 'onUseForUpload == nil', '.interactiveDismissDisabled(busy)', 'if confirmRemote {']:
-   self.assertIn(token,text)
  def test_repository_statistics_use_continuous_unique_rows(self):
   text=(ROOT/'RepoPocket/NativeStatisticsView.swift').read_text(encoding='utf-8').split('struct NativeRepositoryStatisticsView:',1)[1].split('struct NativeActivityChartView:',1)[0]
   self.assertEqual(text.count('Section {'),1)

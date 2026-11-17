@@ -8,6 +8,98 @@ from unittest.mock import patch
 
 
 class StyleFailureDiagnosticsTests(unittest.TestCase):
+    def test_recovery_regressions_run_real_theme_geometry_readme_and_download_cases(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / '.github/workflows/ui-check.yml').read_text()
+        self.assertIn('recovery-regressions', workflow)
+        script = (root / 'Scripts/run_style_preview.sh').read_text()
+        block = script.split('  recovery-regressions) TEST_ARGUMENTS=(', 1)[1].split(') ;;', 1)[0]
+        for method in [
+            'SettingsTests/testProductionRootThemeCheckmarksAndSchemePersistWithoutPreviewProbe',
+            'SettingsTests/testProfileAndAboutStayVisibleWithInlineAppearance',
+            'StyleBoundaryTests/testRepositoryMoreReusesDisclosureAndRemovesConditionalTailRows',
+            'StyleBoundaryTests/testReadmeBadgesAndInAppLink',
+            'StyleBoundaryTests/testReadmeOpensFormattedWithoutManualReload',
+        ]:
+            self.assertIn('-only-testing:RepoPocketStyleUITests/' + method, block)
+        self.assertIn('-only-testing:RepoPocketStyleUITests/DownloadCenterTests', block)
+        self.assertIn('-only-testing:RepoPocketStyleUITests/NativeDisclosureTests', block)
+        entitlements = script.split('case "${RP_STYLE_TEST_SCOPE:-all}" in', 1)[1].split('esac', 1)[0]
+        self.assertIn('recovery-regressions', entitlements)
+        export = (root / 'Scripts/export_style_attachments.py').read_text()
+        self.assertIn("scope == 'recovery-regressions'", export)
+        for name in ['settings-production-root-expanded-after-folding',
+                     'readme-first-open-formatted', 'download-preview-native-done',
+                     'download-preview-returned-to-center', 'download-preview-share-cancel',
+                     'download-preview-records-retained']:
+            self.assertIn(name, export)
+        build = (root / '.github/workflows/build.yml').read_text()
+        for name in ['test_disclosure_cards.py', 'test_download_container.py']:
+            self.assertIn('python3 Tests/' + name, build)
+
+    def test_recovery_recheck_runs_only_remaining_failed_case(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / '.github/workflows/ui-check.yml').read_text()
+        self.assertIn('recovery-recheck', workflow)
+        self.assertEqual(self.selection('recovery-recheck', 'selected'), [
+            '-only-testing:RepoPocketStyleUITests/DownloadCenterTests/testCompletedFilesAndInterruptedRecordsRemainAfterRelaunch',
+        ])
+        self.assertEqual(workflow.count("&& inputs.test_scope != 'recovery-recheck'"), 2,
+                         'The test-only retry must not repeat the already successful complete host suite')
+        targeted = workflow.split('name: Check failed recovery contracts', 1)[1].split('      - ', 1)[0]
+        self.assertIn("inputs.test_scope == 'recovery-recheck'", targeted)
+        for module in ['test_download_center.py', 'test_disclosure_cards.py',
+                       'test_quota_scroll_cards.py', 'test_style_failure_diagnostics.py']:
+            self.assertIn('python3 Tests/' + module, targeted)
+        export = (root / 'Scripts/export_style_attachments.py').read_text()
+        self.assertIn("scope == 'recovery-recheck'", export)
+        self.assertIn("recovery_recheck = {'download-center-records'}", export)
+
+    def test_recovery_wait_diagnostics_export_as_optional_text_not_success_evidence(self):
+        import json, runpy, subprocess
+        script = Path(__file__).resolve().parents[1] / 'Scripts/export_style_attachments.py'
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'recovery-recheck']):
+            config = {}
+            exec(compile(script.read_text().split('\nwhile pending:', 1)[0], str(script), 'exec'), config)
+            diagnostic_names = {'download-readiness-timing-and-ax', 'disclosure-stability-timing-and-ax'}
+            self.assertTrue(diagnostic_names <= config['diagnostics'])
+            self.assertTrue(config['expected'].isdisjoint(diagnostic_names))
+            for attached in [set(), diagnostic_names]:
+                tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
+                        for name in config['expected'] | attached]
+                with patch.object(subprocess, 'check_output', return_value=json.dumps(tree).encode()), \
+                        patch.object(subprocess, 'run') as exported, redirect_stdout(io.StringIO()):
+                    runpy.run_path(str(script), run_name='__main__')
+                paths = {Path(call.args[0][-1]).name for call in exported.call_args_list}
+                self.assertEqual(paths, {name + '.png' for name in config['expected']} |
+                                 {name + '.txt' for name in attached})
+
+    def test_boundary_feedback_recheck_keeps_only_the_three_failed_cases_and_diagnostics(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / '.github/workflows/ui-check.yml').read_text()
+        self.assertIn('boundary-feedback-recheck', workflow)
+        self.assertEqual(self.selection('boundary-feedback-recheck', 'selected'), [
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testCompactLocalProjectKeepsMetadataAndImportsAccessible',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSharedGroupCornersSurviveRefreshAndBackNavigation',
+        ])
+        self.assertEqual(workflow.count("&& inputs.test_scope != 'boundary-feedback-recheck'"), 2,
+                         'Do not repeat the already successful full host suite for a UI-only retry')
+        source = (root / 'StyleUITests/StyleBoundaryTests.swift').read_text(encoding='utf-8')
+        self.assertIn('"Local project did not become ready: " + app.debugDescription', source)
+        self.assertIn('"Group frame did not settle: " + identifier + " " + app.debugDescription', source)
+        export = root / 'Scripts/export_style_attachments.py'
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'boundary-feedback-recheck']):
+            config = {}
+            exec(compile(export.read_text(encoding='utf-8').split('\nwhile pending:', 1)[0], str(export), 'exec'), config)
+        expected = {'local-project-compact', 'local-project-information',
+                    'release-compact-attachments', 'release-inline-progress'}
+        expected.update('group-corners-' + name + '-' + str(cycle)
+                        for name in ('仓库', '本地 Git', '设置') for cycle in range(4))
+        self.assertEqual(config['expected'], expected)
+
     def test_simulator_launch_failure_keeps_crash_reports_before_device_deletion(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8')
@@ -104,10 +196,13 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         root = Path(__file__).resolve().parents[1]
         workflow = (root / '.github/workflows/ui-check.yml').read_text(encoding='utf-8')
         script = (root / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8')
-        self.assertIn("fromJSON((inputs.test_scope || 'all') == 'all' && '[\"boundaries-a\",\"boundaries-b\",\"editors\"]' || '[\"selected\"]')", workflow)
+        self.assertIn("inputs.test_group != 'all' && format('[\"{0}\"]', inputs.test_group)", workflow)
+        self.assertIn("|| '[\"boundaries-a\",\"boundaries-b\",\"editors\"]') || '[\"selected\"]')", workflow)
+        self.assertIn('options: [all, boundaries-a, boundaries-b, editors]', workflow)
+        self.assertLess(workflow.index('Prepare native host regression fixtures'), workflow.index('Run complete host regression checks'))
         self.assertIn('fail-fast: false', workflow)
         self.assertIn('max-parallel: 1', workflow)
-        self.assertIn('timeout-minutes: 60', workflow)
+        self.assertIn('timeout-minutes: 90', workflow)
         self.assertIn('RP_STYLE_TEST_GROUP: ${{ matrix.group }}', workflow)
         self.assertIn('group: ui-check-${{ github.event.pull_request.number || github.ref }}\n  cancel-in-progress: true', workflow)
         for name in ['preview-build-log', 'simulator-style-preview']:
@@ -120,11 +215,16 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                  for name in re.findall(r'final class (\w+): XCTestCase', text)
                  for method in re.findall(r'(?m)^    func (test\w+)\(', text)}
         baseline = {case for case in cases if '/RepositoryOperationsTests/' not in case and '/RepositoryCollectionsTests/' not in case}
-        self.assertEqual(len(baseline), 73, 'Keep every original UI case when adding new repository coverage')
+        self.assertEqual(len(baseline), 88, 'Retain unrelated UI coverage and include commit-theme crash regression')
+        commit_theme = 'RepoPocketStyleUITests/CommitFileTests/testCommitDiffAndCompleteFileOpenInLightAndDarkWithoutCrashing'
+        self.assertIn(commit_theme, baseline)
         self.assertEqual(len({case for case in cases if '/RepositoryOperationsTests/' in case}), 4)
         self.assertEqual(len({case for case in cases if '/RepositoryCollectionsTests/' in case}), 6)
         groups = {}
-        for group, count in [('boundaries-a', 25), ('boundaries-b', 24), ('editors', 34)]:
+        accepted_device_check = 'RepoPocketStyleUITests/SettingsTests/testUpdateMenuReturnsFromOfficialReleasesAfterThemeChanges'
+        self.assertIn(accepted_device_check, cases)
+        self.assertIn('-only-testing:' + accepted_device_check, self.selection('device-feedback-recheck', 'selected'))
+        for group, count in [('boundaries-a', 25), ('boundaries-b', 25), ('editors', 47)]:
             arguments = self.selection('all', group)
             self.assertEqual(len(arguments), len(set(arguments)), group)
             only = [item.split(':', 1)[1] for item in arguments if item.startswith('-only-testing:')]
@@ -132,8 +232,9 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
             matches = lambda case, selectors: any(case == item or case.startswith(item + '/') for item in selectors)
             groups[group] = {case for case in cases if matches(case, only) and not matches(case, skip)}
             self.assertEqual(len(groups[group]), count, group)
-        self.assertEqual(set.union(*groups.values()), cases)
-        self.assertEqual(sum(map(len, groups.values())), len(cases))
+        self.assertEqual(set.union(*groups.values()), cases - {accepted_device_check})
+        self.assertIn(commit_theme, groups['editors'])
+        self.assertEqual(sum(map(len, groups.values())), len(cases) - 1)
         scopes = ['maintenance-regressions', 'branch-merge', 'profiles', 'actions']
         combined = {item for scope in scopes for item in self.selection(scope, 'selected')}
         self.assertEqual(self.selection('all', 'boundaries-a'), sorted(combined))
@@ -145,7 +246,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         import re
         script = (Path(__file__).resolve().parents[1] / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8')
         focused = re.findall(r'(?m)^  ([a-z-]+)\)', script)
-        self.assertEqual(len(focused), 20)
+        self.assertEqual(len(focused), 26)
         self.assertEqual(self.selection('workflow-log-navigation', 'selected'), [
             '-only-testing:RepoPocketStyleUITests/WorkflowLogTests/testExplicitLineHighlightsKeepTheCompleteReadOnlyContext',
             '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSourcePreviewAndEditorHorizontalScrolling',
@@ -163,7 +264,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         ])
         self.assertEqual(self.selection('ui-fixes-failed', 'selected'), [
             '-only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests/testPartialBatchRemovalKeepsSuccessAndOffersOnlyRemainingItems',
-            '-only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWhileThemeAndFolderUseNativeMenu',
+            '-only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWithInlineAppearance',
             '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch',
         ])
         self.assertEqual(self.selection('ui-fixes', 'selected'), [
@@ -207,15 +308,20 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                             <= config['regression_recheck'])
             self.assertEqual(len(config['repository_operations']), 4)
             self.assertEqual(len(config['repository_collections']), 6)
-            self.assertEqual((len(all_names - additions), len(first), len(second), len(editors - additions)), (112, 50, 36, 26))
-            self.assertEqual((len(all_names), len(editors)), (122, 36))
+            self.assertEqual((len(all_names - additions), len(first), len(second), len(editors - additions)), (244, 54, 37, 153))
+            self.assertEqual((len(all_names), len(editors)), (254, 163))
+            self.assertEqual(len(config['disclosure_transitions']), 117)
+            self.assertEqual(config['recovery_recheck'], {'download-center-records'})
+            self.assertEqual(len([n for n in config['disclosure_transitions'] if n.endswith('-timing-and-ax')]), 9)
             self.assertEqual(first | second | editors, all_names)
             self.assertEqual(len(first) + len(second) + len(editors), len(all_names))
             tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
-                    for name in all_names | config['regression_recheck'] | config['ui_fixes'] | config['path_time'] | config['reading_layout'] | config['workflow_log_navigation']]
+                    for name in all_names | config['recovery_recheck'] | config['regression_recheck'] | config['ui_fixes'] | config['path_time'] | config['reading_layout'] | config['workflow_log_navigation']]
             for scope, group, expected in [('all', 'boundaries-a', first), ('all', 'boundaries-b', second),
                                            ('all', 'editors', editors),
                                            ('all', 'selected', all_names),
+                                           ('recovery-regressions', 'selected', config['recovery_regressions']),
+                                           ('recovery-recheck', 'selected', config['recovery_recheck']),
                                            ('regression-recheck', 'selected', config['regression_recheck']),
                                            ('ui-fixes', 'selected', config['ui_fixes']),
                                            ('ui-fixes-failed', 'selected', config['ui_fixes_failed']),
@@ -233,6 +339,16 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                 paths = {Path(call.args[0][-1]).stem for call in export.call_args_list}
                 optional = config['diagnostics'] & (all_names | config['regression_recheck'] | config['workflow_log_navigation'])
                 self.assertEqual(paths, expected | optional)
+            for missing in ['download-center-records']:
+                incomplete = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
+                              for name in config['recovery_recheck'] if name != missing]
+                with self.subTest(missing_recheck=missing), \
+                        patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'recovery-recheck']), \
+                        patch.dict(os.environ, {'RP_STYLE_TEST_GROUP': 'selected'}), \
+                        patch.object(subprocess, 'check_output', return_value=json.dumps(incomplete).encode()), \
+                        patch.object(subprocess, 'run'), redirect_stdout(io.StringIO()), \
+                        self.assertRaises(RuntimeError):
+                    runpy.run_path(str(script), run_name='__main__')
             for group, expected in [('boundaries-a', first), ('boundaries-b', second), ('editors', editors)]:
                 missing = next(iter(expected))
                 tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
@@ -256,6 +372,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                  'upstream-preview-retains-error', 'workflow-run-details-collapsed',
                  'workflow-run-details-after-rapid-folding', 'repository-more-after-rapid-folding',
                  'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'}
+        names |= {'repository-overview-continuous-rows'} | {'repository-more-expanded-' + str(cycle) for cycle in range(3)}
         names |= {'upstream-preview-collapsed-' + mode for mode in ('empty', 'single', 'many', 'truncated')}
         names |= {prefix + mode for prefix in ('upstream-commits-expanded-', 'upstream-files-expanded-')
                   for mode in ('single', 'many', 'truncated')}
@@ -293,7 +410,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         focused = script.split('  review-regressions)', 1)[1].split(';;', 1)[0]
         for name in ['testAccountTokenAdditionStillWorksAfterSwitching',
                      'testAccountTokenAdditionWorksWithoutSwitching',
-                     'testLocalDEBUsesExistingEditorAndSavesToProject',
+                     'testLocalDEBHasNoPackageEditingAction',
                      'testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile',
                      'testReadmeBadgesAndInAppLink']:
             self.assertIn('/' + name, focused)
@@ -302,7 +419,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
     def test_xcode16_attachment_commands_and_optional_failure_screenshots(self):
         import json, runpy, subprocess
         script = Path(__file__).resolve().parents[1] / 'Scripts/export_style_attachments.py'
-        required = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-editor'}
+        required = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-ordinary-file'}
         names = required | {'account-control-failure'}
         tree = [{'name': {'_value': n}, 'payloadRef': {'id': {'_value': n}}} for n in names]
 

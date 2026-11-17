@@ -107,7 +107,7 @@ struct CommitDetailView: View {
                         for f in files {
                             SoftGroupRow("file-" + f.id) {
                                 NavigationLink {
-                                    CommitPatchDestination(file: f)
+                                    CommitPatchDestination(file: f, api: api, repo: repo, commitSHA: d.sha)
                                 } label: {
                                     VStack(alignment: .leading) {
                                         Text(f.filename)
@@ -127,9 +127,14 @@ struct CommitDetailView: View {
         .task { if detail == nil { await load() } }
     }
     private func load() async {
+        guard !busy, api.isCurrentSession else { return }
+        let generation = AccountStore.generation
         busy = true; defer { busy = false }
         do {
-            let d = try await api.commitDetail(repo, sha: sha, page: page); detail = d
+            let d = try await api.commitDetail(repo, sha: detail?.sha ?? sha, page: page)
+            try Task.checkCancellation()
+            guard api.isCurrentSession, generation == AccountStore.generation else { return }
+            detail = d
             let batch = d.files ?? []; let ids = Set(files.map { $0.id })
             files += batch.filter { !ids.contains($0.id) }; more = batch.count == 100 && page < 30; page += 1
         } catch { if !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }

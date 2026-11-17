@@ -166,7 +166,6 @@ struct LocalProjectView: View {
                         }
                     }.navigationTitle("项目信息").adaptiveWorkspaceLayout().toolbar { Button("关闭") { sheet = nil } }
                 }.appSheetCornerRadius()
-            case .deb(let path): LocalProjectDebEditor(api: api, project: project, internalRoot: store.internalRoot, path: path) { imported([path]) }
             case .delete(let path): LocalProjectEditor(project: project, internalRoot: store.internalRoot, path: path, deleting: true) { imported([path]) }
             case .workflow(let repo, let branch):
                 AppNavigationStack {
@@ -369,12 +368,6 @@ struct LocalProjectView: View {
                 Button { sheet = .diff(file.path) } label: {
                     LocalGitFileLabel(name: row.name, size: fileSizes[file.path], detail: file.blocked.isEmpty ? file.label : file.blocked)
                 }.buttonStyle(.borderless).disabled(busy)
-                if row.name.lowercased().hasSuffix(".deb"), file.kind != "deleted" {
-                    Menu {
-                        Button("编辑包信息") { sheet = .deb(file.path) }
-                    } label: { Image(systemName: "ellipsis").padding(8) }.disabled(busy)
-                        .accessibilityLabel("更多操作：" + row.name)
-                }
             }
         }
         .padding(.leading, CGFloat(min(row.depth, 5)) * 16)

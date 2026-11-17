@@ -68,8 +68,16 @@ MUTATE
    precondition(WorkflowStatusPresentation(status:"completed",conclusion:"success").tone=="green")
    precondition(WorkflowStatusPresentation(status:"completed",conclusion:"failure").title=="失败")
    precondition(WorkflowStatusPresentation(status:"in_progress",conclusion:nil).title=="运行中")
+   precondition(WorkflowStatusPresentation(status:"in_progress",conclusion:nil).tone=="yellow")
    precondition(WorkflowStatusPresentation(status:"completed",conclusion:nil).title=="状态未知")
    precondition(WorkflowStatusPresentation(status:"queued",conclusion:nil).title=="等待运行")
+   for status in ["queued", "waiting", "pending"] {
+     precondition(WorkflowStatusPresentation(status:status,conclusion:nil).tone=="yellow")
+     precondition(WorkflowStatusPresentation(status:status,conclusion:"success").tone=="yellow")
+   }
+   precondition(WorkflowStatusPresentation(status:"completed",conclusion:"failure").tone=="red")
+   precondition(WorkflowStatusPresentation(status:"requested",conclusion:nil).tone=="gray")
+   precondition(WorkflowStatusPresentation(status:"completed",conclusion:"cancelled").tone=="gray")
    precondition(WorkflowStatusPresentation(status:"in_progress",conclusion:"success").title=="运行中")
    precondition(WorkflowTime.elapsed(start:"2026-10-15T00:00:00Z",end:"2026-10-15T00:11:38Z",running:false)=="11分38秒")
    precondition(WorkflowTime.elapsed(start:"2026-10-15T00:00:00.000Z",end:"2026-10-15T00:00:26.000Z",running:false)=="26秒")
@@ -103,6 +111,16 @@ MUTATE
    precondition(api.queries.contains { $0.name=="page" && $0.value=="2" })
    _ = try await api.workflowRuns("owner/repo",branch:"",page:1)
    precondition(!api.queries.contains { $0.name=="status" || $0.name=="branch" })
+   _ = try await api.workflowRuns("owner/repo",branch:"feature/fix",page:2,workflowID:41,status:.in_progress)
+   precondition(api.paths.last=="/repos/owner/repo/actions/workflows/41/runs")
+   precondition(api.queries.contains { $0.name=="status" && $0.value=="in_progress" })
+   precondition(api.queries.contains { $0.name=="page" && $0.value=="2" })
+   precondition(api.queries.contains { $0.name=="branch" && $0.value=="feature/fix" })
+   _ = try await api.workflowRuns("owner/repo",branch:"",page:1,failedOnly:true,workflowID:42,status:.success)
+   precondition(api.queries.filter { $0.name=="status" }.map(\.value)==["failure"])
+   let beforeInvalidWorkflow=api.paths.count
+   do { _ = try await api.workflowRuns("owner/repo",branch:"",page:1,workflowID:0);preconditionFailure("invalid workflow accepted") } catch {}
+   precondition(api.paths.count==beforeInvalidWorkflow)
    _ = try await api.workflowRuns("owner/repo",branch:"feature/fix",page:1,headSHA:String(repeating:"b",count:40))
    precondition(api.queries.contains { $0.name=="head_sha" && $0.value==String(repeating:"b",count:40) })
    precondition(api.queries.contains { $0.name=="branch" && $0.value=="feature/fix" })
@@ -288,6 +306,76 @@ print("PASS decoded head commit subject and legacy title fallbacks")
             path.write_text(source)
             subprocess.run(['swiftc', str(path), '-o', directory + '/titles'], check=True)
             subprocess.run([directory + '/titles'], check=True)
+
+
+def source(name):
+    return (ROOT / 'RepoPocket' / name).read_text()
+
+
+class ActionsEntryStatusTests(unittest.TestCase):
+    def test_home_highlights_have_no_actions_requests_or_state(self):
+        highlights = source('RepositoryHomeHighlights.swift')
+        for obsolete in ('runState', 'runContent', 'loadRuns', 'WorkflowRun',
+                         'cachedWorkflowRuns', 'workflowRuns', '最近一次 Actions',
+                         '全部运行', '刷新运行状态'):
+            self.assertNotIn(obsolete, highlights)
+        app = source('RepoPocketApp.swift')
+        self.assertNotIn('homeRuns', app)
+        self.assertNotIn('runState:', app)
+        self.assertEqual(app.count('RepositoryHomeHighlights(api: api, repo: repo, releaseState: homeRelease, connected: true, revalidationID: revalidationID)'), 1)
+        self.assertIn('await loadRelease(refresh: true)', highlights)
+        self.assertIn('ReleaseManagementDestination(api: api, repo: repo)', highlights)
+        self.assertIn('await releaseState.load(', highlights)
+
+    def test_collaboration_entry_keeps_all_branches_by_default(self):
+        collaboration = source('CollaborationViews.swift')
+        self.assertIn('WorkflowRunsView(api: api, repo: repo, branch: branch)', collaboration)
+        runs = source('WorkflowViews.swift')
+        self.assertIn('@State private var currentBranchOnly = false', runs)
+        self.assertIn('let requestedBranch = (currentBranchOnly || !headSHA.isEmpty) ? displayedBranch : ""', runs)
+        self.assertIn('api.workflowRuns(', runs)
+        self.assertIn('api.cachedWorkflowRuns(', runs)
+
+    def test_attention_uses_pinned_primer_light_dark_not_system_yellow(self):
+        badge = source('WorkflowViews.swift').split('struct WorkflowRunsView:', 1)[0]
+        self.assertNotIn('systemYellow', badge)
+        self.assertIn('47736486bf67b2a14ba1ada61fa0f57af29bb875', badge)
+        self.assertIn('fgColor.attention', badge)
+        self.assertIn('traits.userInterfaceStyle == .dark', badge)
+        self.assertIn('UIColor(red: 0xd2 / 255.0, green: 0x99 / 255.0, blue: 0x22 / 255.0, alpha: 1)', badge)
+        self.assertIn('UIColor(red: 0x9a / 255.0, green: 0x67 / 255.0, blue: 0x00 / 255.0, alpha: 1)', badge)
+        self.assertIn('Text(value.title).foregroundStyle(value.tone == "yellow" ? Color.primary : color)', badge)
+
+    def test_waiting_uses_attention_but_completed_states_keep_their_colors(self):
+        model = source('NativeRepositoryModels.swift')
+        self.assertIn('case "queued", "waiting", "pending": (title, symbol, tone) = ("等待运行", "clock", "yellow")', model)
+        self.assertIn('case "requested": (title, symbol, tone) = ("等待运行", "clock", "gray")', model)
+        for title, symbol, tone in [('运行中', 'circle.dotted', 'yellow'),
+                                    ('成功', 'checkmark.circle.fill', 'green'),
+                                    ('失败', 'xmark.circle.fill', 'red'),
+                                    ('已取消', 'minus.circle.fill', 'gray')]:
+            self.assertIn(f'("{title}", "{symbol}", "{tone}")', model)
+
+    def test_rotation_reduce_motion_and_accessibility_are_retained(self):
+        badge = source('WorkflowViews.swift').split('struct WorkflowRunsView:', 1)[0]
+        for required in ('status == "in_progress" && !reduceMotion',
+                         'TimelineView(.animation(minimumInterval: 1 / 30))',
+                         'Circle().trim(from: 0.12, to: 0.88)',
+                         'StrokeStyle(lineWidth: 2, lineCap: .round)',
+                         '.frame(width: 14, height: 14).accessibilityHidden(true)',
+                         'Image(systemName: value.symbol)',
+                         '.accessibilityLabel("运行状态：" + value.title)'):
+            self.assertIn(required, badge)
+
+    def test_primer_attention_contrast_on_reference_backgrounds(self):
+        def luminance(hex_color):
+            values = [int(hex_color[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+            linear = [v / 12.92 if v <= .04045 else ((v + .055) / 1.055) ** 2.4 for v in values]
+            return sum(v * weight for v, weight in zip(linear, (.2126, .7152, .0722)))
+        for foreground, background in [('9a6700', 'ffffff'), ('9a6700', 'f2f2f7'),
+                                       ('d29922', '000000'), ('d29922', '1c1c1e')]:
+            a, b = sorted((luminance(foreground), luminance(background)))
+            self.assertGreaterEqual((b + .05) / (a + .05), 3, (foreground, background))
 
 
 if __name__=='__main__':unittest.main()

@@ -10,13 +10,15 @@ struct WindowStyleApplier: UIViewRepresentable {
         let view = UIView()
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
-        DispatchQueue.main.async { view.window?.overrideUserInterfaceStyle = style }
+        DispatchQueue.main.async {
+            view.window?.overrideUserInterfaceStyle = style
+        }
         return view
     }
     func updateUIView(_ view: UIView, context: Context) {
         DispatchQueue.main.async {
-            guard let window = view.window, window.overrideUserInterfaceStyle != style else { return }
-            window.overrideUserInterfaceStyle = style
+            guard let window = view.window else { return }
+            if window.overrideUserInterfaceStyle != style { window.overrideUserInterfaceStyle = style }
         }
     }
 }

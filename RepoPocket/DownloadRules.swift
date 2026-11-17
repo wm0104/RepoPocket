@@ -1,14 +1,13 @@
 import Foundation
 
-/// File operations are bounded to an explicitly authorized parent. Never overwrite.
+/// File operations are bounded to the App-owned account folder. Never overwrite.
 enum DownloadRules {
-    /// Migrate old relative labels without opening a file provider during launch.
-    static func initialLabel(_ cached: String?, hasBookmark: Bool) -> String {
-        guard hasBookmark else { return "请选择保存位置" }
-        if let cached, cached.hasPrefix("/") { return cached }
-        return "已保留下载位置；下次下载时更新完整路径，也可重新选择。"
+    /// Only for an OS-provided App data container (or a controlled test root).
+    /// Never pass Downloads, account folders, or file URLs: their links must be rejected.
+    static func canonicalContainer(_ container: URL) -> URL {
+        container.resolvingSymlinksInPath()
     }
-    /// Selecting our existing download folder must not create RepoPocket/RepoPocket.
+    /// Existing account folders must not create RepoPocket/RepoPocket.
     static func destinationFolder(in parent: URL) -> URL {
         parent.lastPathComponent == "RepoPocket" ? parent : parent.appendingPathComponent("RepoPocket", isDirectory: true)
     }
@@ -28,7 +27,7 @@ enum DownloadRules {
                 // Permit only this exact alias and destination, never user links.
                 let systemAlias = current == "/var" && (try? FileManager.default.destinationOfSymbolicLink(atPath: current)) == "private/var"
                 let absoluteSystemAlias = current == "/var" && (try? FileManager.default.destinationOfSymbolicLink(atPath: current)) == "/private/var"
-                guard systemAlias || absoluteSystemAlias else { throw NSError(domain: "DownloadStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "目录含符号链接，请重新选择保存位置。", "rejectedPath": current]) }
+                guard systemAlias || absoluteSystemAlias else { throw NSError(domain: "DownloadStore", code: 1, userInfo: [NSLocalizedDescriptionKey: "下载目录含符号链接，已停止文件操作（拒绝节点：\(current)）。", "rejectedPath": current]) }
             }
             current = (current as NSString).deletingLastPathComponent
         }
@@ -42,7 +41,7 @@ enum DownloadRules {
         let folder = destinationFolder(in: parent)
         try rejectSymlinks(folder)
         if fm.fileExists(atPath: folder.path) {
-            guard (try fm.attributesOfItem(atPath: folder.path)[.type] as? FileAttributeType) == .typeDirectory else { throw NSError(domain: "DownloadStore", code: 3, userInfo: [NSLocalizedDescriptionKey: "保存位置不是文件夹，请重新选择。"]) }
+            guard (try fm.attributesOfItem(atPath: folder.path)[.type] as? FileAttributeType) == .typeDirectory else { throw NSError(domain: "DownloadStore", code: 3, userInfo: [NSLocalizedDescriptionKey: "下载保存位置不是文件夹。"]) }
         } else {
             try fm.createDirectory(at: folder, withIntermediateDirectories: false)
         }

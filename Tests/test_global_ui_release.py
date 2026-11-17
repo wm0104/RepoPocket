@@ -6,7 +6,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 UI = (ROOT / 'RepoPocket/ReleaseManagementUI.swift').read_text()
-DEB = (ROOT / 'RepoPocket/DebEditorView.swift').read_text()
 DETAIL = UI.split('struct ReleaseDetailView: View', 1)[1].split('struct ReleaseEditorView: View', 1)[0]
 EDITOR = UI.split('struct ReleaseEditorView: View', 1)[1]
 LIST = UI.split('struct ReleaseListView: View', 1)[1].split('private struct ReleaseDeleteTarget', 1)[0]
@@ -61,19 +60,7 @@ class GlobalReleaseUITests(unittest.TestCase):
         self.assertIn('guard markerReady, form.validMarker', EDITOR)
         self.assertIn('reviewFingerprint == nil || !state.valid', EDITOR)
         self.assertIn('!state.valid', EDITOR.split('.toolbar', 1)[1])
-        self.assertNotIn('Button("生成新的 deb', DEB.split('private var editorNavigation', 1)[0])
-        self.assertIn('ToolbarItem(placement: .confirmationAction)', DEB)
-        self.assertIn('busy || differences.isEmpty', DEB)
-        self.assertEqual(DEB.count('accessibilityIdentifier("deb-generate")'), 1)
 
-    def test_diff_summary_collapses_without_animation(self):
-        self.assertIn('@State private var differencesExpanded = false', DEB)
-        section = DEB.split('private var differencesSection:', 1)[1].split('private func outputSection', 1)[0]
-        for token in ['SoftGroupRows(top: false, bottom: !showsOutput) {', 'SoftGroupRow("summary")', '变更对照（\\(differences.count)）', 'UIRules.withoutAnimation { differencesExpanded.toggle() }', 'if differencesExpanded', 'for item in differences', 'SoftGroupRow(item.0)', 'VStack(alignment: .leading', 'Text("原：" + item.1)', 'Text("新：" + item.2)', '.textSelection(.enabled)', '$0.disablesAnimations = true', 'deb-differences']:
-            self.assertIn(token, section)
-        self.assertNotIn('ForEach(', section)
-        self.assertNotIn('.softGroupedRow(', section)
-        self.assertIn('if !differences.isEmpty { differencesSection }', DEB)
 
     def test_dynamic_diff_boundaries_use_shared_sibling_rows(self):
         shared = (ROOT / 'RepoPocket/WorkspaceSelectionUI.swift').read_text()
@@ -89,9 +76,6 @@ class GlobalReleaseUITests(unittest.TestCase):
             else:
                 self.assertEqual(edges, [])
 
-    def test_deb_risks_outputs_and_existing_groups_survive(self):
-        for token in ['只修改副本；原文件不会覆盖', '先编辑副本', '确认只更新原仓库文件：', 'Button("确认提交回原文件")', 'AppShareLink(item: output', 'Button("保存到本地项目")', 'if let onUseForUpload', 'try onUseForUpload(target)', 'ExternalFileActions(api: api, file: output)', 'private var originalSection', 'private var editSection', '原始包信息', '更多字段', 'ProgressView("读取 / 生成中，请保持前台")']:
-            self.assertIn(token, DEB)
 
 
 if __name__ == '__main__':

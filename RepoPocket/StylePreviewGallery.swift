@@ -5,6 +5,8 @@ import SwiftUI
 struct StylePreviewGallery: View {
     @StateObject private var api = GitHub()
     @State private var expanded = false
+    @State private var showingRepositoryTools = false
+    @State private var showingRepositoryOwner = false
     @State private var readmeHeight: CGFloat = 320
     @State private var readmeOpened = false
     @State private var readmeReady = false
@@ -22,6 +24,10 @@ struct StylePreviewGallery: View {
             SettingsStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-upload-editor-style-preview") {
             UploadEditorStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-commit-file-style-preview") {
+            CommitFileStylePreview()
+        } else if ProcessInfo.processInfo.arguments.contains("-download-center-style-preview") {
+            DownloadCenterStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-reading-zoom-style-preview") {
             ReadingZoomStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-release-editor-style-preview") {
@@ -54,7 +60,7 @@ struct StylePreviewGallery: View {
     }
     private var gallery: some View {
         AppNavigationStack {
-            List {
+            galleryHost {
                 if swipe {
                     Section("左滑边界检查 · 固定数据") {
                         ForEach(["first", "middle", "last"], id: \.self) { id in
@@ -95,20 +101,20 @@ struct StylePreviewGallery: View {
                         }
                     }
                 } else {
-                    Section {
+                    QuotaCard {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("wm0104").font(.subheadline).foregroundStyle(.secondary)
                             Text("RepoPocket").font(.headline)
                             Text("GitHub 仓库管理客户端").font(.subheadline).foregroundStyle(.secondary)
                             HStack { Label("13", systemImage: "star"); Label("1", systemImage: "tuningfork") }.font(.caption)
-                        }.softGroupedRow(top: true, bottom: true)
+                        }.padding(12)
                     }
-                    RepositoryCommunitySection(api: api, repo: "wm0104/RepoPocket", branch: "main", avatar: nil)
+                    RepositoryCommunitySection(api: api, repo: "wm0104/RepoPocket", branch: "main", openTools: { showingRepositoryTools = true }, openOwner: { showingRepositoryOwner = true }, connected: true)
                     Section {
                         SoftGroupRows {
                             SoftGroupRow("branch") { HStack { Label("main", systemImage: "arrow.triangle.branch"); Spacer(); Text("更改分支").foregroundStyle(.blue) } }
-                            SoftGroupRow("code") { NavigationLink { Text("代码") } label: { RepositoryFeatureLabel(title: "代码", symbol: "chevron.left.forwardslash.chevron.right", color: .gray) } }
-                            SoftGroupRow("history") { NavigationLink { Text("提交") } label: { RepositoryFeatureLabel(title: "提交", symbol: "clock.arrow.circlepath", color: .gray) } }
+                            SoftGroupRow("code") { NavigationLink { Text("代码") } label: { QuotaNavigationLabel { RepositoryFeatureLabel(title: "代码", symbol: "chevron.left.forwardslash.chevron.right", color: .gray) } } }
+                            SoftGroupRow("history") { NavigationLink { Text("提交") } label: { QuotaNavigationLabel { RepositoryFeatureLabel(title: "提交", symbol: "clock.arrow.circlepath", color: .gray) } } }
                         }
                     }
                     Section {
@@ -120,6 +126,13 @@ struct StylePreviewGallery: View {
                     }
                 }
             }.onAppear { if ProcessInfo.processInfo.arguments.contains("-expanded-style-preview") { expanded = true } }.navigationTitle(account ? "账号管理" : "RepoPocket").adaptiveWorkspaceLayout()
+            .appNavigationDestination(isPresented: $showingRepositoryTools) {
+                RepositoryToolsView(api: api, repo: "wm0104/RepoPocket")
+            }
+            .appNavigationDestination(isPresented: $showingRepositoryOwner) {
+                let owner = RepositoryPresentationRules.owner(login: nil, fullName: "wm0104/RepoPocket")
+                UserRepositoriesView(api: api, user: User(id: nil, login: owner, avatar_url: nil, name: nil, followers: nil, following: nil))
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     if readme && readmeReady { Text("页面就绪").accessibilityIdentifier("readme-document-ready") }
@@ -129,6 +142,10 @@ struct StylePreviewGallery: View {
                 }
             }
         }
+    }
+    @ViewBuilder private func galleryHost<Content: View>(@ViewBuilder content: @escaping () -> Content) -> some View {
+        if swipe || readme || workflow || account { List { content() } }
+        else { QuotaScrollStack { content() } }
     }
     private static var readmeFixture: String {
         func badge(_ label: String) -> String {

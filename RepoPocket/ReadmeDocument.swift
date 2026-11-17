@@ -140,7 +140,7 @@ enum ReadmeDocumentRules {
         h1 { font-size: 1.85em; } h2 { font-size: 1.45em; } h3 { font-size: 1.2em; }
         h1, h2 { border-bottom: 1px solid #d1d9e0; padding-bottom: .25em; }
         p, ul, ol, pre, blockquote, table { margin: 0 0 1em; } ul, ol { padding-left: 1.6em; }
-        a { color: #0969da; text-decoration: none; } .anchor { display: none; }
+        a { color: #0969da; text-decoration: underline; } .anchor { display: none; }
         img, svg, video { max-width: 100%; height: auto; } img { vertical-align: middle; }
         pre { max-width: 100%; overflow: auto; white-space: pre; overflow-wrap: normal; word-break: normal; padding: 12px; background: #f6f8fa; border-radius: 8px; }
         code, pre { font-family: ui-monospace, Menlo, monospace; font-size: .88em; }

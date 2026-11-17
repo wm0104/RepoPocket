@@ -9,12 +9,10 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    SWIFT_OBJC_BRIDGING_HEADER: Vendor/DebCodecs/DebCodecs.h
-    HEADER_SEARCH_PATHS: "$(SRCROOT)/Vendor/DebCodecs/xz"
-    GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) XZ_USE_CRC64 XZ_USE_SHA256"
+    SWIFT_OBJC_BRIDGING_HEADER: Vendor/NativeGit/NativeGitBridge.h
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "1.2.2"
-    CURRENT_PROJECT_VERSION: "1.2.2"
+    MARKETING_VERSION: "1.2.3"
+    CURRENT_PROJECT_VERSION: "1.2.3"
 packages:
   Yams:
     url: https://github.com/jpsim/Yams.git
@@ -51,7 +49,7 @@ targets:
         embed: true
     type: application
     platform: iOS
-    sources: [RepoPocket, Vendor/DebCodecs, Vendor/NativeGit, SharedInbox]
+    sources: [RepoPocket, Vendor/NativeGit, SharedInbox]
     info:
       path: RepoPocket/Info.plist
       properties:

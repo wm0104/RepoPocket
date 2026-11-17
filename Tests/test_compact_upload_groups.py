@@ -24,7 +24,7 @@ class CompactUploadGroupsTests(unittest.TestCase):
         self.assertIn('Text("提交到仓库")', commit)
         self.assertIn('Text("待提交 · \\(queue.count) 个项目")', commit)
         self.assertEqual(commit.count('SoftGroupRows('), 1)
-        self.assertIn('SoftGroupRows(top: false, bottom: !busy)', commit)
+        self.assertIn('SoftGroupRows(top: false, bottom: !busy, animateBackground: true)', commit)
 
     def test_commit_review_and_confirmation_are_continuous_sibling_rows(self):
         review = source('UploadView.swift').split('.sheet(isPresented: $confirmCommit)', 1)[1].split('.sheet(item: $targetPicker', 1)[0]
@@ -60,13 +60,14 @@ class CompactUploadGroupsTests(unittest.TestCase):
 
     def test_upload_permissions_lifecycle_and_touch_targets_are_retained(self):
         upload = source('UploadView.swift')
+        self.assertNotIn('adoptGeneratedDeb', upload)
+        self.assertIn('DisclosureGroup(isExpanded: $optionsExpanded)', upload)
         for value in ['.frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())',
                       '.frame(width: 44, height: 44)', '.disabled(repo.isEmpty || !canWrite)',
-                      '.disabled(busy).transaction { $0.animation = nil; $0.disablesAnimations = true }',
+                      '.disabled(busy)',
                       '.task(id: repo) { await loadWriteAccess() }',
                       '.onChange(of: branch) { _ in invalidateTarget() }',
                       'generation == targetGeneration, api.isCurrentSession',
-                      'try adoptGeneratedDeb(generated, replacing: item.id)',
                       'if pendingDeletion != nil { confirmQueueDelete = true }',
                       'if pendingReplacement != nil { confirmReplacement = true }']:
             self.assertIn(value, upload)

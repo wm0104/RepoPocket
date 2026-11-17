@@ -47,15 +47,16 @@ struct AppLabeledContent<Content: View>: View {
     init(_ title: String, value: String) where Content == Text {
         self.title = title; content = { Text(value) }
     }
-    var body: some View {
+    // Keep version-specific SwiftUI metadata out of Body on older runtimes.
+    var body: AnyView {
         if #available(iOS 16.0, *) {
-            LabeledContent { content() } label: { Text(title) }
+            return AnyView(LabeledContent { content() } label: { Text(title) })
         } else {
-            HStack(alignment: .firstTextBaseline) {
+            return AnyView(HStack(alignment: .firstTextBaseline) {
                 Text(title)
                 Spacer(minLength: 12)
                 content().foregroundStyle(.secondary).multilineTextAlignment(.trailing)
-            }
+            })
         }
     }
 }

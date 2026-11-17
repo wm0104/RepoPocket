@@ -45,14 +45,17 @@ struct WorkflowCreatedText: View {
 struct WorkflowRunSummary: View {
     let run: WorkflowRun
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(run.title).font(.headline)
-            WorkflowStatusBadge(status: run.status, conclusion: run.conclusion).font(.subheadline)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(run.title).font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                WorkflowStatusBadge(status: run.status, conclusion: run.conclusion).font(.caption).fixedSize()
+            }
             Text((run.name ?? "Workflow") + " #\(run.run_number) · " + WorkflowTime.trigger(run.event)).font(.caption).foregroundStyle(.secondary)
             Label(run.head_branch ?? "分支未知", systemImage: "arrow.triangle.branch").font(.caption)
-            WorkflowCreatedText(timestamp: run.created_at).font(.caption).foregroundStyle(.secondary)
-            Label { WorkflowElapsedText(start: run.run_started_at, end: run.updated_at, status: run.status, approximate: true) } icon: { Image(systemName: "stopwatch") }
-                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                WorkflowCreatedText(timestamp: run.created_at)
+                Label { WorkflowElapsedText(start: run.run_started_at, end: run.updated_at, status: run.status, approximate: true) } icon: { Image(systemName: "stopwatch") }
+            }.font(.caption).foregroundStyle(.secondary)
         }
     }
 }

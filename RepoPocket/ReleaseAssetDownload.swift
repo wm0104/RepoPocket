@@ -2,6 +2,7 @@ import Foundation
 
 @MainActor protocol ReleaseAssetDownloading {
     var label: String { get }
+    var keepsDownloadedFile: Bool { get }
     func authorize() async throws
     func begin()
     func end()
@@ -9,16 +10,22 @@ import Foundation
     func persist(_ file: URL, generation: UUID) async throws -> URL
 }
 
-/// Uses the existing authorization, authenticated streaming and scoped save path.
+extension ReleaseAssetDownloading { var keepsDownloadedFile: Bool { false } }
+
+/// Keeps the release page's progress presenter while the download center owns the file.
 @MainActor struct LiveReleaseAssetDownloader: ReleaseAssetDownloading {
+    var keepsDownloadedFile: Bool { true }
     var label: String { DownloadStore.shared.label }
     func authorize() async throws { try await DownloadStore.shared.requireAuthorization() }
-    func begin() { DownloadStore.shared.begin() }
-    func end() { DownloadStore.shared.end() }
+    func begin() {}
+    func end() {}
     func download(api: GitHub, repo: String, asset: Asset, update: @escaping (ReleaseDownloadProgress) -> Void) async throws -> URL {
-        try await api.downloadManagedAssetWithProgress(repo, asset: asset, transfer: update)
+        try await DownloadStore.shared.download(.releaseAsset(repo: repo, id: asset.id, name: asset.name), api: api, progress: update)
     }
-    func persist(_ file: URL, generation: UUID) async throws -> URL { try await DownloadStore.shared.persist(file, session: generation) }
+    func persist(_ file: URL, generation: UUID) async throws -> URL {
+        guard generation == AccountStore.generation else { throw CancellationError() }
+        return file
+    }
 }
 
 struct ReleaseDownloadProgress: Equatable {
@@ -47,7 +54,7 @@ struct ReleaseAssetDownload: Equatable {
     var cancellable: Bool { stage == .connecting || stage == .downloading }
     var title: String {
         switch stage {
-        case .authorizing: return "正在确认保存位置…"
+        case .authorizing: return "正在准备下载…"
         case .connecting: return "正在连接…"
         case .downloading: return progress?.label ?? "正在下载…"
         case .saving: return "正在保存…"
@@ -67,9 +74,10 @@ final class ReleaseAssetDownloadDelegate: NSObject, URLSessionDownloadDelegate {
     private var lastTime: TimeInterval?
     private var lastTotal: Int64?
     private var lastBytes: Int64 = -1
-    private let policy = ReleaseAssetRedirectPolicy()
-    init(update: @escaping (ReleaseDownloadProgress) -> Void, clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
-        self.update = update; self.clock = clock
+    private let policy: URLSessionTaskDelegate
+    init(update: @escaping (ReleaseDownloadProgress) -> Void, clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         policy: URLSessionTaskDelegate = ReleaseAssetRedirectPolicy()) {
+        self.update = update; self.clock = clock; self.policy = policy
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
@@ -88,6 +96,6 @@ final class ReleaseAssetDownloadDelegate: NSObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask,
         willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void) {
-        policy.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler)
+        guard let _ = policy.urlSession?(session, task: task, willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler) else { completionHandler(nil); return }
     }
 }

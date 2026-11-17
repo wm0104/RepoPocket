@@ -4,6 +4,15 @@ import UIKit
 struct CommitPatchDestination: View {
     private let build: () -> AnyView
     init(file: DesktopCommit.File, pullRequest: Bool = false) { build = { AnyView(CommitPatchView(file: file, pullRequest: pullRequest)) } }
+    init(file: DesktopCommit.File, api: GitHub, repo: String, commitSHA: String) {
+        build = {
+            AnyView(CommitPatchView(file: file).toolbar {
+                NavigationLink("完整文件") {
+                    CommitFileView(api: api, repo: repo, commitSHA: commitSHA, file: file)
+                }.accessibilityIdentifier("commit-full-file")
+            })
+        }
+    }
     var body: AnyView { build() }
 }
 struct CommitPatchView: View {

@@ -67,8 +67,11 @@ class UpdateGroupTests(unittest.TestCase):
         for checking, message, release, ipa, downloading, downloaded, trollstore in itertools.product((False, True), repeat=7):
             # Actual row flags are read from the source; enumerate all state
             # combinations with the production mutually exclusive branch order.
-            top = next(line for line in body.splitlines() if '}.softGroupedRow(top: !connected)' in line)
-            self.assertIn('foregroundStyle(.secondary).softGroupedRow(top: true, spacingBefore: 10)', settings)
+            top = next(line for line in body.splitlines() if '}.softGroupedRow(top: !connected, cardVerticalPadding: 0)' in line)
+            self.assertIn('foregroundStyle(.secondary).softGroupedRow(top: true)', settings)
+            self.assertIn('QuotaCard(accessibilityID: "settings-about-card")', settings)
+            self.assertIn('}.environment(\\.softGroupPresentation, .rows)', settings)
+            self.assertIn('VStack(spacing: 10) { content() }', style)
             self.assertIn('softGroupedRow(top: true, bottom: savedAccount == nil)', settings)
             # About opens its own compact module; connected update rows stay straight.
             flags = [(True, False), (False, False)]

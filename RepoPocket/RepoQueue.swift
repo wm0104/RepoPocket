@@ -8,10 +8,6 @@ struct PendingRepoItem: Identifiable {
     var path: String?
     var sha: String?
     var head: String?
-    mutating func replaceLocal(_ url: URL, size: Int64) {
-        // Preserve identity and explicit destination/SHA/head; repo/branch changes invalidate separately.
-        local = url; self.size = size
-    }
     mutating func select(folder: String, replacementPath: String?, sha: String?, head: String) {
         path = replacementPath ?? local.map { (folder.isEmpty ? "" : folder + "/") + $0.lastPathComponent }
         self.sha = sha; self.head = head

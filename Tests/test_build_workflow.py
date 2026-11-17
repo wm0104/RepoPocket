@@ -79,13 +79,13 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertNotIn('gh release', self.source)
         self.assertNotIn('softprops/action-gh-release', self.source)
         self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "4"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.2.2"', self.source)
-        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "1.2.2"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$EXT/Info.plist")" = "1.2.2"', self.source)
-        self.assertIn('Print :CFBundleVersion\' "$EXT/Info.plist")" = "1.2.2"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.2.3"', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "1.2.3"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$EXT/Info.plist")" = "1.2.3"', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$EXT/Info.plist")" = "1.2.3"', self.source)
         project = (REPO_ROOT / 'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.2.2"', project)
-        self.assertIn('CURRENT_PROJECT_VERSION: "1.2.2"', project)
+        self.assertIn('MARKETING_VERSION: "1.2.3"', project)
+        self.assertIn('CURRENT_PROJECT_VERSION: "1.2.3"', project)
 
     def test_release_version_is_readable_by_installed_1_0_5(self):
         import re
@@ -117,9 +117,9 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertFalse((REPO_ROOT / 'tests/MetadataTextFixture.swift').exists())
         self.assertTrue((REPO_ROOT / 'tests/RepositoryUploadLimitsFixture.swift').is_file())
         self.assertTrue((REPO_ROOT / 'Tests/workflow_inputs_support.py').is_file())
-        self.assertTrue((REPO_ROOT / 'Tests/Fixtures/FlowIntegrationHarness.swift').is_file())
+        self.assertTrue((REPO_ROOT / 'Tests/test_deb_removal.py').is_file())
         self.assertTrue((REPO_ROOT / 'tests/WorkspaceZIP-original.swift.txt').is_file())
-        self.assertIn('sh DebControlEditorTests/run-macos.sh', self.source)
+        self.assertNotIn('sh DebControlEditorTests/run-macos.sh', self.source)
 
     def test_optional_update_probe_keeps_release_artifact_separate(self):
         self.assertIn('build_update_probe:', self.source)

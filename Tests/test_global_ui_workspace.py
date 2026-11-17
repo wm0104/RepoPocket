@@ -97,7 +97,7 @@ class GlobalWorkspaceUI(unittest.TestCase):
         self.assertIn('没有可用的 GitHub HTTPS 远端', p)
         self.assertNotIn('Button("查看变化")', p)
         self.assertIn('Button { sheet = .diff(file.path) }', p)
-        self.assertIn('Button("编辑包信息")', p)
+        self.assertNotIn('Button("编辑包信息")', p)
         self.assertIn('NavigationLink("关联 GitHub 仓库…")', p)
 
     def test_import_advanced_details_do_not_hide_core_or_warnings(self):

@@ -17,7 +17,7 @@ struct AppError: LocalizedError { let text: String; var errorDescription: String
     var running: Set<Int> = []
     var readCalls = 0
     var onRequest: (@MainActor (Int) async throws -> Void)?
-    func workflowRuns(_ repo: String, branch: String, page: Int, failedOnly: Bool, headSHA: String) async throws -> [WorkflowRun] {
+    func workflowRuns(_ repo: String, branch: String, page: Int, failedOnly: Bool, headSHA: String, workflowID: Int?, status: WorkflowRunStatusFilter) async throws -> [WorkflowRun] {
         readCalls += 1; return []
     }
     func communityMutate(_ repo: String, action: CommunityMutation) async throws -> Data {
@@ -38,6 +38,8 @@ enum CommunityRules { static let pageSize = 30; static let pageLimit = 10 }
     let selection: WorkflowRunSelection
     let store = CommunityPageStore<WorkflowRun>()
     var currentBranchOnly = false, failedOnly = false
+    var workflowID: Int? = nil
+    var statusFilter = WorkflowRunStatusFilter.all
     var headSHA = "", displayedBranch = "main", repo = "owner/repo"
     var deletionTarget: WorkflowRunDeletionTarget?
     init(api: GitHub, selection: WorkflowRunSelection) { self.api = api; self.selection = selection }
@@ -203,11 +205,14 @@ class WorkflowSelectionTests(unittest.TestCase):
 
     def test_repository_more_uses_existing_disclosure_and_visible_row_boundaries(self):
         source = (ROOT/'RepoPocket/CollaborationViews.swift').read_text(encoding='utf-8').split('struct RepositoryCommunitySection: View {', 1)[1].split('struct CollaborationListView:', 1)[0]
-        self.assertIn('SoftGroupRows(animateBackground: false, spacingBefore: connected ? 10 : 0)', source)
-        self.assertIn('UIRules.withoutAnimation { expanded.toggle() }', source)
+        self.assertIn('QuotaCard(accessibilityID: "repository-community-card")', source)
+        self.assertNotIn('SoftGroupRows(', source)
+        self.assertIn('}.tint(.secondary).padding(12)', source)
+        self.assertIn('DisclosureGroup(isExpanded: $expanded)', source)
         self.assertEqual(source.count('RepositoryFeatureLabel(title: "更多"'), 1)
-        self.assertIn('if expanded {', source)
-        self.assertIn('if let owner {', source)
+        self.assertIn('.tint(.secondary)', source)
+        self.assertIn('if owner != nil {', source)
+        self.assertIn('Button(action: openOwner)', source)
         self.assertNotIn('.softGroupedRow(', source)
         groups = (ROOT/'RepoPocket/WorkspaceSelectionUI.swift').read_text(encoding='utf-8')
         self.assertIn('top: top && row.id == rows.first?.id, bottom: bottom && row.id == rows.last?.id', groups)

@@ -6,10 +6,29 @@ struct WorkflowStatusBadge: View {
     let status: String
     let conclusion: String?
     private var value: WorkflowStatusPresentation { .init(status: status, conclusion: conclusion) }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Primer web fgColor.attention, not GitHub iOS source: light yellow.5 / dark yellow.3.
+    // https://github.com/primer/primitives/tree/47736486bf67b2a14ba1ada61fa0f57af29bb875/src/tokens
+    private static let attention = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0xd2 / 255.0, green: 0x99 / 255.0, blue: 0x22 / 255.0, alpha: 1)
+            : UIColor(red: 0x9a / 255.0, green: 0x67 / 255.0, blue: 0x00 / 255.0, alpha: 1)
+    })
     private var color: Color {
-        switch value.tone { case "green": return .green; case "red": return .red; case "orange": return .orange; default: return .secondary }
+        switch value.tone { case "green": return .green; case "red": return .red; case "orange": return .orange; case "yellow": return Self.attention; default: return .secondary }
     }
-    var body: some View { Label(value.title, systemImage: value.symbol).foregroundStyle(color).accessibilityLabel("运行状态：" + value.title) }
+    var body: some View {
+        Label {
+            Text(value.title).foregroundStyle(value.tone == "yellow" ? Color.primary : color)
+        } icon: {
+            if status == "in_progress" && !reduceMotion {
+                TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                    Circle().trim(from: 0.12, to: 0.88).stroke(style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360))
+                }.frame(width: 14, height: 14).accessibilityHidden(true)
+            } else { Image(systemName: value.symbol) }
+        }.foregroundStyle(color).accessibilityLabel("运行状态：" + value.title)
+    }
 }
 
 struct WorkflowRunsView: View {
@@ -19,14 +38,54 @@ struct WorkflowRunsView: View {
     var headSHA = ""
     @StateObject private var store = CommunityPageStore<WorkflowRun>()
     @StateObject private var selection = WorkflowRunSelection()
+    @StateObject private var workflowList = WorkflowDispatchState()
     @State private var currentBranchOnly = false
-    @State private var failedOnly = false
+    @State private var statusFilter = WorkflowRunStatusFilter.all
+    @State private var workflowID: Int?
     @State private var canWrite = false
     @State private var deletionTarget: WorkflowRunDeletionTarget?
     @State private var showingDispatch = false
     @State private var dispatchedBranch: String?
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
+    private var failedOnly: Bool { statusFilter == .failure }
+    private var workflowTitle: String { workflowList.workflows.first { $0.id == workflowID }?.name ?? "全部工作流" }
+    private var filterItems: [NativeMenuItem] {
+        let workflows = [NativeMenuItem(id: "workflow-all", title: "全部工作流", selectedState: { workflowID == nil }) { workflowID = nil }]
+            + workflowList.workflows.map { item in
+                NativeMenuItem(id: "workflow-\(item.id)", title: item.name, selectedState: { workflowID == item.id }) { workflowID = item.id }
+            }
+        var items: [NativeMenuItem] = [
+            .submenu("工作流", symbol: "gearshape.2", singleSelection: true, children: workflows),
+            .submenu("状态", symbol: "line.3.horizontal.decrease.circle", singleSelection: true, children: WorkflowRunStatusFilter.allCases.map { status in
+                NativeMenuItem(id: "status-" + status.rawValue, title: status.title, selectedState: { statusFilter == status }) { statusFilter = status }
+            })
+        ]
+        if headSHA.isEmpty {
+            items.append(NativeMenuItem(id: "branch-only", title: "仅当前分支", symbol: "arrow.triangle.branch", enabled: !displayedBranch.isEmpty,
+                selectedState: { currentBranchOnly }) { currentBranchOnly.toggle() })
+        }
+        if workflowList.moreWorkflows {
+            items.append(NativeMenuItem(id: "workflow-more", title: workflowList.error.isEmpty ? "加载更多工作流" : "重试加载工作流", symbol: "arrow.clockwise", enabled: !workflowList.loadingWorkflows) {
+                Task { await workflowList.loadWorkflows(repo, api: api) }
+            })
+        }
+        return items
+    }
+    private var actionItems: [NativeMenuItem] {
+        var items: [NativeMenuItem] = []
+        if headSHA.isEmpty {
+            items.append(NativeMenuItem(id: "dispatch", title: "运行工作流", symbol: "play", enabled: !selection.active) { showingDispatch = true })
+        }
+        if canWrite {
+            items.append(NativeMenuItem(id: "selection", title: selection.active ? "完成" : "多选", symbol: "checkmark.circle", enabled: !store.busy) {
+                if selection.active { selection.reset() } else { selection.active = true }
+            })
+        }
+        items.append(.submenu("筛选", symbol: "line.3.horizontal.decrease.circle", children: filterItems))
+        items.append(NativeMenuItem(id: "refresh", title: "刷新", symbol: "arrow.clockwise", enabled: !store.busy) { load(reset: true, preserveItems: true) })
+        return items
+    }
     private var shouldPoll: Bool {
         visible && scenePhase == .active && api.isCurrentSession && !selection.active && !selection.busy
             && store.items.contains { $0.status == "queued" || $0.status == "in_progress" }
@@ -71,20 +130,22 @@ struct WorkflowRunsView: View {
         List {
             Section {
                 SoftGroupRows {
-                    if headSHA.isEmpty {
-                        SoftGroupRow("branch") {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Toggle("仅当前分支", isOn: $currentBranchOnly).disabled(displayedBranch.isEmpty)
-                                    .accessibilityIdentifier("workflow-filter-branch")
-                                if let dispatchedBranch { Text(dispatchedBranch).font(.caption).foregroundStyle(.secondary) }
-                            }.disabled(selection.busy)
+                    SoftGroupRow("filters") {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(workflowTitle).lineLimit(1)
+                                Text(statusFilter.title + ((currentBranchOnly || !headSHA.isEmpty) ? " · " + displayedBranch : " · 所有分支"))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }.accessibilityIdentifier("workflow-filter-summary")
+                            Spacer(minLength: 8)
+                            NativeActionMenu(title: "筛选工作流", symbol: "line.3.horizontal.decrease.circle",
+                                accessibilityIdentifier: "workflow-filters", enabled: !selection.busy && api.isCurrentSession, items: filterItems)
                         }
-                    } else {
+                    }
+                    if !headSHA.isEmpty {
                         SoftGroupRow("commit") { Text(branch + " · " + String(headSHA.prefix(7))).font(.caption).textSelection(.enabled) }
                     }
-                    SoftGroupRow("failed") {
-                        Toggle("仅看失败记录", isOn: $failedOnly).accessibilityIdentifier("workflow-filter-failed").disabled(selection.busy)
-                    }
+                    if !workflowList.error.isEmpty { SoftGroupRow("workflow-list-error") { Text(workflowList.error).font(.caption).foregroundStyle(.secondary) } }
                     runsSection
                     if selection.busy { SoftGroupRow("deleting") { ProgressView("正在逐条删除…") } }
                     if !selection.result.isEmpty { SoftGroupRow("result") { Text(selection.result).font(.caption).accessibilityIdentifier("workflow-selection-result") } }
@@ -95,19 +156,9 @@ struct WorkflowRunsView: View {
             }
         }.navigationTitle("Actions").adaptiveWorkspaceLayout()
         .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                if headSHA.isEmpty {
-                    Button("运行工作流") { showingDispatch = true }
-                        .disabled(selection.busy || selection.active || !api.isCurrentSession)
-                        .accessibilityIdentifier("workflow-dispatch-open")
-                }
-                if canWrite {
-                    Button(selection.active ? "完成" : "多选") {
-                        if selection.active { selection.reset() } else { selection.active = true }
-                    }.disabled(selection.busy || store.busy)
-                }
-                Button("刷新") { load(reset: true, preserveItems: true) }.disabled(store.busy || selection.busy)
-                    .accessibilityIdentifier("workflow-refresh")
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NativeActionMenu(title: "Actions 操作", accessibilityIdentifier: "workflow-actions",
+                    enabled: !selection.busy && api.isCurrentSession, items: actionItems)
             }
             ToolbarItemGroup(placement: .bottomBar) {
                 if selection.active && canWrite {
@@ -122,7 +173,7 @@ struct WorkflowRunsView: View {
         }
         .task {
             visible = true
-            if !store.loaded, let cached = api.cachedWorkflowRuns(repo, branch: (currentBranchOnly || !headSHA.isEmpty) ? displayedBranch : "", failedOnly: failedOnly, headSHA: headSHA) {
+            if !store.loaded, let cached = api.cachedWorkflowRuns(repo, branch: (currentBranchOnly || !headSHA.isEmpty) ? displayedBranch : "", failedOnly: failedOnly, headSHA: headSHA, workflowID: workflowID, status: statusFilter) {
                 store.seed(cached.value, updatedAt: cached.savedAt)
             }
             load(reset: true, preserveItems: true)
@@ -130,6 +181,7 @@ struct WorkflowRunsView: View {
             guard !Task.isCancelled, api.isCurrentSession else { return }
             canWrite = access?.permissions?.push == true
         }
+        .task { await workflowList.loadWorkflows(repo, api: api) }
         .task(id: shouldPoll) {
             guard shouldPoll else { return }
             while !Task.isCancelled {
@@ -144,13 +196,15 @@ struct WorkflowRunsView: View {
                 WorkflowDispatchView(api: api, repo: repo) { ref in
                     dispatchedBranch = ref
                     currentBranchOnly = true
-                    failedOnly = false
+                    statusFilter = .all
+                    workflowID = nil
                     load(reset: true)
                 }
             }
         }
         .onChange(of: currentBranchOnly) { _ in load(reset: true) }
-        .onChange(of: failedOnly) { _ in load(reset: true) }
+        .onChange(of: statusFilter) { _ in load(reset: true) }
+        .onChange(of: workflowID) { _ in load(reset: true) }
         .onChange(of: scenePhase) { phase in if phase == .active && visible { load(reset: true, preserveItems: true) } }
         .onChange(of: selectableIDs) { _ in selection.reconcile(store.items) }
         .onDisappear { visible = false; store.cancel(); selection.cancel() }
@@ -177,6 +231,7 @@ struct WorkflowRunsView: View {
     private var selectableIDs: Set<Int> { Set(store.items.filter { $0.id > 0 && $0.status == "completed" }.map(\.id)) }
     private var allSelected: Bool { !selectableIDs.isEmpty && selectableIDs.isSubset(of: selection.selected) }
     private func pollRunning() {
+        if statusFilter != .all { load(reset: true, preserveItems: true); return }
         let ids = store.items.filter { $0.status == "queued" || $0.status == "in_progress" }.map(\.id)
         store.refreshItems(ids: ids, api: api) { id in
             let bytes = try await api.communityRead(GitHub.repoPath(repo) + "/actions/runs/\(id)")
@@ -190,7 +245,8 @@ struct WorkflowRunsView: View {
             deletionTarget = nil
         }
         let requestedBranch = (currentBranchOnly || !headSHA.isEmpty) ? displayedBranch : "", requestedFailedOnly = failedOnly
-        store.load(reset: reset, preserveItems: preserveItems, api: api) { try await api.workflowRuns(repo, branch: requestedBranch, page: $0, failedOnly: requestedFailedOnly, headSHA: headSHA) }
+        let requestedWorkflow = workflowID, requestedStatus = statusFilter
+        store.load(reset: reset, preserveItems: preserveItems, api: api) { try await api.workflowRuns(repo, branch: requestedBranch, page: $0, failedOnly: requestedFailedOnly, headSHA: headSHA, workflowID: requestedWorkflow, status: requestedStatus) }
     }
 }
 
@@ -202,6 +258,7 @@ struct WorkflowDispatchView: View {
     @StateObject private var state = WorkflowDispatchState()
     @State private var confirmation: WorkflowDispatchTarget?
     @State private var schemaRevision = 0
+    @State private var inputsExpanded = false
     @Environment(\.dismiss) private var dismiss
     private var ready: Bool { state.schemaReady && api.isCurrentSession && !state.attempted }
     private var hasStatus: Bool { state.busy || !state.result.isEmpty || !state.error.isEmpty || !api.isCurrentSession }
@@ -251,25 +308,32 @@ struct WorkflowDispatchView: View {
                         NativeActionMenu(title: "列表选项", symbol: nil, items: [.submenu("分页加载", symbol: "list.bullet", children: listItems)])
                     }
                 }.disabled(state.attempted || !api.isCurrentSession)
-                SoftGroupRows(top: false, bottom: !hasStatus) {
-                    SoftGroupRow("schema-heading") { Text("工作流参数").font(.subheadline).foregroundStyle(.secondary) }
+                SoftGroupRows(top: false, bottom: !hasStatus, animateBackground: true) {
                     if state.loadingSchema { SoftGroupRow("schema-loading") { ProgressView("读取所选 ref 的 workflow_dispatch.inputs…") } }
                     if !state.schemaError.isEmpty {
                         SoftGroupRow("schema-error") { Text(state.schemaError).foregroundStyle(.secondary).textSelection(.enabled) }
                         SoftGroupRow("schema-retry") { Button("重新读取参数") { schemaRevision += 1 } }
                     }
                     if let definition = state.definition {
-                        if definition.schema.inputs.isEmpty {
-                            SoftGroupRow("no-inputs") { Text("此工作流声明了 workflow_dispatch，但没有 inputs。将不发送额外参数。") }
-                        }
-                        for input in definition.schema.inputs {
-                            SoftGroupRow("input-" + input.id) {
-                                WorkflowInputField(input: input, environments: definition.environments,
-                                    value: Binding(get: { state.inputValues[input.id] ?? "" }, set: { state.inputValues[input.id] = $0 }))
-                                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                        if !definition.schema.inputs.isEmpty {
+                            SoftGroupRow("inputs") {
+                                DisclosureGroup(isExpanded: Binding(get: { inputsExpanded }, set: { inputsExpanded = $0 || state.requiresInputExpansion })) {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        ForEach(definition.schema.inputs) { input in
+                                            WorkflowInputField(input: input, environments: definition.environments,
+                                                value: Binding(get: { state.inputValues[input.id] ?? "" }, set: { state.inputValues[input.id] = $0 }))
+                                        }
+                                        if !state.validationError.isEmpty { Text(state.validationError).font(.caption).foregroundStyle(.secondary) }
+                                    }.tint(.accentColor).padding(.vertical, 6)
+                                } label: {
+                                    HStack {
+                                        Text("工作流参数").foregroundStyle(.primary)
+                                        Spacer(minLength: 8)
+                                        Text(state.inputSummary).font(.caption).foregroundStyle(.secondary)
+                                    }.accessibilityIdentifier("workflow-inputs-disclosure")
+                                }.tint(.secondary)
                             }
                         }
-                        if !state.validationError.isEmpty { SoftGroupRow("validation") { Text(state.validationError).font(.caption).foregroundStyle(.secondary) } }
                     } else if !state.loadingSchema && state.schemaError.isEmpty {
                         SoftGroupRow("schema-select") { Text("请先选择工作流和已有分支。参数配置读取成功前不能启动。") }
                     }
@@ -301,7 +365,13 @@ struct WorkflowDispatchView: View {
             await state.loadWorkflows(repo, api: api)
             await state.loadBranches(repo, api: api)
         }
-        .task(id: schemaSelection) { confirmation = nil; await state.loadSchema(repo, api: api) }
+        .task(id: schemaSelection) {
+            confirmation = nil; inputsExpanded = false
+            await state.loadSchema(repo, api: api)
+            guard !Task.isCancelled else { return }
+            inputsExpanded = state.requiresInputExpansion
+        }
+        .onChange(of: state.requiresInputExpansion) { required in if required { inputsExpanded = true } }
         .onDisappear { state.invalidateSchema(); confirmation = nil }
         .confirmationDialog("确认启动工作流？", isPresented: Binding(
             get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }),
@@ -572,13 +642,7 @@ struct WorkflowArtifactsView: View {
     private func download(_ artifact: WorkflowArtifact) async {
         guard !downloading, !artifact.expired else { return }; downloading = true; result = ""; downloadedArtifact = nil; defer { downloading = false }
         do {
-            let generation = AccountStore.generation
-            try await DownloadStore.shared.requireAuthorization()
-            guard api.isCurrentSession else { throw CancellationError() }
-            DownloadStore.shared.begin(); defer { DownloadStore.shared.end() }
-            let file = try await api.communityArtifact(repo, id: artifact.id, name: artifact.name)
-            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            let saved = try await DownloadStore.shared.persist(file, session: generation)
+            let saved = try await DownloadStore.shared.download(.artifact(repo: repo, id: artifact.id, name: artifact.name), api: api)
             guard api.isCurrentSession else { throw CancellationError() }; downloadedArtifact = saved
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { result = error.localizedDescription } }
     }

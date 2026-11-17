@@ -10,9 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LocalGitPathImportTests(unittest.TestCase):
-    def test_launch_diagnostic_keeps_the_pre_filza_signing_policy(self):
+    def test_trollstore_handoff_permissions_do_not_add_installer_or_platform_access(self):
         entitlements = plistlib.loads((ROOT / 'Entitlements.plist').read_bytes())
-        self.assertNotIn('com.apple.private.security.no-sandbox', entitlements)
+        self.assertTrue(entitlements['com.apple.private.security.no-sandbox'])
+        self.assertTrue(entitlements['com.apple.private.security.storage.AppDataContainers'])
         self.assertNotIn('platform-application', entitlements)
         self.assertIs(entitlements['get-task-allow'], False)
 

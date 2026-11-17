@@ -19,7 +19,7 @@ class LocalProjectSearchTests(unittest.TestCase):
         self.assertIn('LocalGitFileAccess.coordinate(root, writing: false)', search)
         self.assertIn('LocalProjectFilesView(', search)
         self.assertIn('LocalProjectEditor(', search)
-        self.assertIn('LocalProjectDebEditor(', search)
+        self.assertNotIn('LocalProjectDebEditor(', search)
         self.assertIn('filePresentation.didDismiss()', search)
         self.assertIn('.id(file.id)', search)
         self.assertIn('Text(entry.path)', search)

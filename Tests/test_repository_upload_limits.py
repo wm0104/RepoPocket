@@ -17,6 +17,15 @@ def function(text, start, end):
 
 
 class RepositoryUploadLimits(unittest.TestCase):
+    def test_fixture_uses_current_ordinary_queue_metadata_interface(self):
+        ui = source('UploadView.swift')
+        fixture = (ROOT / 'tests/RepositoryUploadLimitsFixture.swift').read_text()
+        self.assertIn('private func queuedUploadBytes() throws -> Int64', ui)
+        self.assertNotIn('queuedUploadBytes(excluding:', fixture)
+        self.assertIn('precondition(actualTotal == limit - 1)', fixture)
+        self.assertIn('precondition(tryAdding(1, to: actualTotal) == nil)', fixture)
+        self.assertIn('precondition((try? metadataQueue.queuedUploadBytes()) == nil)', fixture)
+
     def test_shared_strict_limits_and_safe_aggregation(self):
         queue = source('RepoQueue.swift')
         self.assertIn('static let maximumFileBytes: Int64 = 100 * 1024 * 1024 - 1', queue)
@@ -67,17 +76,10 @@ class RepositoryUploadLimits(unittest.TestCase):
         self.assertLess(select.index('RepoQueue.addingUploadBytes(actual'), select.index('queue.append(contentsOf: pending)'))
         self.assertIn('if !accepted', select)
         self.assertIn('removeItem(at: file.deletingLastPathComponent())', select)
-        replacement = function(ui, 'private func adoptGeneratedDeb(', 'private func queuedUploadBytes(')
-        self.assertLess(replacement.index('queuedUploadBytes(excluding: id)'), replacement.index('queue[index].replaceLocal('))
-        self.assertLess(replacement.index('queuedUploadBytes(excluding: id)'), replacement.index('queue.append(PendingRepoItem'))
         api = source('GitHub.swift')
         batch = function(api, 'func commitQueue(', 'func identify(')
         self.assertLess(batch.index('RepoQueue.addingUploadBytes(size, to: totalBytes)'), batch.index('for (item, file, size) in preparedItems'))
         self.assertLess(batch.index('for (item, file, size) in preparedItems'), batch.index('uploadGitBlobFile('))
-        remote_deb = function(api, 'func saveRemoteDeb(', 'func downloadFile(')
-        self.assertIn('commitQueue(', remote_deb)
-        self.assertNotIn('Data(contentsOf:', remote_deb)
-        self.assertNotIn('base64', remote_deb)
         direct = function(api, 'func commit(_ repo:', 'func delete(')
         self.assertIn('sha: sha, head: head', direct)
         self.assertIn('"auto_init": true', function(api, 'func createRepository(', 'func createRelease('))

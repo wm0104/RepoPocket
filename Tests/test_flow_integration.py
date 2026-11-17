@@ -14,14 +14,6 @@ class FlowIntegrationTests(unittest.TestCase):
         self.assertNotIn('TrollFools', upload)
         self.assertIn('UpdateTabBadge(tabIndex: 2', app)
 
-    def test_save_adopts_before_dismiss_and_propagates_failure(self):
-        editor, upload = source('DebEditorView.swift'), source('UploadView.swift')
-        self.assertIn('((URL) throws -> Void)?', editor)
-        self.assertIn('保存并返回', editor)
-        self.assertIn('try onUseForUpload(target)', editor)
-        self.assertIn('try adoptGeneratedDeb(generated, replacing: item.id)', upload)
-        self.assertIn('queue[index].replaceLocal', upload)
-        self.assertIn('throw error', upload.split('private func adoptGeneratedDeb', 1)[1])
 
     def test_explicit_file_routes_and_release_single_form(self):
         route = source('ExternalFileActions.swift')
@@ -45,19 +37,6 @@ class FlowIntegrationTests(unittest.TestCase):
         self.assertIn('RepoQueue.readiness', upload)
         self.assertIn('try await api.requireWriteAccess', upload)
 
-    @unittest.skipUnless(__import__('shutil').which('swiftc'), 'Production adoption/hash fixture requires macOS Swift/CryptoKit')
-    def test_production_owned_adoption_and_review_invalidation(self):
-        import subprocess, tempfile
-        upload = source('UploadView.swift')
-        methods = '    private func adoptGeneratedDeb' + upload.split('    private func adoptGeneratedDeb', 1)[1].split('    @MainActor private func openTargetPicker', 1)[0]
-        harness = (ROOT / 'Tests/Fixtures/FlowIntegrationHarness.swift').read_text()
-        harness = harness.replace('// PRODUCTION_ADOPTION', methods).replace('// PRODUCTION_BUDGET', '')
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'Flow.swift'
-            path.write_text(source('RepoQueue.swift') + '\n' + harness)
-            executable = str(Path(directory) / 'flow-test')
-            subprocess.run(['swiftc', '-parse-as-library', str(path), '-o', executable], check=True)
-            subprocess.run([executable], check=True, timeout=30)
 
     def test_existing_release_attachment_is_copied_before_review(self):
         review = source('ReleaseAttachmentReview.swift')

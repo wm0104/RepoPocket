@@ -62,8 +62,7 @@ class CompactDirectoryRowsTests(unittest.TestCase):
                       '复制文件夹链接', '复制文件链接', '复制 raw 链接', 'Button("删除", role: .destructive)',
                       'deleteAccount = api.accountID; deleteGeneration = AccountStore.generation',
                       'deleteBranch = activeBranch; deleteEntry = e',
-                      '.disabled(deleting || busy || activeBranch.isEmpty)',
-                      'if canWrite && e.name.lowercased().hasSuffix(".deb")', 'debEntry = e']:
+                      '.disabled(deleting || busy || activeBranch.isEmpty)']:
             self.assertIn(token, rows)
 
     def test_only_presentation_is_sorted_by_name_with_stable_ties(self):

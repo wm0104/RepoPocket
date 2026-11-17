@@ -32,7 +32,13 @@ class ReadingDensityTests(unittest.TestCase):
         self.assertIn("cornerRadius: radius, style: .continuous", text)
         self.assertIn("top ? 0 : radius", text)
         self.assertIn("bottom ? 0 : radius", text)
-        self.assertEqual(text.count(".clipShape("), 1)
+        list_style, quota_cards = text.split('struct QuotaScrollStack', 1)
+        self.assertEqual(list_style.count('.clipShape('), 1)
+        self.assertIn('.clipShape(Rectangle())', list_style)
+        self.assertEqual(quota_cards.count('.clipShape('), 1)
+        self.assertIn('.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))', quota_cards)
+        self.assertIn('static let defaultValue = SoftGroupPresentation.list', list_style)
+        self.assertNotIn('.clipShape(', list_style.split('struct SoftGroupRows:', 1)[1])
         self.assertIn("radius: CGFloat = 10", source("SheetStyle.swift"))
         self.assertIn("if #available(iOS 16.4, *)", source("SheetStyle.swift"))
         label = source("LocalGitFileLabel.swift")
@@ -64,15 +70,16 @@ class ReadingDensityTests(unittest.TestCase):
         self.assertIn("close.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)", share)
 
     def test_home_headers_remove_extra_insets_but_keep_menu_hit_targets(self):
-        for name, count in [("RepositoryHomeHighlights.swift", 2), ("RepositoryReadmeSection.swift", 1)]:
+        for name, count in [("RepositoryReadmeSection.swift", 1)]:
             text = source(name)
             self.assertEqual(text.count("EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12)"), count)
             self.assertIn(".frame(width: 44, height: 44)", text)
             self.assertIn("spacingBefore: connected ? 10 : 0", text)
         text = source("RepositoryHomeHighlights.swift")
-        for marker, end in [('SoftGroupRow("release-heading")', 'if let release'), ('SoftGroupRow("run-heading")', 'if let run')]:
-            header = text.split(marker, 1)[1].split(end, 1)[0]
-            self.assertIn("EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 12)", header)
+        self.assertNotIn('SoftGroupRow("run-heading")', text)
+        header = text.split('SoftGroupRow("release-heading",', 1)[1].split('if let release', 1)[0]
+        self.assertNotIn('NativeActionMenu', header)
+        self.assertNotIn('.padding(.vertical', header)
 
     def test_favorite_search_joins_the_existing_group_without_breaking_reorder(self):
         text = source("RepositoryCollectionViews.swift").split("struct RepositoryFavoritesView:")[1].split("struct StarListsView:")[0]
@@ -99,12 +106,13 @@ class ReadingDensityTests(unittest.TestCase):
         self.assertIn(".padding(.top, spacingBefore)", text)
         self.assertNotIn("struct SoftGroupGap", text)
 
-    def test_theme_is_a_native_single_selection_submenu_only(self):
+    def test_theme_is_inline_with_persisted_single_selection(self):
         text = source("NativeActionMenu.swift")
         self.assertIn("options: item.singleSelection ? .singleSelection : []", text)
         self.assertIn("singleSelection: Bool = false", text)
         app = source("RepoPocketApp.swift")
-        self.assertIn('submenu("主题", symbol: "circle.lefthalf.filled", singleSelection: true', app)
+        self.assertIn('DisclosureGroup(isExpanded: $appearanceExpanded)', app)
+        self.assertIn('selectedAppearance == mode ? [.isSelected] : []', app)
         self.assertIn("current.perform()", text)
         self.assertIn("DispatchQueue.main.async", text)
 
@@ -127,7 +135,10 @@ class ReadingDensityTests(unittest.TestCase):
     def test_low_frequency_refreshes_use_menus_but_errors_keep_retry(self):
         for name in ["RepositoryReadmeSection.swift", "RepositoryHomeHighlights.swift"]:
             text = source(name)
-            self.assertIn("NativeActionMenu", text)
+            if name == "RepositoryReadmeSection.swift":
+                self.assertIn("NativeActionMenu", text)
+            else:
+                self.assertNotIn("NativeActionMenu", text)
             self.assertNotIn('SoftGroupRow("refresh")', text)
             self.assertIn('SoftGroupRow("retry")', text)
 

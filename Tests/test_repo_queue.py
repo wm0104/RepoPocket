@@ -6,10 +6,7 @@ payload = b'0123456789abcdef' * (11 * 1024 * 1024 // 16)
 git = hashlib.sha1(b'blob ' + str(len(payload)).encode() + b'\0' + payload).hexdigest()
 sha = hashlib.sha256(payload).hexdigest()
 tests = r'''
-var replacement = PendingRepoItem(local: URL(fileURLWithPath: "/tmp/old.deb"), size: 1, path: "目录/原名.deb", sha: "original", head: "h")
-let identity = replacement.id
-replacement.replaceLocal(URL(fileURLWithPath: "/tmp/new.deb"), size: 2)
-precondition(replacement.id == identity && replacement.path == "目录/原名.deb" && replacement.sha == "original" && replacement.head == "h")
+let replacement = PendingRepoItem(local: URL(fileURLWithPath: "/tmp/old.deb"), size: 1, path: "目录/原名.deb", sha: "original", head: "h")
 precondition(RepoQueue.readiness([], repo: "r", message: "m") != nil)
 precondition(RepoQueue.readiness([replacement], repo: "", message: "m") != nil)
 precondition(RepoQueue.readiness([replacement], repo: "r", message: "m") != nil) // missing file

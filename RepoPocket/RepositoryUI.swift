@@ -295,7 +295,7 @@ struct CompactRepositorySummary: View {
         HStack(spacing: 8) {
             GitHubAvatar(url: avatarURL, size: 24)
             Text(RepositoryPresentationRules.owner(login: owner, fullName: fullName))
-                .font(.subheadline).foregroundStyle(.secondary)
+                .font(.subheadline).foregroundStyle(Color.primary)
                 .lineLimit(2).fixedSize(horizontal: false, vertical: true)
         }
     }

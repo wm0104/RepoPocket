@@ -22,10 +22,14 @@ struct UserConnectionsSection: View {
                         NavigationLink {
                             UserConnectionsView(api: api, login: login, kind: kind).id(login + ":" + kind.id)
                         } label: {
+                            QuotaNavigationLabel(showsIndicator: connected) {
                             HStack {
-                                Label(kind.title, systemImage: kind.symbol)
+                                Label { Text(kind.title) } icon: {
+                                    Image(systemName: kind.symbol).foregroundStyle(Color.accentColor)
+                                }
                                 Spacer()
                                 Text(count(kind).map { $0.formatted() } ?? "—").foregroundStyle(.secondary)
+                            }
                             }
                         }
                         .disabled(login.isEmpty)

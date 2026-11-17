@@ -26,7 +26,10 @@ class UserFollowTests(unittest.TestCase):
         self.assertNotIn('ellipsis', attachment)
         self.assertNotIn('assetAction', ui.replace('assetActions', ''))
         self.assertIn('.contentShape(Rectangle())', attachment)
-        self.assertIn('.listRowInsets(EdgeInsets())', attachment)
+        self.assertIn('}.padding(-12)', attachment)
+        self.assertNotIn('.listRowInsets(', attachment)
+        native = (ROOT/'StyleUITests/StyleBoundaryTests.swift').read_text()
+        self.assertIn('card.coordinate(withNormalizedOffset: CGVector(dx: 0.99,', native)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Native follow/API regressions run on macOS')
     def test_production_follow_requests_and_state(self):

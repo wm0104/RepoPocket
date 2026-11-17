@@ -21,7 +21,7 @@ class TrollRemovalTests(unittest.TestCase):
 
     def test_common_download_and_nonforce_write_guards_remain(self):
         api = (APP / 'GitHub.swift').read_text()
-        self.assertIn('func saveRemoteDeb(', api)
+        self.assertNotIn('func saveRemoteDeb(', api)
         self.assertIn('func downloadFile(', api)
         self.assertIn('func commitQueue(', api)
         self.assertIn('"force": false', api)

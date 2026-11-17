@@ -42,7 +42,7 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
         runner = (ROOT / 'Scripts/run_style_preview.sh').read_text()
         initial = 'SIGNING_ARGUMENTS=' + runner.split('SIGNING_ARGUMENTS=', 1)[1].split('\n', 1)[0]
         case = re.findall(r'case "\$\{RP_STYLE_TEST_SCOPE:-all\}" in\n.*?\nesac', runner, re.S)[0]
-        for scope in ['upload-viewer', 'maintenance-regressions']:
+        for scope in ['upload-viewer', 'recovery-regressions', 'recovery-recheck', 'maintenance-regressions']:
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory); (root / 'Scripts').mkdir()
                 shutil.copy(ROOT / 'Scripts/Simulator.entitlements', root / 'Scripts/Simulator.entitlements')
@@ -52,14 +52,14 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
                 result = subprocess.run([bash, '-c', script], cwd=root, env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue(result.stdout.strip().startswith('CODE_SIGN_ENTITLEMENTS='), result.stdout)
-                if scope == 'upload-viewer':
+                if scope in ['upload-viewer', 'recovery-regressions', 'recovery-recheck']:
                     import plistlib
                     entitlements = plistlib.loads((root / 'preview-build/style-preview.entitlements').read_bytes())
                     self.assertEqual(entitlements['com.apple.security.application-groups'], ['group.com.wm0104.RepoPocket.shared'])
 
     def test_upload_viewer_scope_exports_real_regression_attachments(self):
-        names = {'deb-first-open-common-fields', 'upload-inherited-preview', 'deb-original-expanded',
-                 'deb-more-fields-expanded', 'upload-explicit-replacement', 'upload-multiple-independent-targets',
+        names = {
+                 'upload-explicit-replacement', 'upload-multiple-independent-targets',
                  'source-zoom-200', 'editor-zoom-keyboard', 'commit-highlight-zoom-200', 'commit-raw-zoom-200',
                  'local-diff-zoom-200', 'local-original-zoom-200', 'local-budget-original',
                  'readme-zoom-200', 'markdown-reader-zoom-200', 'local-project-compact', 'local-project-information'}
@@ -69,13 +69,14 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
             self.fail('The new UI scope is not supported by the attachment exporter: ' + str(error))
         self.assertEqual(exported, names)
         with self.assertRaisesRegex(RuntimeError, 'Expected native UI regression screenshots'):
-            self.export('upload-viewer', names - {'deb-first-open-common-fields'})
+            self.export('upload-viewer', names - {'upload-explicit-replacement'})
 
     def export(self, scope, names):
         tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
                 for name in names]
         with tempfile.TemporaryDirectory() as output, \
                 patch.object(sys, 'argv', ['export', 'fixture.xcresult', output, scope]), \
+                patch.dict(os.environ, {'RP_STYLE_TEST_GROUP': 'selected'}), \
                 patch.object(subprocess, 'check_output', return_value=json.dumps(tree).encode()), \
                 patch.object(subprocess, 'run') as export, redirect_stdout(io.StringIO()):
             runpy.run_path(str(EXPORT), run_name='__main__')
@@ -93,7 +94,8 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
         source = EXPORT.read_text().split('\nwhile pending:', 1)[0]
         def expected(scope):
             with tempfile.TemporaryDirectory() as output, \
-                    patch.object(sys, 'argv', ['export', 'fixture.xcresult', output, scope]):
+                    patch.object(sys, 'argv', ['export', 'fixture.xcresult', output, scope]), \
+                    patch.dict(os.environ, {'RP_STYLE_TEST_GROUP': 'selected'}):
                 namespace = {}
                 exec(compile(source, str(EXPORT), 'exec'), namespace)
                 return namespace['expected']
@@ -146,7 +148,7 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
         expected = plistlib.loads(original)
         expected['com.apple.security.application-groups'] = ['group.com.wm0104.RepoPocket.shared']
         self.assertEqual(result, expected)
-        self.assertIn('all|release-editor|upload-viewer)', runner)
+        self.assertIn('all|release-editor|upload-viewer|download-actions|recovery-regressions|recovery-recheck)', runner)
         self.assertIn('"${SIGNING_ARGUMENTS[@]}" build-for-testing', runner)
 
     def test_fixture_uses_real_editor_inbox_and_fail_closed_network(self):

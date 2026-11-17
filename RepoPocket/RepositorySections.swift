@@ -32,16 +32,25 @@ struct RepositoryHomeLinksSection: View {
                                     initialRepositories: loaded ? (section == .owned ? owned : starred) : nil)
                             }
                         } label: {
+                            QuotaNavigationLabel(showsIndicator: connected) {
                             HStack {
-                                Label(section.title, systemImage: section.systemImage)
+                                Label { Text(section.title) } icon: {
+                                    Image(systemName: section.systemImage).foregroundStyle(Color.accentColor)
+                                }
                                 Spacer()
                                 Text(loaded ? (section == .owned ? owned.count : starred.count).formatted() : "—")
                                     .foregroundStyle(.secondary)
                             }
+                            }
                         }.accessibilityIdentifier("home-collection-" + section.id)
                     }
                 }
-                SoftGroupRow("favorites") { RepositoryFavoritesHomeLink(api: api, favorites: api.favorites) }
+                SoftGroupRow("favorites") { RepositoryFavoritesHomeLink(api: api, favorites: api.favorites, showsIndicator: connected) }
+                SoftGroupRow("downloads") {
+                    NavigationLink { DownloadCenterView(api: api) } label: {
+                        QuotaNavigationLabel(showsIndicator: connected) { Label { Text("下载中心") } icon: { Image(systemName: "arrow.down.circle").foregroundStyle(Color.accentColor) } }
+                    }.accessibilityIdentifier("home-downloads")
+                }
             }
     }
 }

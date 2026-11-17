@@ -1,14 +1,9 @@
 """Settings-specific regression contracts; native Swift fixture skips without swiftc.
 
 Source assertions check wiring only, not SwiftUI/UIKit rendering or actual hit testing.
-The Swift fixture executes extracted production descriptions/coordinator using UIKit mocks.
+Inline choices are verified by the production SettingsView UI test.
 """
 from pathlib import Path
-import ast
-import re
-import shutil
-import subprocess
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,28 +13,14 @@ def source(name):
     return (ROOT / 'RepoPocket' / name).read_text()
 
 
-def theme_expression():
-    settings = source('RepoPocketApp.swift').split('struct SettingsView:', 1)[1]
-    return re.search(r'(\[\("system", "跟随系统"\).*?\n\s*\})\)', settings, re.S).group(1)
-
-
 class SettingsMenuStateTests(unittest.TestCase):
-    def test_theme_selection_is_read_at_menu_resolution_not_captured_as_bool(self):
-        expression = theme_expression()
-        self.assertIn('selectedState: { appearance == mode }', expression)
-        self.assertIn('{ appearance = mode }', expression)
+    def test_theme_selection_reads_the_same_persisted_value_as_the_checkmark(self):
         settings = source('RepoPocketApp.swift').split('struct SettingsView:', 1)[1]
         self.assertIn('@AppStorage("appearance.mode") private var appearance = "system"', settings)
-        self.assertIn('singleSelection: true', settings)
-        bridge = source('NativeActionMenu.swift')
-        self.assertIn('var selectedState: (() -> Bool)? = nil', bridge)
-        self.assertIn('state: (item.selectedState?() ?? item.selected) ? .on : .off', bridge)
-        # Ordinary selected/enabled snapshots and delayed current-ID actions stay supported.
-        for token in ['var selected = false', 'context.coordinator.items = items',
-                      'UIDeferredMenuElement.uncached', 'DispatchQueue.main.async',
-                      'self.action(item.id, in: self.items)', 'current.enabled else { return }',
-                      'current.perform()']:
-            self.assertIn(token, bridge)
+        self.assertIn('Button { appearance = mode }', settings)
+        self.assertIn('let selectedAppearance = appearance', settings)
+        self.assertIn('if selectedAppearance == mode {', settings)
+        self.assertIn('.accessibilityAddTraits(selectedAppearance == mode ? [.isSelected] : [])', settings)
 
     def test_preview_does_not_reset_persisted_theme_on_reload(self):
         preview = source('SettingsStylePreview.swift')
@@ -67,22 +48,23 @@ class SettingsMenuStateTests(unittest.TestCase):
         bridge = source('NativeActionMenu.swift')
         self.assertEqual(bridge.count('constraint(greaterThanOrEqualToConstant: 44)'), 2)
         settings = source('RepoPocketApp.swift').split('struct SettingsView:', 1)[1]
-        toolbar = settings.split('.toolbar {', 1)[1].split('.task {', 1)[0]
-        self.assertIn('accessibilityIdentifier: "settings-options"', toolbar)
-        self.assertIn(']).frame(width: 44, height: 44)', toolbar)
+        self.assertIn('.frame(minHeight: 44).contentShape(Rectangle())', settings)
+        self.assertIn('.accessibilityIdentifier("settings-appearance")', settings)
         section = source('UpdateFeature.swift').split('struct AppUpdateSection:', 1)[1]
         label = section.split('} label: { Image(systemName: "ellipsis")', 1)[1].split('}.softGroupedRow', 1)[0]
         self.assertIn('.frame(width: 44, height: 44)', label)
         self.assertIn('.contentShape(Rectangle())', label)
         self.assertIn('accessibilityIdentifier("settings-update-options")', label)
 
-    def test_ui_waits_for_picker_exit_and_real_settings_hit_targets(self):
+    def test_ui_checks_inline_disclosure_and_real_update_hit_targets(self):
         # Host source contract only: this does not reproduce native UI timing.
         ui = (ROOT / 'StyleUITests/SettingsTests.swift').read_text()
-        self.assertIn('let cancel = app.buttons["workspace.import.cancel"]', ui)
-        folder = ui.split('cancel.tap()', 1)[1].split('for attempt in 1...2', 1)[0]
-        self.assertIn('waitForElement(cancel, matching: "exists == false", app: app)', folder)
-        self.assertIn('waitForElement(options, matching: "exists == true AND hittable == true AND enabled == true", app: app)', folder)
+        self.assertIn('let options = app.buttons["外观"]', ui)
+        self.assertIn('XCTAssertFalse(app.buttons["theme-system"].exists)', ui)
+        appearance = ui.split('func testProfileAndAboutStayVisibleWithInlineAppearance()', 1)[1].split('private func checkAppearanceAndPersistence', 1)[0]
+        self.assertIn('checkAppearanceAndPersistence()', appearance)
+        self.assertIn('settings-compact-native-menu', appearance)
+        self.assertIn('func testUpdateMenuReturnsFromOfficialReleasesAfterThemeChanges()', ui)
         safari = ui.split('for attempt in 1...2', 1)[1].split('private func openTheme', 1)[0]
         self.assertLess(safari.index('let updateOptions = updateMenuControl('), safari.index('updateOptions.tap()'))
         control = ui.split('private func updateMenuControl', 1)[1].split('private func waitForElement', 1)[0]
@@ -91,7 +73,7 @@ class SettingsMenuStateTests(unittest.TestCase):
                       'root.frame.contains(actual[0].frame)', 'recordUpdateMenu(app, checkpoint: checkpoint)',
                       'XCTAssertEqual(result, .completed']:
             self.assertIn(token, control)
-        self.assertIn('recordUpdateMenu(app, checkpoint: "before-folder-picker")', ui)
+        self.assertIn('recordUpdateMenu(app, checkpoint: "after-appearance-toggle")', ui)
         self.assertIn('XCTAssertTrue(updateOptions.isHittable)', safari)
         self.assertIn('waitForElement(done, matching: "exists == false", app: app)', safari)
         self.assertIn('waitForElement(options, matching: "exists == true AND hittable == true AND enabled == true", app: app)', safari)
@@ -107,25 +89,6 @@ class SettingsMenuStateTests(unittest.TestCase):
         self.assertIn('waitForTheme(value, app: app)', ui)
         self.assertIn('for attempt in 1...2', ui)
         self.assertIn('XCTAssertTrue(done.isHittable)', ui)
-
-    @unittest.skipUnless(shutil.which('swiftc'), 'Live production callback fixture requires Swift compiler; not a native UI test')
-    def test_production_live_selection_with_defaults_and_current_actions(self):
-        bridge = source('NativeActionMenu.swift')
-        item = 'struct NativeMenuItem {' + bridge.split('struct NativeMenuItem {', 1)[1].split('struct NativeActionMenu:', 1)[0]
-        coordinator = 'final class Coordinator {' + bridge.split('    final class Coordinator {', 1)[1].split('\n}\n\n/// Keep', 1)[0]
-        # Reuse the existing network-free UIKit mock, not a rewritten coordinator.
-        tree = ast.parse((ROOT / 'Tests/test_native_action_menu.py').read_text())
-        mocks = next(ast.literal_eval(node.value) for node in ast.walk(tree)
-                     if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'mocks' for t in node.targets))
-        fixture = (ROOT / 'Tests/Fixtures/SettingsMenuStateHarness.swift').read_text()
-        fixture = fixture.replace('// PRODUCTION_THEME_EXPRESSION', theme_expression())
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / 'settings-menu.swift'
-            path.write_text(mocks + item + coordinator + fixture)
-            binary = str(Path(temp) / 'settings-menu')
-            subprocess.run(['swiftc', '-parse-as-library', str(path), '-o', binary], check=True)
-            subprocess.run([binary], check=True)
-
 
 if __name__ == '__main__':
     unittest.main()

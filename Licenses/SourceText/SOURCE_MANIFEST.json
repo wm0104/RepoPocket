@@ -484,7 +484,9 @@
     {
       "path": "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/OneDarkTheme.swift",
       "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneOneDarkTheme/OneDarkTheme.swift",
-      "sha256": "99071318945b7750c34a3ccdce82cd1da5c7f929fb23400df2d540c8b7d9ddc3"
+      "upstream_sha256": "99071318945b7750c34a3ccdce82cd1da5c7f929fb23400df2d540c8b7d9ddc3",
+      "adaptation": "Load missing catalog colors using the unchanged upstream asset RGBA values instead of force-unwrapping.",
+      "sha256": "140840afb6b47532143d94f5e9aced8157fded77bf8873735954a4a2c02a6a4f"
     },
     {
       "path": "Packages/RepoPocketSyntax/Sources/RunestoneThemeCommon/EditorTheme.swift",
@@ -559,7 +561,9 @@
     {
       "path": "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/TomorrowTheme.swift",
       "source": "simonbs/Runestone@00426ba7f8681a90c1ea0b5c03a0e0bec8cba883/Example/Themes/Sources/RunestoneTomorrowTheme/TomorrowTheme.swift",
-      "sha256": "24262982fe61c2428fe9ff0843ad94838e2dd2faab818cd09ba6c419f8b58184"
+      "upstream_sha256": "24262982fe61c2428fe9ff0843ad94838e2dd2faab818cd09ba6c419f8b58184",
+      "adaptation": "Load missing catalog colors using the unchanged upstream asset RGBA values instead of force-unwrapping.",
+      "sha256": "6b3dcfbcf6cf478119a47757af95e36173be6852a7e7ae2d6c05ae24b6ccda39"
     }
   ]
 }

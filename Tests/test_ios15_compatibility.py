@@ -63,8 +63,7 @@ class IOS15CompatibilityTests(unittest.TestCase):
             self.assertIn(token, compat)
         self.assertNotIn('UIScrollView.appearance', compat)
         self.assertNotIn('UITableView.appearance', compat)
-        self.assertIn('DownloadStore.shared.shareScope(for: url)', source('RepoPocketApp.swift'))
-        self.assertIn('previewTitle: output.lastPathComponent', source('DebEditorView.swift'))
+        self.assertIn('UIActivityViewController(activityItems: [url]', source('RepoPocketApp.swift'))
         self.assertIn('ShareSheet(url: file)', source('ExternalFileActions.swift'))
         self.assertIn('复制下载链接', source('ReleaseManagementUI.swift'))
 

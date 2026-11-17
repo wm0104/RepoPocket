@@ -17,7 +17,8 @@ def between(text, start, end):
 class CompactHomeGroupsTests(unittest.TestCase):
     def test_signed_in_navigation_is_one_section_with_the_original_child_views(self):
         home = between(source('RepoPocketApp.swift'), 'struct RepositoriesView: View {', 'struct BrowserView:')
-        body = between(home, 'var body: some View {', '.listStyle(.insetGrouped)')
+        body = between(home, 'var body: some View {', '.navigationTitle("RepoPocket")')
+        self.assertIn('QuotaScrollStack {', body)
         self.assertIn('Section {\n                    if !CredentialStore.read().isEmpty {', body)
         self.assertIn('RepositoryHomeLinksSection(api: api, owned: repos, starred: starred, loaded: loaded, connected: true)', body)
         self.assertIn('UpstreamUpdatesSection(api: api, store: upstreamUpdates, connected: true)', body)
@@ -39,15 +40,15 @@ class CompactHomeGroupsTests(unittest.TestCase):
             ('RepositorySections.swift', 'RepositoryHomeLinksSection', 'RepositoryCollectionView', '我的仓库', 'SoftGroupRows {'),
             ('UpstreamUpdates.swift', 'UpstreamUpdatesSection', 'UpstreamWatchAddView', '上游动态', 'SoftGroupRows(spacingBefore: connected ? 10 : 0)'),
             ('UserConnectionsView.swift', 'UserConnectionsSection', 'UserConnectionsView', '我的关注', 'SoftGroupRows(spacingBefore: connected ? 10 : 0)'),
-            ('PersonalIssuesView.swift', 'PersonalIssuesSection', 'PersonalIssueRow', '议题', 'SoftGroupRows(spacingBefore: connected ? 10 : 0)'),
+            ('PersonalIssuesView.swift', 'PersonalIssuesSection', 'PersonalIssueRow', '议题', 'QuotaCard(accessibilityID: "home-issues-card")'),
         ]:
             with self.subTest(view=name):
                 text = between(source(filename), 'struct ' + name + ': View {', 'struct ' + end + ':')
                 self.assertIn('var connected = false', text)
                 self.assertIn('if connected { content }', text)
-                self.assertIn('else { Section("' + title + '") { content } }', text)
+                self.assertIn('else { Section { content } }' if name == 'PersonalIssuesSection' else 'else { Section("' + title + '") { content } }', text)
                 self.assertIn(boundary, text)
-                self.assertIn('if connected { SoftGroupRow("heading") { Text("' + title + '")', text)
+                self.assertIn('Text("议题")' if name == 'PersonalIssuesSection' else 'if connected { SoftGroupRow("heading") { Text("' + title + '")', text)
         personal = between(source('PersonalIssuesView.swift'), 'struct PersonalIssuesSection:', 'struct PersonalIssueRow:')
         self.assertIn('connected: Bool = false', personal)
 
@@ -61,7 +62,7 @@ class CompactHomeGroupsTests(unittest.TestCase):
         issues = between(source('PersonalIssuesView.swift'), 'struct PersonalIssuesSection:', 'struct PersonalIssueRow:')
         for token in ['@State private var deletionTarget:', '.issueDeletionPresenter(api: api, state: deletions, target: $deletionTarget)',
                       r'.onChange(of: store.items.map(\.id))', '.task { loadPermissions() }',
-                      '.issueDeletionMenu(api: api', 'for item in visible.prefix(3)',
+                      '.issueDeletionMenu(api: api', 'ForEach(Array(visible.prefix(3)))',
                       'CollaborationDetailView(api: api, repo: repo, kind: .issues, number: item.number)']:
             self.assertIn(token, issues)
         external = source('ExternalFileActions.swift').split('struct ExternalInboxSection:', 1)[1]

@@ -45,7 +45,7 @@ print('PASS commit text contracts: Dynamic Type, expansion, preserved detail sta
 assert '"/commits/" + Self.component(sha)' in g and '.init(name: "sha", value: branch)' in g
 create=g[g.index('    func createBranch'):g.index('    func fetchWorkspace')]
 assert '== expectedHead' in create and 'method: "POST"' in create and '"refs/heads/" + name' in create and 'PATCH' not in create
-assert 'remote: (repo, entry, activeBranch)' in a and 'initialBranch: activeBranch' in a
+assert 'FileView(api: api, repo: repo, entry: e, branch: activeBranch' in a and 'initialBranch: activeBranch' in a
 assert 'HistoryView(api:' in a and 'BranchPickerView(api:' in a
 assert 'page < 30' in v and 'page += 1' in v and 'confirm = true' in v
 print('PASS Desktop API and UI contracts: pagination, encoded SHA, selected branch, stale head, no forced overwrite')

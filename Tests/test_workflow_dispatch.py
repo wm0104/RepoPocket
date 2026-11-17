@@ -40,11 +40,11 @@ class WorkflowDispatchTests(unittest.TestCase):
     def test_entry_selection_confirmation_and_refresh(self):
         view = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text()
         dispatch = view.split('struct WorkflowDispatchView: View {', 1)[1].split('struct WorkflowRunView:', 1)[0]
-        self.assertIn('Button("运行工作流")', view)
+        self.assertIn('NativeMenuItem(id: "dispatch", title: "运行工作流"', view)
         self.assertIn('WorkflowDispatchView(api: api, repo: repo)', view)
         self.assertIn('dispatchedBranch = ref', view)
         self.assertIn('currentBranchOnly = true', view)
-        self.assertIn('failedOnly = false', view)
+        self.assertIn('statusFilter = .all', view)
         self.assertIn('? displayedBranch : ""', view)
         for text in ['SoftGroupRows', 'NativeActionMenu(title: "工作流："', 'NativeActionMenu(title: "分支："', 'target.repo',
                      'target.workflow.path', 'target.ref', '.confirmationDialog', 'state.submit(target',
@@ -202,6 +202,7 @@ HARNESS += r'''
     @MainActor static func main() async throws {
         let api = GitHub(); defer { api.session.invalidateAndCancel() }
         let state = await prepared(api)
+        precondition(state.inputSummary.isEmpty && !state.requiresInputExpansion)
         state.ref = "typed-not-loaded"
         precondition(state.target("someone/any-repo", api: api) == nil)
         state.ref = "feature/中文"; state.workflowID = 2
@@ -256,6 +257,12 @@ HARNESS += r'''
               env: {type: environment, required: true, default: production}
         """
         let generic = await prepared(api)
+        precondition(generic.inputSummary == "使用默认值" && !generic.requiresInputExpansion)
+        generic.inputValues["amount"] = "-"
+        precondition(generic.requiresInputExpansion && generic.inputSummary == "请完善参数" && !generic.schemaReady)
+        generic.inputValues["amount"] = "2"
+        precondition(!generic.requiresInputExpansion && generic.inputSummary == "已填写" && generic.schemaReady)
+        generic.inputValues["amount"] = "3"
         let genericTarget = generic.target("someone/any-repo", api: api)!
         let expectedInputs = ["message": "hello", "channel": "stable", "flag": "false", "amount": "3", "env": "production"]
         precondition(genericTarget.inputs == expectedInputs)
@@ -270,7 +277,12 @@ HARNESS += r'''
         // Exercise normal title submission before the account-revocation cases below.
         DispatchFixture.yaml = "on:\n  workflow_dispatch:\n    inputs:\n      run_title:\n        type: string\n"
         let titled = await prepared(api)
+        precondition(titled.inputSummary == "未设置选填项" && !titled.requiresInputExpansion)
+        DispatchFixture.yaml = "on: {workflow_dispatch: {inputs: {run_title: {type: string, required: true}}}}\n"
+        await titled.loadSchema("someone/any-repo", api: api)
+        precondition(titled.requiresInputExpansion && titled.inputSummary == "请完善参数" && !titled.schemaReady)
         titled.inputValues["run_title"] = "测试标题"
+        precondition(titled.inputSummary == "已填写" && !titled.requiresInputExpansion)
         let titledTarget = titled.target("someone/any-repo", api: api)!
         precondition(titledTarget.inputs["run_title"] == "测试标题")
         let beforeTitled = DispatchFixture.requests.filter { $0.httpMethod == "POST" }.count

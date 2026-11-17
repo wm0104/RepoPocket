@@ -10,7 +10,6 @@ struct UploadView: View {
     let initialFile: URL?
     @State private var canWrite = false
     @State private var accessGeneration = UUID()
-    @State private var editingItem: PendingRepoItem?
     @State private var initialFileLoaded = false
     @State private var alertText = ""
     @State private var repo: String
@@ -172,11 +171,6 @@ struct UploadView: View {
                 }
                 Button("取消", role: .cancel) { pendingReplacement = nil }
             } message: { Text(pendingReplacement?.path ?? "") }
-            .sheet(item: $editingItem) { item in
-                DebEditorView(api: api, initialFile: item.local, onUseForUpload: { generated in
-                    try adoptGeneratedDeb(generated, replacing: item.id)
-                })
-            }
             .task {
                 guard !initialFileLoaded else { return }; initialFileLoaded = true
                 if let initialFile { await select(.success([initialFile])) }
@@ -210,7 +204,7 @@ struct UploadView: View {
         queue.removeAll { $0.id == id }
     }
     private var commitSection: some View {
-        SoftGroupRows(top: false, bottom: !busy) {
+        SoftGroupRows(top: false, bottom: !busy, animateBackground: true) {
             SoftGroupRow("target-title") { Text("提交到仓库").font(.caption).foregroundStyle(.secondary) }
             SoftGroupRow("repo") {
                 if openedFromFolder && !repo.isEmpty { AppLabeledContent("仓库", value: repo) }
@@ -263,14 +257,16 @@ struct UploadView: View {
                 }
             }
             SoftGroupRow("options") {
-                Button { UIRules.withoutAnimation { optionsExpanded.toggle() } } label: {
-                    HStack { Text("更多选项"); Spacer(); Image(systemName: optionsExpanded ? "chevron.up" : "chevron.down").font(.caption) }
-                        .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
-                }.buttonStyle(.plain)
-            }
-            if optionsExpanded {
-                SoftGroupRow("message") { TextField("提交说明", text: $note) }
-                SoftGroupRow("delete") { Button("添加远端删除") { choosingItem = nil; choosingDelete = true; Task { await openTargetPicker() } }.disabled(repo.isEmpty || !canWrite) }
+                DisclosureGroup(isExpanded: $optionsExpanded) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("提交说明", text: $note).frame(minHeight: 44)
+                        Divider()
+                        Button("添加远端删除") { choosingItem = nil; choosingDelete = true; Task { await openTargetPicker() } }
+                            .disabled(repo.isEmpty || !canWrite).frame(minHeight: 44)
+                    }.buttonStyle(.plain).tint(.accentColor)
+                } label: {
+                    Text("更多选项").foregroundStyle(.primary).accessibilityIdentifier("upload-options")
+                }.tint(.secondary)
             }
             if !canWrite { SoftGroupRow("permission") { Text("未确认仓库写权限，暂不能提交。").font(.caption).foregroundStyle(.secondary) } }
             SoftGroupRow("preview") {
@@ -278,61 +274,19 @@ struct UploadView: View {
                     reviewFingerprint = nil; reviewError = ""; confirmCommit = true
                 }.accessibilityIdentifier("upload-preview")
             }
-        }.disabled(busy).transaction { $0.animation = nil; $0.disablesAnimations = true }
+        }.disabled(busy)
     }
     private func pendingActions(_ item: PendingRepoItem) -> [NativeMenuItem] {
         var actions = [NativeMenuItem(id: "target", title: item.local == nil ? "重新选择删除文件" : "更改位置", symbol: "folder", enabled: !repo.isEmpty, perform: {
             choosingItem = item.id; choosingDelete = item.local == nil
             Task { await openTargetPicker() }
         })]
-        if item.local?.pathExtension.lowercased() == "deb" {
-            actions.append(NativeMenuItem(id: "deb", title: "编辑包信息", symbol: "shippingbox", perform: { beginEditing(item) }))
-        }
         actions.append(NativeMenuItem(id: "remove", title: "移除此待处理项", symbol: "trash", destructive: true, perform: { removePending(item.id) }))
         return actions
     }
-    private func beginEditing(_ item: PendingRepoItem) {
-        guard item.local?.pathExtension.lowercased() == "deb" else { return }
-        editingItem = item
-    }
-    private func adoptGeneratedDeb(_ source: URL, replacing id: UUID? = nil) throws {
-        var pendingDir: URL?
-        do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
-            guard attributes[.type] as? FileAttributeType == .typeRegular else { throw AppError(text: "生成文件不是普通文件。") }
-            let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-            pendingDir = dir
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let copy = dir.appendingPathComponent(source.lastPathComponent)
-            do { try FileManager.default.copyItem(at: source, to: copy) }
-            catch { try? FileManager.default.removeItem(at: dir); throw error }
-            let checked = try DebControlEditor.prepareForUpload(copy)
-            defer { if checked.file != copy { try? FileManager.default.removeItem(at: checked.file.deletingLastPathComponent()) } }
-            if checked.file != copy { try FileManager.default.removeItem(at: copy); try FileManager.default.copyItem(at: checked.file, to: copy) }
-            let size = try FileManager.default.attributesOfItem(atPath: copy.path)[.size] as? NSNumber
-            guard let size else { throw AppError(text: "读取新 deb 文件大小失败") }
-            _ = try RepoQueue.addingUploadBytes(size.int64Value, to: queuedUploadBytes(excluding: id))
-            if let id {
-                guard let index = queue.firstIndex(where: { $0.id == id }) else { throw AppError(text: "原队列项已移除，未添加重复项") }
-                let old = queue[index].local
-                queue[index].replaceLocal(copy, size: size.int64Value)
-                pendingDir = nil
-                if let old { try? FileManager.default.removeItem(at: old.deletingLastPathComponent()) }
-                reviewFingerprint = nil
-                return
-            }
-            queue.append(PendingRepoItem(local: copy, size: size.int64Value))
-            pendingDir = nil; reviewFingerprint = nil
-            Task { await prepareInheritedTargets() }
-        } catch {
-            if let pendingDir { try? FileManager.default.removeItem(at: pendingDir) }
-            throw error
-        }
-    }
-
-    private func queuedUploadBytes(excluding id: UUID? = nil) throws -> Int64 {
+    private func queuedUploadBytes() throws -> Int64 {
         var total: Int64 = 0
-        for item in queue where item.id != id {
+        for item in queue {
             if let file = item.local {
                 let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
                 total = try RepoQueue.addingUploadBytes(size, to: total)
@@ -423,7 +377,6 @@ struct UploadView: View {
                 var pending: [PendingRepoItem] = []
                 var total = try queuedUploadBytes()
                 var accepted = false
-                var notices: [String] = []
                 defer {
                     if !accepted {
                         for item in pending { if let file = item.local { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) } }
@@ -441,18 +394,13 @@ struct UploadView: View {
                     let copy = folder.appendingPathComponent(source.lastPathComponent)
                     do { try FileManager.default.copyItem(at: source, to: copy) } catch { try? FileManager.default.removeItem(at: folder); throw error }
                     do {
-                        let checked = try await Task.detached(priority: .userInitiated) { try DebControlEditor.prepareForUpload(copy) }.value
-                        defer { if checked.file != copy { try? FileManager.default.removeItem(at: checked.file.deletingLastPathComponent()) } }
-                        if checked.file != copy { try FileManager.default.removeItem(at: copy); try FileManager.default.copyItem(at: checked.file, to: copy) }
                         let actual = (try FileManager.default.attributesOfItem(atPath: copy.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
                         total = try RepoQueue.addingUploadBytes(actual, to: total)
                         pending.append(PendingRepoItem(local: copy, size: actual))
-                        if let notice = checked.notice { notices.append(notice) }
                     } catch { try? FileManager.default.removeItem(at: folder); throw error }
                 }
                 queue.append(contentsOf: pending)
                 accepted = true
-                if !notices.isEmpty { alertText = notices.joined(separator: "\n") }
                 await prepareInheritedTargets()
                 return
             }

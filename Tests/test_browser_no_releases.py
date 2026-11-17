@@ -52,7 +52,7 @@ class BrowserRollbackTests(unittest.TestCase):
             self.assertFalse((ROOT/'RepoPocket'/file).exists())
         self.assertNotIn('/releases',BROWSER)
         self.assertIn('if path.isEmpty && !showFiles {', BROWSER)
-        self.assertEqual(BROWSER.count('RepositoryHomeHighlights(api: api, repo: repo, releaseState: homeRelease, runState: homeRuns, connected: true, revalidationID: revalidationID)'), 1)
+        self.assertEqual(BROWSER.count('RepositoryHomeHighlights(api: api, repo: repo, releaseState: homeRelease, connected: true, revalidationID: revalidationID)'), 1)
         highlights = (ROOT/'RepoPocket/RepositoryHomeHighlights.swift').read_text()
         self.assertEqual(highlights.count('ReleaseManagementDestination(api: api, repo: repo)'), 1)
         self.assertNotIn('managedReleases', LOAD)
@@ -63,11 +63,18 @@ class BrowserRollbackTests(unittest.TestCase):
         for signature, next_signature in (
             ('    func trollPublish(', '    func saveRemoteDeb('),
             ('    static func trollSize(', '    func downloadFile('),
+            ('    func saveRemoteDeb(', '    func downloadFile('),
         ):
             self.assertNotIn(signature, api_new)
             start = api_original.index(signature)
             end = api_original.index(next_signature, start)
             api_original = api_original[:start] + api_original[end:]
+        for line in [
+            '        let prepared = try DebControlEditor.prepareForUpload(file)\n',
+            '        defer { if prepared.file != file { try? FileManager.default.removeItem(at: prepared.file.deletingLastPathComponent()) } }\n',
+            '        if let notice = prepared.notice { message = notice }\n',
+            '        let file = prepared.file\n',
+        ]: api_original = api_original.replace(line, '')
         removed_result = 'struct TrollPublishResult { let commitSHA: String; let path: String }\n\n'
         self.assertNotIn('struct TrollPublishResult', api_new)
         self.assertEqual(api_original.count(removed_result), 1)
@@ -225,7 +232,6 @@ class BrowserRollbackTests(unittest.TestCase):
             ('    func commitWorkspace(', '    func commitQueue('),
             ('    func commitQueue(', '    func identify('),
             ('    func commit(_ repo:', '    func delete('),
-            ('    func saveRemoteDeb(', '    func downloadFile('),
         ):
             current_start = normalized.index(signature)
             current_end = normalized.index(next_signature, current_start)
@@ -261,6 +267,9 @@ class BrowserRollbackTests(unittest.TestCase):
         search_end = normalized.index('    func searchUsers(', search_start)
         self.assertNotIn('\n    func ', normalized[search_start + 5:search_end])
         normalized = normalized[:search_start] + normalized[search_end:]
+        start = normalized.index('    func downloadForCenter(')
+        end = normalized.index('    private func download(', start)
+        normalized = normalized[:start] + normalized[end:]
         self.assertEqual(normalized.rstrip() + '\n}\n', api_original)
         self.assertEqual(BROWSER.count('.task { await load() }'), 1)
         self.assertIn('metadataFresh && RepositoryWriteRules.canWrite', BROWSER)

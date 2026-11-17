@@ -17,7 +17,11 @@ class CompactPageGroupsTests(unittest.TestCase):
     def test_repository_overview_joins_sections_without_losing_child_state(self):
         browser = view(source('RepoPocketApp.swift'), 'BrowserView:')
         body = browser.split('var body: some View', 1)[1].split('.listStyle', 1)[0]
-        self.assertIn('Section {\n                    repositoryHeader\n                    repositoryOverview\n                }', body)
+        self.assertIn('QuotaScrollStack {', body)
+        self.assertIn('Group { repositoryHeader }.environment(\\.softGroupPresentation, .rows)', body)
+        self.assertIn('repositoryOverview', body)
+        self.assertIn('List {', body)
+        self.assertIn('directoryRows', body)
         overview = browser.split('@ViewBuilder private var repositoryOverview:', 1)[1].split('@SoftGroupRowsBuilder private var directoryRows:', 1)[0]
         self.assertIn('SoftGroupRows(spacingBefore: 10)', overview)
         self.assertEqual(overview.count('connected: true'), 3)
@@ -31,14 +35,20 @@ class CompactPageGroupsTests(unittest.TestCase):
                 page = view(source(filename), name)
                 self.assertIn('var connected = false', page)
                 self.assertIn('if connected {', page)
-                self.assertIn('spacingBefore: connected ? 10 : 0', page)
+                if name == 'RepositoryCommunitySection':
+                    self.assertIn('QuotaCard(accessibilityID: "repository-community-card")', page)
+                    self.assertNotIn('.listRowBackground(', page)
+                else:
+                    self.assertIn('spacingBefore: connected ? 10 : 0', page)
         community = view(source('CollaborationViews.swift'), 'RepositoryCommunitySection')
         self.assertIn('@State private var expanded = false', community)
-        self.assertIn('expanded.toggle()', community)
+        self.assertIn('DisclosureGroup(isExpanded: $expanded)', community)
         highlights = source('RepositoryHomeHighlights.swift')
-        for text in ['Text("发行版")', 'Text("最近一次 Actions · 所有分支")',
-                     '.task(id: requestKey + (revalidationID?.uuidString ?? "")) { await loadRelease() }', '.task(id: requestKey + (revalidationID?.uuidString ?? "")) { await loadRuns() }']:
+        for text in ['Text("发行版")',
+                     '.task(id: requestKey + (revalidationID?.uuidString ?? "")) { await loadRelease() }']:
             self.assertIn(text, highlights)
+        for removed in ['最近一次 Actions', 'loadRuns', 'runContent']:
+            self.assertNotIn(removed, highlights)
         readme = source('RepositoryReadmeSection.swift')
         self.assertIn('SoftGroupRows(spacingBefore: connected ? 10 : 0)', readme)
         self.assertNotIn('SoftGroupRow("expand")', readme)

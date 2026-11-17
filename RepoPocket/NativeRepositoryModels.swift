@@ -146,12 +146,26 @@ struct WorkflowStatusPresentation {
         case "failure", "startup_failure": (title, symbol, tone) = ("失败", "xmark.circle.fill", "red")
         case "timed_out": (title, symbol, tone) = ("超时失败", "xmark.circle.fill", "red")
         case "action_required": (title, symbol, tone) = ("需要处理", "exclamationmark.circle.fill", "orange")
-        case "in_progress": (title, symbol, tone) = ("运行中", "clock.fill", "orange")
-        case "queued", "waiting", "requested", "pending": (title, symbol, tone) = ("等待运行", "clock", "gray")
+        case "in_progress": (title, symbol, tone) = ("运行中", "circle.dotted", "yellow")
+        case "queued", "waiting", "pending": (title, symbol, tone) = ("等待运行", "clock", "yellow")
+        case "requested": (title, symbol, tone) = ("等待运行", "clock", "gray")
         case "cancelled": (title, symbol, tone) = ("已取消", "minus.circle.fill", "gray")
         case "skipped": (title, symbol, tone) = ("已跳过", "arrow.right.circle", "gray")
         case "neutral": (title, symbol, tone) = ("已完成 · 中性结果", "circle", "gray")
         default: (title, symbol, tone) = ("状态未知", "questionmark.circle", "gray")
+        }
+    }
+}
+enum WorkflowRunStatusFilter: String, CaseIterable {
+    case all = "", queued, in_progress, success, failure, cancelled
+    var title: String {
+        switch self {
+        case .all: return "全部状态"
+        case .queued: return "排队中"
+        case .in_progress: return "运行中"
+        case .success: return "成功"
+        case .failure: return "仅看失败记录"
+        case .cancelled: return "已取消"
         }
     }
 }

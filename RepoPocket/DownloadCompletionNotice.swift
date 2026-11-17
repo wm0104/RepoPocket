@@ -8,7 +8,7 @@ private struct DownloadCompletionNotice: ViewModifier {
             Color.clear.alert("下载完成", isPresented: Binding(get: { file != nil }, set: { if !$0 { file = nil } }), presenting: file) { _ in
                 Button("好", role: .cancel) { file = nil }
             } message: { saved in
-                Text(saved.lastPathComponent + "\n已保存到“" + saved.deletingLastPathComponent().lastPathComponent + "”文件夹，可前往“文件”App 查看。")
+                Text(saved.lastPathComponent + "\n已保存到 App 内，可在主页的“下载中心”查看、分享或加入待上传。")
             }
         }
     }

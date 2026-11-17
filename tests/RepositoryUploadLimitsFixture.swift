@@ -46,11 +46,9 @@ precondition(tryAdding(0, to: limit - 1) == limit - 1)
 precondition(tryAdding(1, to: limit - 1) == nil)
 precondition(tryAdding(Int64.max, to: Int64.max) == nil)
 var replacement = item(1)
-let identity = replacement.id
-replacement.replaceLocal(file, size: limit - 1)
-precondition(replacement.id == identity && replacement.head == "head" && replacement.path == "new")
+replacement.size = limit - 1
 check([replacement], accepted: true)
-replacement.replaceLocal(file, size: limit)
+replacement.size = limit
 check([replacement], accepted: false)
 // Exercise the actual UI preflight with sparse files: filesystem metadata, not cached item sizes.
 func sparse(_ name: String, size: Int64) throws -> URL {
@@ -78,9 +76,11 @@ let edgeItem = PendingRepoItem(local: edge, size: 0, path: "two", sha: "old", he
 let metadataQueue = UploadQueueMetadataFixture(queue: [halfItem, edgeItem, deletion])
 let actualTotal = try metadataQueue.queuedUploadBytes()
 precondition(actualTotal == limit - 1)
-// Candidate edit/add failure leaves the original queue identity/target and file intact.
-let replacementBase = try metadataQueue.queuedUploadBytes(excluding: edgeItem.id)
-precondition(tryAdding(limit / 2, to: replacementBase) == nil)
+// A separate queue after ordinary removal is remeasured without changing the original.
+let remainingQueue = UploadQueueMetadataFixture(queue: metadataQueue.queue.filter { $0.id != edgeItem.id })
+let remainingTotal = try remainingQueue.queuedUploadBytes()
+precondition(remainingTotal == limit / 2)
+precondition(tryAdding(limit / 2, to: remainingTotal) == nil)
 precondition(tryAdding(1, to: actualTotal) == nil)
 precondition(metadataQueue.queue[1].id == edgeItem.id && metadataQueue.queue[1].sha == "old")
 precondition(fm.fileExists(atPath: edge.path))
@@ -88,4 +88,4 @@ let growth = try FileHandle(forWritingTo: edge)
 try growth.truncate(atOffset: UInt64(limit / 2))
 try growth.close()
 precondition((try? metadataQueue.queuedUploadBytes()) == nil)
-print("PASS production queue strict 100MiB file/total boundaries, sparse-file actual metadata, stale size, deletion, negative/overflow and replacement preflight; no payload allocation/network")
+print("PASS production queue strict 100MiB file/total boundaries, sparse-file actual metadata, stale size, deletion, negative/overflow and ordinary removal/addition preflight; no payload allocation/network")

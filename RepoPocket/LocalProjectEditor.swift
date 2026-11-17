@@ -201,13 +201,8 @@ struct LocalProjectFilesView: View {
         .sheet(item: Binding(get: { filePresentation.selected }, set: { if $0 == nil { filePresentation.dismissing() } }), onDismiss: {
             filePresentation.didDismiss(); Task { await load() }
         }) { file in
-            Group {
-                if !file.deleting && file.path.lowercased().hasSuffix(".deb") {
-                    LocalProjectDebEditor(api: api, project: project, internalRoot: internalRoot, path: file.path, changed: changed)
-                } else {
-                    LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
-                }
-            }.id(file.id)
+            LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, deleting: file.deleting, changed: changed)
+                .id(file.id)
         }
     }
     private func add(_ action: LocalGitAddAction) {
@@ -302,13 +297,8 @@ struct LocalProjectSearchView: View {
             .sheet(item: Binding(get: { filePresentation.selected }, set: { if $0 == nil { filePresentation.dismissing() } }), onDismiss: {
                 filePresentation.didDismiss(); loaded = false; refresh()
             }) { file in
-                Group {
-                    if file.path.lowercased().hasSuffix(".deb") {
-                        LocalProjectDebEditor(api: api, project: project, internalRoot: internalRoot, path: file.path, changed: changed)
-                    } else {
-                        LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, changed: changed)
-                    }
-                }.id(file.id)
+                LocalProjectEditor(project: project, internalRoot: internalRoot, path: file.path, changed: changed)
+                    .id(file.id)
             }
     }
     private func searchStatus(count: Int) -> some View {

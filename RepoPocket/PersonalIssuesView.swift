@@ -5,6 +5,7 @@ struct PersonalIssuesSection: View {
     @ObservedObject var store: CommunityPageStore<CollaborationItem>
     @ObservedObject private var deletions: IssueDeletionState
     @State private var deletionTarget: IssueDeletionConfirmation?
+    @State private var expanded = false
     var connected = false
     private var visible: [CollaborationItem] { deletions.visible(store.items) }
     init(api: GitHub, store: CommunityPageStore<CollaborationItem>, connected: Bool = false) {
@@ -14,7 +15,7 @@ struct PersonalIssuesSection: View {
     var body: some View {
         Group {
             if connected { content }
-            else { Section("议题") { content } }
+            else { Section { content } }
         }
         .issueDeletionPresenter(api: api, state: deletions, target: $deletionTarget)
         .onChange(of: store.items.map(\.id)) { _ in loadPermissions() }
@@ -22,30 +23,36 @@ struct PersonalIssuesSection: View {
         .task { loadPermissions() }
     }
     private var content: some View {
-            SoftGroupRows(spacingBefore: connected ? 10 : 0) {
-                if connected { SoftGroupRow("heading") { Text("议题").font(.subheadline).foregroundStyle(.secondary) } }
-                for item in visible.prefix(3) {
-                    if let repo = PersonalIssueRules.repository(item) {
-                        SoftGroupRow(String(item.id)) {
-                            NavigationLink { CollaborationDetailView(api: api, repo: repo, kind: .issues, number: item.number) }
-                            label: { PersonalIssueRow(item: item, repo: repo) }
-                            .accessibilityIdentifier("home-issue-\(item.number)")
-                            .issueDeletionMenu(api: api, state: deletions, subject: IssueDeletionSubject(item, repo: repo), target: $deletionTarget)
+        QuotaCard(accessibilityID: "home-issues-card") {
+                DisclosureGroup(isExpanded: $expanded) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(visible.prefix(3))) { item in
+                            if let repo = PersonalIssueRules.repository(item) {
+                                NavigationLink { CollaborationDetailView(api: api, repo: repo, kind: .issues, number: item.number) }
+                                label: { QuotaNavigationLabel { PersonalIssueRow(item: item, repo: repo).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading) } }
+                                .accessibilityIdentifier("home-issue-\(item.number)")
+                                .issueDeletionMenu(api: api, state: deletions, subject: IssueDeletionSubject(item, repo: repo), target: $deletionTarget)
+                                Divider()
+                            }
                         }
+                        if store.busy && store.items.isEmpty { ProgressView("加载相关议题…") }
+                        if store.loaded && visible.isEmpty { Text("暂无相关议题").foregroundStyle(.secondary) }
+                        if !store.error.isEmpty {
+                            Text(store.error).font(.caption).foregroundStyle(.secondary)
+                            Button("重试议题") { load() }.disabled(store.busy)
+                        }
+                        NavigationLink { PersonalIssuesView(api: api, login: api.login) }
+                        label: { QuotaNavigationLabel { Label("查看全部议题", systemImage: "exclamationmark.circle").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading) } }
+                        .disabled(api.login.isEmpty).accessibilityIdentifier("home-personal-issues")
                     }
-                }
-                if store.busy && store.items.isEmpty { SoftGroupRow("loading") { ProgressView("加载相关议题…") } }
-                if store.loaded && visible.isEmpty { SoftGroupRow("empty") { Text("暂无相关议题").foregroundStyle(.secondary) } }
-                if !store.error.isEmpty {
-                    SoftGroupRow("error") { Text(store.error).font(.caption).foregroundStyle(.secondary) }
-                    SoftGroupRow("retry") { Button("重试议题") { load() }.disabled(store.busy) }
-                }
-                SoftGroupRow("all") {
-                    NavigationLink { PersonalIssuesView(api: api, login: api.login) }
-                    label: { Label("查看全部议题", systemImage: "exclamationmark.circle") }
-                    .disabled(api.login.isEmpty).accessibilityIdentifier("home-personal-issues")
-                }
-            }
+                    .buttonStyle(.plain).tint(.accentColor).padding(.top, 6)
+                } label: {
+                    Text("议题").foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .accessibilityValue(expanded ? "已展开" : "已折叠").accessibilityIdentifier("home-issues-disclosure")
+                }.tint(.secondary).padding(12)
+        }
     }
     private func loadPermissions() {
         deletions.load(visible.prefix(3).compactMap { item in PersonalIssueRules.repository(item).flatMap { IssueDeletionSubject(item, repo: $0) } }, api: api)

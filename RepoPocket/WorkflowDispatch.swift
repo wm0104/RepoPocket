@@ -67,6 +67,13 @@ enum WorkflowDispatchRules {
         catch { return error.localizedDescription }
     }
     var schemaReady: Bool { definition != nil && !loadingSchema && schemaError.isEmpty && validationError.isEmpty }
+    var requiresInputExpansion: Bool { definition?.schema.inputs.isEmpty == false && !validationError.isEmpty }
+    var inputSummary: String {
+        guard let inputs = definition?.schema.inputs, !inputs.isEmpty else { return "" }
+        if requiresInputExpansion { return "请完善参数" }
+        if inputs.contains(where: { (inputValues[$0.id] ?? "") != ($0.defaultValue ?? "") }) { return "已填写" }
+        return inputs.contains(where: { $0.defaultValue != nil }) ? "使用默认值" : "未设置选填项"
+    }
     func invalidateSchema() {
         schemaTask?.cancel(); schemaTask = nil; schemaEpoch = UUID(); confirmation = nil
         definition = nil; inputValues = [:]; schemaError = ""; loadingSchema = false

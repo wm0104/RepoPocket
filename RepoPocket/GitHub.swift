@@ -805,20 +805,13 @@ final class GitHub: ObservableObject {
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError(text: "请填写提交说明") }
         guard try await workspaceHead(repo, branch: branch) == head else { throw AppError(text: "远端分支已变化，请重新加载后再提交。") }
         var preparedItems: [(PendingRepoItem, URL?, Int64)] = []
-        var cleanup: [URL] = []
-        defer { for directory in cleanup { try? FileManager.default.removeItem(at: directory) } }
         var totalBytes: Int64 = 0
         // Prepare every file and preflight the actual aggregate before uploading any blob.
         for item in items {
             if let file = item.local {
-                let originalSize = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
-                _ = try RepoQueue.addingUploadBytes(originalSize, to: 0)
-                let prepared = try await Task.detached(priority: .utility) { try DebControlEditor.prepareForUpload(file) }.value
-                if prepared.file != file { cleanup.append(prepared.file.deletingLastPathComponent()) }
-                if let notice = prepared.notice { self.message = notice }
-                let size = (try FileManager.default.attributesOfItem(atPath: prepared.file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
+                let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
                 totalBytes = try RepoQueue.addingUploadBytes(size, to: totalBytes)
-                preparedItems.append((item, prepared.file, size))
+                preparedItems.append((item, file, size))
             } else { preparedItems.append((item, nil, 0)) }
         }
         var entries: [[String: Any]] = []
@@ -1391,10 +1384,6 @@ final class GitHub: ObservableObject {
             "tag_name": tag, "name": title.isEmpty ? tag : title, "draft": true, "body": "Uploaded with RepoPocket"])
     }
     func upload(_ release: Release, file: URL, progress: @escaping (Double) -> Void) async throws -> Asset {
-        let prepared = try DebControlEditor.prepareForUpload(file)
-        defer { if prepared.file != file { try? FileManager.default.removeItem(at: prepared.file.deletingLastPathComponent()) } }
-        if let notice = prepared.notice { message = notice }
-        let file = prepared.file
         let endpoint = release.upload_url.components(separatedBy: "{")[0]
         guard var c = URLComponents(string: endpoint) else { throw AppError(text: "无效上传地址") }
         c.queryItems = [.init(name: "name", value: file.lastPathComponent)]
@@ -1414,15 +1403,6 @@ final class GitHub: ObservableObject {
     func publish(_ repo: String, release: Release) async throws -> Release {
         try await decoded(Release.self, Self.repoPath(repo) + "/releases/\(release.id)", method: "PATCH", object: ["draft": false])
     }
-    func saveRemoteDeb(repo: String, branch: String, head: String, entry: Entry, output: URL, message: String) async throws {
-        let size = (try FileManager.default.attributesOfItem(atPath: output.path)[.size] as? NSNumber)?.int64Value ?? Int64.max
-        _ = try RepoQueue.addingUploadBytes(size, to: 0)
-        guard try await workspaceHead(repo, branch: branch) == head else { throw AppError(text: "远端 HEAD 已变化，请重新载入；未提交") }
-        let current = try await file(repo, path: entry.path, branch: head)
-        guard current.sha == entry.sha else { throw AppError(text: "原文件 SHA 已变化，请重新载入") }
-        let item = PendingRepoItem(local: output, size: size, path: entry.path, sha: entry.sha, head: head)
-        try await commitQueue(repo: repo, branch: branch, items: [item], message: message.isEmpty ? "Edit deb metadata" : message)
-    }
     func downloadFile(_ repo: String, entry: Entry, branch: String) async throws -> URL {
         let endpoint = try Self.repoPath(repo) + "/contents/" + Self.filePath(entry.path)
         var r = try request(url(endpoint, query: branch.isEmpty ? [] : [.init(name: "ref", value: branch)]))
@@ -1439,6 +1419,33 @@ final class GitHub: ObservableObject {
         let repo = try RepositoryInput.parse(repo)
         let endpoint = try Self.repoPath(repo) + "/zipball" + (branch.isEmpty ? "" : "/" + Self.component(branch))
         return try await download(request(url(endpoint)), name: repo.replacingOccurrences(of: "/", with: "-") + ".zip")
+    }
+    func downloadForCenter(_ source: DownloadSource, progress: @escaping (ReleaseDownloadProgress) -> Void) async throws -> URL {
+        try ensureActiveAccount(); try Task.checkCancellation()
+        let repo = try Self.repoPath(source.repository)
+        let endpoint: String
+        var query: [URLQueryItem] = []
+        var accept: String?
+        let redirect: URLSessionTaskDelegate
+        switch source {
+        case .file(_, let path, let ref, _):
+            endpoint = repo + "/contents/" + (try Self.filePath(path))
+            if !ref.isEmpty { query = [.init(name: "ref", value: ref)] }
+            accept = "application/vnd.github.raw+json"; redirect = ArchiveRedirectPolicy()
+        case .archive(_, let ref):
+            endpoint = repo + "/zipball" + (ref.isEmpty ? "" : "/" + Self.component(ref))
+            redirect = ArchiveRedirectPolicy()
+        case .releaseAsset(_, let id, _):
+            guard id > 0 else { throw AppError(text: "无效附件编号") }
+            endpoint = repo + "/releases/assets/\(id)"; accept = "application/octet-stream"; redirect = ReleaseAssetRedirectPolicy()
+        case .artifact(_, let id, _):
+            guard id > 0 else { throw AppError(text: "无效构建产物编号") }
+            endpoint = repo + "/actions/artifacts/\(id)/zip"; redirect = WorkflowLogRedirectPolicy()
+        case .local: throw AppError(text: "请在应用更新中重新下载。")
+        }
+        var r = try request(url(endpoint, query: query))
+        if let accept { r.setValue(accept, forHTTPHeaderField: "Accept") }
+        return try await download(r, name: source.name, redirect: ReleaseAssetDownloadDelegate(update: progress, policy: redirect))
     }
     private func download(_ request: URLRequest, name: String, redirect: URLSessionTaskDelegate = ArchiveRedirectPolicy()) async throws -> URL {
         let (tmp, response) = try await session.download(for: request, delegate: redirect)

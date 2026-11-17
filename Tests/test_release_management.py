@@ -52,7 +52,7 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertIn('复制下载链接', ui)
         self.assertIn('UIPasteboard.general.url = link', ui)
         self.assertIn('asset.browser_download_url, repo: state.repo', ui)
-        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'for row in state.rows', 'for asset in state.assets', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', '确认删除这个附件？', '确认删除整个发行版？', '此操作不可恢复。', 'Button("删除", role: .destructive) { performDelete() }', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'self.downloader.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup', 'if expanded', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
+        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'for row in state.rows', 'for asset in state.assets', '.onDisappear { state.cancel(preservingDownload: true) }', 'generation == AccountStore.generation', '确认删除这个附件？', '确认删除整个发行版？', '此操作不可恢复。', 'Button("删除", role: .destructive) { performDelete() }', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'self.downloader.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup(isExpanded: $expanded)', 'Text("发布说明").foregroundStyle(Color.primary)', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
             self.assertIn(token,ui + (ROOT/'RepoPocket/ReleaseAttachmentReview.swift').read_text())
         self.assertNotIn('AsyncImage',ui)
         transfers=(ROOT/'RepoPocket/ReleaseTransfers.swift').read_text()
@@ -99,6 +99,9 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertNotIn('presenting: assetAction',ui)
         self.assertNotIn('ellipsis',row)
         self.assertIn('.contentShape(Rectangle())',row)
+        self.assertIn('}.padding(-12)', row, 'The attachment menu must reclaim the scroll row insets')
+        self.assertNotIn('.listRowInsets(', row)
+        self.assertIn('QuotaCard(accessibilityID: "release-detail-card")', ui)
         self.assertIn('target.generation == AccountStore.generation',ui)
 
     def test_concise_copy_keeps_safety_and_budget_guards(self):
@@ -141,7 +144,7 @@ class ReleaseManagementTests(unittest.TestCase):
     def test_commit_patch_scope_and_ui(self):
         view=(ROOT/'RepoPocket/CommitPatchView.swift').read_text()
         desktop=(ROOT/'RepoPocket/DesktopViews.swift').read_text()
-        self.assertIn('CommitPatchDestination(file: f)',desktop)
+        self.assertIn('CommitPatchDestination(file: f, api: api, repo: repo, commitSHA: d.sha)',desktop)
         self.assertNotIn('Text(f.preview)',desktop)
         for token in ['LazyVStack(alignment: .leading', '.topLeading', 'row.old', 'row.new', 'row.marker', 'Color.green.opacity(0.12)', 'Color.red.opacity(0.12)', 'whitespace = true', '原始 patch', '仅显示本次提交的变化', 'if result.limited', '不代表没有改动', 'Task.detached', 'withTaskCancellationHandler', 'worker.cancel()', 'try Task.checkCancellation()']:
             self.assertIn(token,view)

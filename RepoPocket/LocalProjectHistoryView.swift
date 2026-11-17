@@ -8,8 +8,8 @@ private struct LocalCommitMessageHeights: PreferenceKey {
 }
 
 enum LocalProjectSheet: Identifiable {
-    case commit, info, files(LocalGitAddAction), diff(String), deb(String), delete(String), workflow(repo: String, branch: String)
-    var id: String { switch self { case .commit: return "commit"; case .info: return "info"; case .files(let action): return "files:" + action.rawValue; case .diff(let path): return "diff:" + path; case .deb(let path): return "deb:" + path; case .delete(let path): return "delete:" + path; case .workflow(let repo, let branch): return "workflow:" + repo + ":" + branch } }
+    case commit, info, files(LocalGitAddAction), diff(String), delete(String), workflow(repo: String, branch: String)
+    var id: String { switch self { case .commit: return "commit"; case .info: return "info"; case .files(let action): return "files:" + action.rawValue; case .diff(let path): return "diff:" + path; case .delete(let path): return "delete:" + path; case .workflow(let repo, let branch): return "workflow:" + repo + ":" + branch } }
 }
 struct LocalGitCommitDetail: Decodable {
     let sha: String

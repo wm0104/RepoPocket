@@ -8,7 +8,7 @@ class PageLifecycleTests(unittest.TestCase):
   browser=app.split('struct BrowserView: View {',1)[1].split('struct FileView:',1)[0]
   self.assertIn('@StateObject private var readmeState',browser)
   self.assertIn('@StateObject private var homeRelease',browser)
-  self.assertIn('@StateObject private var homeRuns',browser)
+  self.assertNotIn('homeRuns',browser)
   refresh=browser.split('.refreshable {',1)[1].split('.toolbar {',1)[0]
   self.assertNotIn('homeRefreshRevision +=',refresh)
   self.assertNotIn('release',refresh)
@@ -17,7 +17,7 @@ class PageLifecycleTests(unittest.TestCase):
   self.assertIn('@ObservedObject var state: RepositoryReadmeState',readme)
   highlights=(ROOT/'RepoPocket/RepositoryHomeHighlights.swift').read_text()
   self.assertNotIn('release = nil',highlights)
-  self.assertNotIn('run = nil',highlights)
+  self.assertNotIn('runState',highlights)
  def test_approved_interface_changes(self):
   app=(ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
   self.assertFalse('WorkspaceView(api: api).tabItem' in app,'Local workspace tab must be removed without deleting documents')

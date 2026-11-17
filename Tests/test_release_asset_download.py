@@ -8,7 +8,7 @@ class ReleaseAssetDownloadTests(unittest.TestCase):
         row=ui.split('for asset in state.assets {',1)[1].split('if state.assets.isEmpty',1)[0]
         self.assertEqual(row.count('SoftGroupRow("asset-\\(asset.id)")'),1)
         self.assertNotIn('.softGroupedRow(',row)
-        for token in ['Image(systemName:', '.frame(width: 24)', 'Text(asset.name)', '.font(.caption).foregroundStyle(.secondary)', 'minHeight: 44', 'Menu {', 'assetActions(asset)', 'if state.canWrite', 'ReleaseAssetDownloadStatusView(']: self.assertIn(token,row)
+        for token in ['Image(systemName:', '.frame(width: 24)', 'Text(asset.name)', '.font(.caption).foregroundStyle(Color.secondary)', 'minHeight: 44', 'Menu {', 'assetActions(asset)', 'if state.canWrite', 'ReleaseAssetDownloadStatusView(']: self.assertIn(token,row)
         self.assertNotIn('LocalGitFileLabel(',row)
         self.assertIn('self.assetDownload?.request == initial.request',ui)
         self.assertIn('self.assetDownload?.stage == .connecting || self.assetDownload?.stage == .downloading',ui)

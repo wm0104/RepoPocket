@@ -126,10 +126,12 @@ struct UpstreamUpdatesSection: View {
                     NavigationLink {
                         UpstreamUpdatesDetail(api: api, store: store, watch: watch)
                     } label: {
+                        QuotaNavigationLabel(showsIndicator: connected) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(watch.repository)
                             Text(watch.branch).font(.caption).foregroundStyle(.secondary)
                             Text(summary(watch)).font(.caption)
+                        }
                         }
                     }
                     .contextMenu { Button("停止跟踪", role: .destructive) { store.remove(watch, api: api) }.disabled(store.loading) }

@@ -47,7 +47,8 @@ struct ReleaseManagementDestination: View {
         }
     }
     var valid: Bool { generation == AccountStore.generation && api.isCurrentSession }
-    func cancel() {
+    func cancel(preservingDownload: Bool = false) {
+        if preservingDownload && downloader.keepsDownloadedFile && assetDownload?.active == true { return }
         operation = UUID(); task?.cancel(); task = nil; busy = false
         if assetDownload?.active == true { assetDownload?.stage = .cancelled }
     }
@@ -143,7 +144,7 @@ struct ReleaseManagementDestination: View {
                     self.assetDownload?.stage = .downloading; self.assetDownload?.progress = value
                 }
             }
-            defer { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) }
+            defer { if !self.downloader.keepsDownloadedFile { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) } }
             try self.check()
             self.assetDownload?.stage = .saving
             let saved = try await self.downloader.persist(temporary, generation: self.generation)
@@ -206,7 +207,7 @@ struct ReleaseListView: View {
             }
         }
         .task { if !state.listLoaded { state.list(reset: true) } }
-        .onDisappear { state.cancel() }
+        .onDisappear { state.cancel(preservingDownload: true) }
         .sheet(isPresented: $creating, onDismiss: { state.list(reset: true) }) {
             ReleaseEntryView(api: state.api, initialRepo: state.repo).appSheetCornerRadius()
         }
@@ -237,72 +238,72 @@ struct ReleaseDetailView: View {
     }
     init(state: ReleaseScreenState, id: Int) { self.id = id; _state = StateObject(wrappedValue: state) }
     var body: some View {
-        List {
-            Section {
-                SoftGroupRows(bottom: state.assetDownload != nil || !releaseHasStatus(state)) {
-                    if let r = state.release {
-                        SoftGroupRow("title") { Text(r.title) }
-                        SoftGroupRow("tag") { Text(r.tag_name + " · " + ChinaDate.day(r.date)).font(.caption) }
-                        SoftGroupRow("marker") { Text(r.draft ? "草稿" : (r.prerelease ? "预发行" : "已发布")) }
-                        SoftGroupRow("body") {
-                            VStack(alignment: .leading, spacing: 0) {
-                                DisclosureGroup("发布说明", isExpanded: $expanded) {
-                                    if expanded {
-                                        VStack(alignment: .leading, spacing: 12) {
-                                            Text(ReleaseManagementRules.displayBody(r.body ?? "")).textSelection(.enabled)
-                                            if (r.body ?? "").count > ReleaseManagementRules.displayBodyLimit {
-                                                Rectangle().fill(Color(uiColor: .separator)).frame(height: 0.5)
-                                                Text("显示已限额；完整正文保留，编辑不截断。请在 GitHub 查看全文。").font(.caption)
+        QuotaScrollStack {
+            QuotaCard(accessibilityID: "release-detail-card") {
+                VStack(spacing: 0) {
+                    SoftGroupRows(bottom: state.assetDownload != nil || !releaseHasStatus(state)) {
+                        if let r = state.release {
+                            SoftGroupRow("title") { Text(r.title) }
+                            SoftGroupRow("tag") { Text(r.tag_name + " · " + ChinaDate.day(r.date)).font(.caption) }
+                            SoftGroupRow("marker") { Text(r.draft ? "草稿" : (r.prerelease ? "预发行" : "已发布")) }
+                            SoftGroupRow("body") {
+                                DisclosureGroup(isExpanded: $expanded) {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        Text(ReleaseManagementRules.displayBody(r.body ?? "")).textSelection(.enabled)
+                                        if (r.body ?? "").count > ReleaseManagementRules.displayBodyLimit {
+                                            Rectangle().fill(Color(uiColor: .separator)).frame(height: 0.5)
+                                            Text("显示已限额；完整正文保留，编辑不截断。请在 GitHub 查看全文。").font(.caption)
+                                        }
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                                } label: {
+                                    Text("发布说明").foregroundStyle(Color.primary)
+                                }.tint(.secondary)
+                            }
+                            SoftGroupRow("assets-heading") { Text("附件").font(.subheadline).foregroundStyle(.secondary) }
+                            for asset in state.assets {
+                                SoftGroupRow("asset-\(asset.id)") {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        // One presenter per attachment: the icon, text and empty space open the same menu.
+                                        Menu {
+                                            assetActions(asset)
+                                            if state.canWrite {
+                                                Button("删除附件", role: .destructive) { prepareDelete(r, asset: asset) }
                                             }
-                                        }.frame(maxWidth: .infinity, alignment: .leading)
-                                    }
+                                        } label: {
+                                            HStack(spacing: 12) {
+                                                Image(systemName: asset.name.lowercased().hasSuffix(".deb") ? "shippingbox" : "doc.text")
+                                                    .font(.body).foregroundStyle(.tint).frame(width: 24)
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text(asset.name).foregroundStyle(Color.primary).fixedSize(horizontal: false, vertical: true)
+                                                    Text(ByteCountFormatter.string(fromByteCount: Int64(asset.size), countStyle: .file))
+                                                        .font(.caption).foregroundStyle(Color.secondary).monospacedDigit()
+                                                }
+                                            }
+                                                .padding(.horizontal, 20).padding(.vertical, 8)
+                                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                                .contentShape(Rectangle())
+                                        }.buttonStyle(.borderless).disabled(state.busy || !state.valid)
+                                            .accessibilityIdentifier("release-asset-\(asset.id)")
+                                        if let download = state.assetDownload, download.assetID == asset.id, download.stage != .completed {
+                                            ReleaseAssetDownloadStatusView(download: download, cancel: { state.cancel() }, retry: { state.download(asset) })
+                                                .padding(.horizontal, 20).padding(.bottom, 10)
+                                        }
+                                    // The menu owns the full row, including the scroll wrapper's 12pt insets.
+                                    }.padding(-12)
                                 }
                             }
-                        }
-                        SoftGroupRow("assets-heading") { Text("附件").font(.subheadline).foregroundStyle(.secondary) }
-                        for asset in state.assets {
-                            SoftGroupRow("asset-\(asset.id)") {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    // One presenter per attachment: the icon, text and empty space open the same menu.
-                                    Menu {
-                                        assetActions(asset)
-                                        if state.canWrite {
-                                            Button("删除附件", role: .destructive) { prepareDelete(r, asset: asset) }
-                                        }
-                                    } label: {
-                                        HStack(spacing: 12) {
-                                            Image(systemName: asset.name.lowercased().hasSuffix(".deb") ? "shippingbox" : "doc.text")
-                                                .font(.body).foregroundStyle(.tint).frame(width: 24)
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(asset.name).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
-                                                Text(ByteCountFormatter.string(fromByteCount: Int64(asset.size), countStyle: .file))
-                                                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                                            }
-                                        }
-                                            .padding(.horizontal, 20).padding(.vertical, 8)
-                                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                            .contentShape(Rectangle())
-                                    }.buttonStyle(.borderless).disabled(state.busy || !state.valid)
-                                        .accessibilityIdentifier("release-asset-\(asset.id)")
-                                    if let download = state.assetDownload, download.assetID == asset.id, download.stage != .completed {
-                                        ReleaseAssetDownloadStatusView(download: download, cancel: { state.cancel() }, retry: { state.download(asset) })
-                                            .padding(.horizontal, 20).padding(.bottom, 10)
-                                    }
-                                }.listRowInsets(EdgeInsets())
+                            if state.assets.isEmpty && !state.assetMore { SoftGroupRow("no-assets") { Text("暂无附件") } }
+                            if state.assetMore { SoftGroupRow("next-assets") { Button("加载更多附件") { state.run { try await state.nextAssets(id) } }.disabled(state.busy) } }
+                            SoftGroupRow("asset-help") { Text("私有附件需在浏览器登录。").font(.caption).foregroundStyle(.secondary) }
+                            if state.canWrite && !ReleaseManagementRules.editable(r.body ?? "") {
+                                SoftGroupRow("body-limit") { Text("正文超过128 KiB，禁止本地编辑，避免截断保存；请在 GitHub 编辑。").font(.caption) }
                             }
                         }
-                        if state.assets.isEmpty && !state.assetMore { SoftGroupRow("no-assets") { Text("暂无附件") } }
-                        if state.assetMore { SoftGroupRow("next-assets") { Button("加载更多附件") { state.run { try await state.nextAssets(id) } }.disabled(state.busy) } }
-                        SoftGroupRow("asset-help") { Text("私有附件需在浏览器登录。").font(.caption).foregroundStyle(.secondary) }
-                        if state.canWrite && !ReleaseManagementRules.editable(r.body ?? "") {
-                            SoftGroupRow("body-limit") { Text("正文超过128 KiB，禁止本地编辑，避免截断保存；请在 GitHub 编辑。").font(.caption) }
-                        }
                     }
-                }
-                if state.assetDownload == nil { releaseStatus(state, top: state.release == nil) }
+                    if state.assetDownload == nil { releaseStatus(state, top: state.release == nil) }
+                }.environment(\.softGroupPresentation, .rows)
             }
         }
-        .listStyle(.insetGrouped)
         .navigationTitle("发行版详情")
         .downloadCompletionNotice($state.completedDownload)
         .alert("下载链接已复制", isPresented: $copied) { Button("好", role: .cancel) {} }
@@ -319,7 +320,7 @@ struct ReleaseDetailView: View {
             }
         }
         .task { if state.release == nil { state.detail(id) } }
-        .onDisappear { state.cancel() }
+        .onDisappear { state.cancel(preservingDownload: true) }
         .sheet(isPresented: $editing, onDismiss: { state.detail(id) }) {
             if let r = state.release { ReleaseEditorView(api: state.api, repo: state.repo, original: r).appSheetCornerRadius() }
         }

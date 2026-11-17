@@ -48,6 +48,30 @@ jobs:
         run: |
           bash Scripts/build_native_git.sh macosx
           bash Scripts/build_native_git.sh iphoneos
+      - name: Check download navigation appearance
+        run: python3 Tests/test_download_navigation_appearance.py
+      - name: Check actions folding
+        run: python3 Tests/test_actions_folding.py
+      - name: Check disclosure card boundaries and theme observation
+        run: python3 Tests/test_disclosure_cards.py
+      - name: Check QuotaWatch scroll cards
+        run: python3 Tests/test_quota_scroll_cards.py
+      - name: Check download container boundaries and recovery
+        run: python3 Tests/test_download_container.py
+      - name: Check commit file
+        run: python3 Tests/test_commit_file.py
+      - name: Check device UI feedback regressions
+        run: python3 Tests/test_device_ui_feedback.py
+      - name: Check theme resource fallback colors
+        run: python3 Tests/test_theme_color_resources.py
+      - name: Check sandbox and TrollStore package validation
+        run: python3 Tests/test_trollstore_package_variant.py
+      - name: Check deb removal
+        run: python3 Tests/test_deb_removal.py
+      - name: Check trollstore local install
+        run: python3 Tests/test_trollstore_local_install.py
+      - name: Check download center
+        run: python3 Tests/test_download_center.py
       - name: Test compact modules, theme selection and full README
         run: python3 Tests/test_reading_density_refresh.py
       - name: Test persistent account-isolated content snapshots
@@ -233,10 +257,6 @@ jobs:
         run: python3 Tests/test_linked_workspaces.py
       - name: Test ZIPFoundation safe extraction
         run: python3 Tests/test_workspace_zip.py
-      - name: Test deb control editor
-        run: sh DebControlEditorTests/run-macos.sh
-      - name: Test deb UI lifecycle and commit feedback
-        run: python3 Tests/test_deb_ui_static.py
       - name: Test workspace and TrollFools UI contracts
         run: python3 Tests/test_workspace_troll_static.py
       - name: Test queue and streamed blob core
@@ -329,16 +349,16 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.2.2"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.2.3"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "15.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.2.2"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.2.3"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.2.2"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.2.2"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.2.3"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.2.3"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$EXT/Info.plist")" = "15.0"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
@@ -348,12 +368,18 @@ jobs:
           codesign --display --entitlements :- "$APP"
           mkdir -p dist/Payload
           cp -R "$APP" dist/Payload/
+          # IPA/TIPA keep the 1.2.2 sandbox baseline; preserve $APP for both debs.
+          IPA_APP=dist/Payload/RepoPocket.app
+          codesign --force --sign - --entitlements Packaging/IPA.entitlements "$IPA_APP"
+          codesign --verify --deep --strict "$IPA_APP"
+          python3 Scripts/verify-ipa.py "$IPA_APP"
           cd dist
           zip -qry RepoPocket.ipa Payload
           unzip -t RepoPocket.ipa
           mkdir verify
           unzip -q RepoPocket.ipa -d verify
           codesign --verify --deep --strict verify/Payload/RepoPocket.app
+          python3 ../Scripts/verify-ipa.py verify/Payload/RepoPocket.app
           shasum -a 256 RepoPocket.ipa > RepoPocket.ipa.sha256
           shasum -a 256 -c RepoPocket.ipa.sha256
           cp RepoPocket.ipa RepoPocket.tipa
@@ -362,9 +388,9 @@ jobs:
           bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor roothide --sign-mode preserve
           bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor rootless --sign-mode preserve
           cd dist
-          test -s RepoPocket_1.2.2_iphoneos-arm64e.deb
-          test -s RepoPocket_1.2.2_iphoneos-arm64.deb
-          shasum -a 256 RepoPocket.ipa RepoPocket.tipa RepoPocket_1.2.2_iphoneos-arm64e.deb RepoPocket_1.2.2_iphoneos-arm64.deb > SHA256SUMS
+          test -s RepoPocket_1.2.3_iphoneos-arm64e.deb
+          test -s RepoPocket_1.2.3_iphoneos-arm64.deb
+          shasum -a 256 RepoPocket.ipa RepoPocket.tipa RepoPocket_1.2.3_iphoneos-arm64e.deb RepoPocket_1.2.3_iphoneos-arm64.deb > SHA256SUMS
           shasum -a 256 -c SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.validate_only }}
@@ -374,8 +400,8 @@ jobs:
             dist/RepoPocket.ipa
             dist/RepoPocket.ipa.sha256
             dist/RepoPocket.tipa
-            dist/RepoPocket_1.2.2_iphoneos-arm64e.deb
-            dist/RepoPocket_1.2.2_iphoneos-arm64.deb
+            dist/RepoPocket_1.2.3_iphoneos-arm64e.deb
+            dist/RepoPocket_1.2.3_iphoneos-arm64.deb
             dist/*.deb.sha256
             dist/*.deb.verification.json
             dist/SHA256SUMS
@@ -394,8 +420,9 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.0.3-rc.1' "$EXT/Info.plist"
           /usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 4' "$EXT/Info.plist"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
-          codesign --force --sign - --entitlements Entitlements.plist "$APP"
+          codesign --force --sign - --entitlements Packaging/IPA.entitlements "$APP"
           codesign --verify --deep --strict "$APP"
+          python3 Scripts/verify-ipa.py "$APP"
           cd probe
           zip -qry RepoPocket-1.0.3-rc.1.ipa Payload
           unzip -t RepoPocket-1.0.3-rc.1.ipa
@@ -404,6 +431,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' verify/Payload/RepoPocket.app/Info.plist)" = "1.0.3-rc.1"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' verify/Payload/RepoPocket.app/Info.plist)" = "4"
           codesign --verify --deep --strict verify/Payload/RepoPocket.app
+          python3 ../Scripts/verify-ipa.py verify/Payload/RepoPocket.app
           shasum -a 256 RepoPocket-1.0.3-rc.1.ipa > RepoPocket-1.0.3-rc.1.ipa.sha256
           shasum -a 256 -c RepoPocket-1.0.3-rc.1.ipa.sha256
       - uses: actions/upload-artifact@v4

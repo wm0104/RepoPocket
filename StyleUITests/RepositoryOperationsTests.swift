@@ -10,13 +10,11 @@ final class RepositoryOperationsTests: XCTestCase {
         XCTAssertTrue(run.waitForExistence(timeout: 15))
         waitForLabel(run, containing: "等待运行")
         // Selection pauses automatic polling, so the next read is the real manual refresh.
-        XCTAssertTrue(app.buttons["多选"].waitForExistence(timeout: 10)); waitForEnabled(app.buttons["多选"]); app.buttons["多选"].tap()
-        app.buttons["模拟运行中"].tap(); app.buttons["workflow-refresh"].tap()
+        chooseWorkflowAction("多选", in: app)
+        app.buttons["模拟运行中"].tap(); chooseWorkflowAction("刷新", in: app)
         waitForLabel(run, containing: "运行中")
-        let done = app.buttons["完成"]
-        XCTAssertTrue(done.waitForExistence(timeout: 10)); waitForEnabled(done); done.tap()
-        XCTAssertTrue(app.buttons["多选"].waitForExistence(timeout: 10))
-        app.buttons["模拟刷新失败"].tap(); app.buttons["workflow-refresh"].tap()
+        chooseWorkflowAction("完成", in: app)
+        app.buttons["模拟刷新失败"].tap(); chooseWorkflowAction("刷新", in: app)
         let error = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "模拟刷新失败")).firstMatch
         XCTAssertTrue(error.waitForExistence(timeout: 10))
         XCTAssertTrue(run.label.contains("运行中"), "Refresh failure must not clear the previously loaded run")

@@ -25,24 +25,12 @@ THE SOFTWARE.
 
 MarkdownUI uses NetworkImage (MIT) and swift-cmark (BSD-style and MIT component
 licenses); their license texts are bundled with the app in OpenSourceLicenses.txt.
-ZIPFoundation and the vendored deb codecs retain their existing licenses.
+ZIPFoundation retains its existing license.
 
 The new community feature code is implemented for RepoPocket; SwiftHub source
 code, branding and assets have not been copied.
 
 Local Git uses libgit2 1.9.7 (commit 49e408b3208bc3093757a1c2db938d3590f3f412), GPL v2 with the Linking Exception. Full terms: Vendor/NativeGit/COPYING. Source: https://github.com/libgit2/libgit2 . HTTPS uses Apple's SecureTransport; SSH and external Git commands are disabled.
-
-## Deb package information editing
-
-Description dot-line paragraph handling and release-date/changelog semantics in
-`RepoPocket/DebControlEditor.swift` are adapted from **Fila**, commit
-`70820797f29dabbb78e58d48328401ef0e99e5b5`,
-`Fila/Services/Installation/DebianPackageInformation.swift`,
-Copyright (c) 2026 **OwnGoal Studio**, MIT:
-https://github.com/wm0104/Fila . The complete MIT license is retained in
-`Licenses/SourceText/Fila-MIT.txt` and bundled in
-`RepoPocket/OpenSourceLicenses.txt`. No Fila archive backend or UI dependency
-was introduced; RepoPocket retains its own bounded archive editor and safety checks.
 
 ## Workflow input parsing
 

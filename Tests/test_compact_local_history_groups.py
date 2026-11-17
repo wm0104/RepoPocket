@@ -81,7 +81,7 @@ class CompactLocalHistoryGroupsTests(unittest.TestCase):
         self.assertNotIn('Section("', body)
         self.assertNotIn('.softGroupedRow(', body)
         for value in ['Text("提交")', 'Text("变更文件")', 'for f in files',
-                      'CommitPatchDestination(file: f)', 'if let old = f.previous_filename',
+                      'CommitPatchDestination(file: f, api: api, repo: repo, commitSHA: d.sha)', 'if let old = f.previous_filename',
                       '.lineLimit(messageExpanded ? nil : 4)', '.padding(.vertical, 6)',
                       'messageExpanded.toggle()', 'if busy', 'if more',
                       'Button(detail == nil ? "加载详情" : "加载更多文件")', '.disabled(busy)',

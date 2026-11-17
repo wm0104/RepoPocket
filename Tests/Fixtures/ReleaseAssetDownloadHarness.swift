@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+enum DownloadSource { case releaseAsset(repo:String,id:Int,name:String) }
 struct Asset:Identifiable { let id:Int; let name:String }
 struct AppError:LocalizedError { let text:String; var errorDescription:String? {text} }
 // PRODUCTION_RELEASE_MODELS
@@ -20,6 +21,9 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
  var operations=0, cancelAuthorization=false, holdSave=false
  var save:CheckedContinuation<URL,Error>?
  var label="fixture-downloads"
+ func download(_ source:DownloadSource,api:GitHub,progress:@escaping(ReleaseDownloadProgress)->Void) async throws -> URL {
+  switch source { case let .releaseAsset(repo,id,name): return try await api.downloadManagedAssetWithProgress(repo,asset:Asset(id:id,name:name),transfer:progress) }
+ }
  func requireAuthorization() async throws { if cancelAuthorization {throw CancellationError()} }
  func begin(){operations+=1}
  func end(){operations-=1}
@@ -51,6 +55,16 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
 }
 // PRODUCTION_RELEASE_CHANGES
 // PRODUCTION_PROGRESS
+@MainActor struct FixtureReleaseDownloader: ReleaseAssetDownloading {
+ var label:String {DownloadStore.shared.label}
+ func authorize() async throws {try await DownloadStore.shared.requireAuthorization()}
+ func begin(){DownloadStore.shared.begin()}
+ func end(){DownloadStore.shared.end()}
+ func download(api:GitHub,repo:String,asset:Asset,update:@escaping(ReleaseDownloadProgress)->Void) async throws ->URL {
+  try await api.downloadManagedAssetWithProgress(repo,asset:asset,transfer:update)
+ }
+ func persist(_ file:URL,generation:UUID) async throws ->URL {try await DownloadStore.shared.persist(file,session:generation)}
+}
 // PRODUCTION_STATE
 
 @main struct Run {
@@ -61,7 +75,7 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
   let file=root.appendingPathComponent("asset.ipa");try Data([1,2,3]).write(to:file);return file
  }
  @MainActor static func main() async throws {
-  let listAPI=GitHub(), list=ReleaseScreenState(api:listAPI,repo:"owner/repo")
+  let listAPI=GitHub(), list=ReleaseScreenState(api:listAPI,repo:"owner/repo",downloader:FixtureReleaseDownloader())
   listAPI.releaseRows=(1...85).map {ReleaseSummary(id:$0)}
   for reset in [true,false,false] {list.list(reset:reset);await wait{!list.busy}}
   precondition(list.rows.count==60 && list.more && list.listLoaded)
@@ -87,7 +101,7 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
   precondition(list.rows.isEmpty && list.listLoaded && !list.more)
   let calls=listAPI.requestedPages.count
   precondition(calls==6) // Three initial pages, then pages 2, 3 and the empty page 4.
-  let delayedAPI=GitHub(), delayed=ReleaseScreenState(api:delayedAPI,repo:"owner/repo")
+  let delayedAPI=GitHub(), delayed=ReleaseScreenState(api:delayedAPI,repo:"owner/repo",downloader:FixtureReleaseDownloader())
   delayedAPI.releaseRows=(1...20).map {ReleaseSummary(id:$0)}
   delayed.list(reset:true);await wait{!delayed.busy}
   delayedAPI.holdReleases=true;delayed.list(reset:false);await wait{delayedAPI.heldReleases != nil}
@@ -116,7 +130,7 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
   delegate.receive(.init(received:2,total:10));precondition(updates.count==2)
   clock=0.22;delegate.receive(.init(received:5,total:10));precondition(updates.count==3)
   delegate.receive(.init(received:10,total:10));delegate.receive(.init(received:10,total:10));precondition(updates.count==4)
-  let api=GitHub(), state=ReleaseScreenState(api:api,repo:"owner/repo"), asset=Asset(id:1,name:"asset.ipa")
+  let api=GitHub(), state=ReleaseScreenState(api:api,repo:"owner/repo",downloader:FixtureReleaseDownloader()), asset=Asset(id:1,name:"asset.ipa")
   let store=DownloadStore.shared
   state.download(asset);precondition(state.busy && state.assetDownload?.stage == .authorizing)
   let identity=state.assetDownload?.request
@@ -147,7 +161,7 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
   NotificationCenter.default.post(name:.githubAccountChanged,object:nil)
   api.pending.removeFirst().resume(throwing:CancellationError());last(.init(received:99,total:100))
   await wait{store.operations==0};precondition(!state.busy && state.assetDownload?.stage == .cancelled && state.assets.isEmpty)
-  let authorized=GitHub(), cancelled=ReleaseScreenState(api:authorized,repo:"owner/repo")
+  let authorized=GitHub(), cancelled=ReleaseScreenState(api:authorized,repo:"owner/repo",downloader:FixtureReleaseDownloader())
   store.cancelAuthorization=true;cancelled.download(asset);await wait{!cancelled.busy}
   precondition(cancelled.assetDownload?.stage == .cancelled && cancelled.error.isEmpty && authorized.callbacks.isEmpty)
   print("PASS actual release controller: in-place edits/deletions, page-boundary recovery, session gates, empty loaded list, download status/progress, save-before-success, retry/cancellation and stale callbacks")

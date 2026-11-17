@@ -17,7 +17,8 @@ struct RepositoryCommunitySection: View {
     @ObservedObject var api: GitHub
     let repo: String
     let branch: String
-    let avatar: String?
+    let openTools: () -> Void
+    let openOwner: () -> Void
     var connected = false
     @State private var expanded = false
     private var owner: String? { (try? RepositoryInput.parse(repo))?.split(separator: "/").first.map(String.init) }
@@ -31,22 +32,37 @@ struct RepositoryCommunitySection: View {
 #endif
     }
     private var content: some View {
-            SoftGroupRows(animateBackground: false, spacingBefore: connected ? 10 : 0) {
-            SoftGroupRow("issues", separatorInset: 62) { NavigationLink { CollaborationListView(api: api, repo: repo, kind: .issues) } label: { RepositoryFeatureLabel(title: "议题", symbol: "exclamationmark.circle", color: .green) } }
-            SoftGroupRow("pulls", separatorInset: 62) { NavigationLink { CollaborationListView(api: api, repo: repo, kind: .pulls) } label: { RepositoryFeatureLabel(title: "拉取请求", symbol: "arrow.triangle.branch", color: .blue) } }
-            SoftGroupRow("actions", separatorInset: 62) { NavigationLink { WorkflowRunsView(api: api, repo: repo, branch: branch) } label: { RepositoryFeatureLabel(title: "操作 · Actions", symbol: "play.circle", color: .orange) } }
-            SoftGroupRow("more", separatorInset: 62) {
-                Button { UIRules.withoutAnimation { expanded.toggle() } } label: {
-                    HStack { RepositoryFeatureLabel(title: "更多", symbol: "ellipsis", color: .gray); Spacer(); Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption).foregroundStyle(.secondary) }
-                        .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityValue(expanded ? "已展开" : "已折叠").accessibilityIdentifier("repository-more")
-            }
-            if expanded {
-            SoftGroupRow("tools") { NavigationLink { RepositoryToolsView(api: api, repo: repo) } label: { Label("贡献者、统计与工具", systemImage: "chart.bar") }.accessibilityIdentifier("repository-more-tools") }
-            if let owner {
-                SoftGroupRow("owner") { NavigationLink("仓库作者") { UserRepositoriesView(api: api, user: User(id: nil, login: owner, avatar_url: avatar, name: nil, followers: nil, following: nil)) }.accessibilityIdentifier("repository-more-owner") }
-            }
-            }
+            QuotaCard(accessibilityID: "repository-community-card") {
+                NavigationLink { CollaborationListView(api: api, repo: repo, kind: .issues) } label: { QuotaNavigationLabel { RepositoryFeatureLabel(title: "议题", symbol: "exclamationmark.circle", color: .green) } }.padding(12)
+                Divider()
+                NavigationLink { CollaborationListView(api: api, repo: repo, kind: .pulls) } label: { QuotaNavigationLabel { RepositoryFeatureLabel(title: "拉取请求", symbol: "arrow.triangle.branch", color: .blue) } }.padding(12)
+                Divider()
+                NavigationLink { WorkflowRunsView(api: api, repo: repo, branch: branch) } label: { QuotaNavigationLabel { RepositoryFeatureLabel(title: "操作 · Actions", symbol: "play.circle", color: .orange) } }.padding(12)
+                Divider()
+                    DisclosureGroup(isExpanded: $expanded) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            // Navigation belongs to the page host, never the disclosure.
+                            Button(action: openTools) {
+                                QuotaNavigationLabel {
+                                    Label { Text("贡献者、统计与工具") }
+                                        icon: { Image(systemName: "chart.bar").foregroundStyle(Color.accentColor) }
+                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.borderless).accessibilityIdentifier("repository-more-tools")
+                            if owner != nil {
+                                Divider()
+                                Button(action: openOwner) {
+                                    QuotaNavigationLabel {
+                                        Text("仓库作者")
+                                    }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                                }.buttonStyle(.borderless).accessibilityIdentifier("repository-more-owner")
+                            }
+                        }.buttonStyle(.plain).tint(.accentColor)
+                    } label: {
+                        RepositoryFeatureLabel(title: "更多", symbol: "ellipsis", color: .gray).foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .accessibilityValue(expanded ? "已展开" : "已折叠").accessibilityIdentifier("repository-more")
+                    }.tint(.secondary).padding(12)
             }
     }
 }

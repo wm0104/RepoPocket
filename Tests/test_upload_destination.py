@@ -20,8 +20,6 @@ var item = PendingRepoItem(local: file, size: 4)
 let id = item.id
 let inherited = try item.inheritTarget(folder: "debs", head: "h1", files: [:], directories: ["debs"])
 precondition(inherited && item.id == id && item.path == "debs/KeyBridge.deb" && item.head == "h1" && item.sha == nil)
-item.replaceLocal(URL(fileURLWithPath: "/tmp/new-name.deb"), size: 5)
-precondition(item.id == id && item.path == "debs/KeyBridge.deb" && item.head == "h1")
 var root = PendingRepoItem(local: file, size: 4)
 let rootBound = try root.inheritTarget(folder: "", head: "h2", files: [:], directories: [])
 precondition(rootBound && root.path == "KeyBridge.deb" && root.head == "h2")

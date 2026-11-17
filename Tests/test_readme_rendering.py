@@ -1,6 +1,7 @@
 """README production decoding/transport regression; fixtures never contact GitHub."""
 from html.parser import HTMLParser
 from pathlib import Path
+import hashlib
 import json
 import re
 import shutil
@@ -26,6 +27,69 @@ def mobile_readme_fixture():
 
 
 class ReadmeRenderingTests(unittest.TestCase):
+    def test_confirmed_122_readme_blobs_are_restored(self):
+        # Preserve the rollback except for the explicitly requested blue, underlined links.
+        # Confirmed baseline: a2eb15309564354a413296bbd8bb786485871970 (1.2.2).
+        blobs = {
+            'ReadmeDocument.swift': '2dd00e2aa92dfb7d94ebe88df229308d5878cd51',
+            'ReadmeHTMLView.swift': '2f635ff3f0f3830132b73cc93ceab068a3173abd',
+            'ReadingViews.swift': '2fb6a9080e2b1cee52bf6e72d6fd2f867a1d8ef7',
+            'RepositoryReadmeSection.swift': '96676406a640e21a699eb5bd785d02de91f658d9',
+        }
+        for filename, expected in blobs.items():
+            with self.subTest(filename=filename):
+                data = (ROOT / 'RepoPocket' / filename).read_bytes().replace(b'\r\n', b'\n')
+                if filename == 'ReadmeDocument.swift':
+                    self.assertIn(b'a { color: #0969da; text-decoration: underline; }', data)
+                    data = data.replace(b'a { color: #0969da; text-decoration: underline; }', b'a { color: #0969da; text-decoration: none; }')
+                actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+                self.assertEqual(actual, expected)
+
+    def test_shared_html_links_are_blue_and_underlined_in_both_themes(self):
+        html = mobile_readme_fixture()
+        css = html.split('<style>', 1)[1].split('</style>', 1)[0]
+        light, dark = css.split('@media (prefers-color-scheme: dark)', 1)
+        self.assertIn('a { color: #0969da; text-decoration: underline; }', light)
+        self.assertIn('a { color: #58a6ff; }', dark)
+        self.assertNotRegex(css, r'\ba\s*\{[^}]*color:\s*inherit\b')
+        self.assertNotRegex(css, r'text-decoration:\s*none\b')
+
+    def test_122_automatically_loads_html_in_both_readers(self):
+        view = (ROOT / 'RepoPocket/ReadmeHTMLView.swift').read_text()
+        reading = (ROOT / 'RepoPocket/ReadingViews.swift').read_text().split('struct FileReadingView:', 1)[0]
+        section = (ROOT / 'RepoPocket/RepositoryReadmeSection.swift').read_text()
+        self.assertIn('func updateUIView(', view)
+        self.assertIn('web.loadHTMLString(ReadmeDocumentRules.document(html, mediaBaseURL: mediaBaseURL), baseURL: baseURL)', view)
+        self.assertIn('if let html = document.html, renderError.isEmpty', view)
+        self.assertIn('if !raw, renderError.isEmpty, let html = document.html', reading)
+        self.assertIn('ReadmeDocumentBody(document: document,', section)
+        self.assertIn('api: api, expanded: true, height: $state.bodyHeight)', section)
+        self.assertNotIn('loadID', view + reading)
+        self.assertNotIn('htmlFailure', view + reading)
+        self.assertNotIn('Button("重新加载排版")', view)
+
+    def test_122_fallback_and_session_cache_contract(self):
+        rules = (ROOT / 'RepoPocket/ReadmeDocument.swift').read_text()
+        fallback = rules.split('guard source != nil else { throw error }', 1)[1]
+        self.assertIn('ReadmeDocument(entry: entry, source: source, html: nil)', fallback)
+        self.assertIn('cacheReadme(document, repo: repo, branch: branch)', fallback)
+        self.assertIn('guard isCurrentSession, let data = try? JSONEncoder().encode(document) else { return }', rules)
+        self.assertIn('save(data, accountID: accountID, key:', rules)
+        self.assertIn('try Task.checkCancellation()', rules)
+        self.assertIn('guard isCurrentSession, !RefreshFailure.isCancellation(error)', rules)
+        self.assertIn('repo.lowercased()', rules)
+
+    def test_first_open_ui_contract_has_no_manual_recovery_fixture(self):
+        gallery = (ROOT / 'RepoPocket/StylePreviewGallery.swift').read_text()
+        ui = (ROOT / 'StyleUITests/StyleBoundaryTests.swift').read_text()
+        case = ui.split('func testReadmeOpensFormattedWithoutManualReload()', 1)[1].split('func testReadmeBadgesAndInAppLink()', 1)[0]
+        self.assertNotIn('.tap()', case)
+        self.assertNotIn('readme-recovery-preview', gallery + case)
+        self.assertNotIn('makeRecoveryDocument', gallery)
+        for marker in ('自述文件格式预览', '累计下载次数', '最新版本', 'GitHub 排版结果'):
+            self.assertIn(marker, case)
+        self.assertIn('readme-first-open-formatted', case)
+
     def test_mobile_fixture_uses_one_production_document_and_complete_content(self):
         class Document(HTMLParser):
             def __init__(self):
@@ -294,6 +358,17 @@ GATEWAY
    Fixture.status=403
    let fallback=try await api.repositoryReadmeDocument("owner/repo",branch:"main")
    precondition(fallback.html==nil && fallback.source=="Title\n=")
+   // 1.2.2 caches source-only fallback as well as formatted documents.
+   precondition(api.cachedReadmeDocument("owner/repo",branch:"main")?.value.source == fallback.source)
+   precondition(api.cachedReadmeDocument("owner/repo",branch:"main")?.value.html == nil)
+   precondition(api.cachedReadmeDocument("owner/repo",branch:"other") == nil)
+   Fixture.status=200
+   let recovered=try await api.repositoryReadmeDocument("owner/repo",branch:"main")
+   precondition(recovered.html != nil)
+   precondition(api.cachedReadmeDocument("owner/repo",branch:"main")?.value.html == recovered.html)
+   let decoded=try JSONDecoder().decode(ReadmeDocument.self,from:JSONEncoder().encode(recovered))
+   precondition(decoded.html == recovered.html && decoded.source == recovered.source)
+   Fixture.status=403
    api.entry=entry("README",Data([0,1,2]))
    do {_ = try await api.repositoryReadmeDocument("owner/repo",branch:"main");preconditionFailure()}catch{}
    api.entry=entry("README",Data(),size:1048577);Fixture.status=200;let beforeLarge=Fixture.count()

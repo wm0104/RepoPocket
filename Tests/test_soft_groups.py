@@ -18,7 +18,11 @@ assert 'GitHubAvatar(url: avatarURL, size: 24)' in card
 assert 'cornerRadius: radius, style: .continuous' in style and 'let radius: CGFloat = 10' in style
 assert 'listRowBackground(' in style and 'SoftGroupShape' in style and '.secondarySystemGroupedBackground' in style
 # Only the decoration is clipped; never clip the interactive List or its content.
-assert style.count('.clipShape(') == 1
+list_style, quota_style = style.split('struct QuotaScrollStack', 1)
+assert list_style.count('.clipShape(') == 1
+assert quota_style.count('.clipShape(') == 1
+assert '.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))' in quota_style
+assert 'static let defaultValue = SoftGroupPresentation.list' in list_style
 assert '.appearance()' not in style and '.blur(' not in style
 for text in [ui, workspace, upload]:
     assert '.softGroupedRow(top: true)' in text
@@ -31,7 +35,7 @@ branch_picker = detail.split('struct BranchPickerView: View {', 1)[1]
 assert 'SoftGroupRows(bottom: !(canWrite && api.isCurrentSession) && deletionMessage.isEmpty && !busy)' in branch_picker
 assert 'SoftGroupRows(top: false, bottom: deletionMessage.isEmpty && !busy)' in branch_picker
 assert 'ProgressView().softGroupedRow(bottom: true)' in branch_picker
-section = ui.split('RepositoryHomeLinksSection(api: api', 1)[1].split('.listStyle(.insetGrouped)', 1)[0]
+section = ui.split('RepositoryHomeLinksSection(api: api', 1)[1].split('.navigationTitle("RepoPocket")', 1)[0]
 assert 'DisclosureGroup' not in section and 'repositoriesExpanded' not in ui
 repoSection = section.split('发现与关注动态', 1)[0]
 assert 'softGroupedRow' not in repoSection
@@ -71,8 +75,10 @@ assert 'SoftGroupRow("repository") { Text(binding.repo + " · " + binding.branch
 row = next(line for line in workspace.splitlines() if 'TextField("提交说明", text: $commitMessage)' in line)
 assert '.softGroupedRow()' in row, row
 # Upload is a single repository context, not another Release/Troll destination.
-commit_group = upload.split('private var commitSection:', 1)[1].split('private func beginEditing', 1)[0]
-assert 'SoftGroupRows(top: false, bottom: !busy)' in commit_group
+commit_group = upload.split('private var commitSection:', 1)[1].split('private func pendingActions', 1)[0]
+assert 'SoftGroupRows(top: false, bottom: !busy, animateBackground: true)' in commit_group
+assert 'DisclosureGroup(isExpanded: $optionsExpanded)' in commit_group
+assert 'disablesAnimations = true' not in commit_group
 for row in ['directory', 'branch', 'options', 'preview']:
     assert 'SoftGroupRow("' + row + '")' in commit_group
 assert '.softGroupedRow(' not in commit_group
@@ -218,12 +224,6 @@ for row in ['progress', 'help', 'cancel', 'notice', 'error', 'account']:
     assert 'SoftGroupRow("release-status-' + row + '")' in status_ui
 assert '.softGroupedRow(' not in status_ui
 assert 'Divider()' not in detail_ui  # all detail rows use the same full-width separator
-deb = source('DebEditorView.swift')
-for start, end, boundary in [('originalSection', 'editSection', 'top: false, bottom: differences.isEmpty && !showsOutput'),
-                             ('editSection', 'differencesSection', 'top: false, bottom: false')]:
-    group = deb.split('private var ' + start + ':', 1)[1].split('private var ' + end + ':', 1)[0]
-    assert 'SoftGroupRows(' + boundary + ')' in group and '.softGroupedRow(' not in group
-    assert 'UIRules.withoutAnimation' in group and '$0.disablesAnimations = true' in group
 collection = source('RepositorySections.swift').split('struct RepositoryCollectionView: View {', 1)[1]
 assert collection.count('SoftGroupRows {') == 1 and '.softGroupedRow(' not in collection
 for row in ['search', 'loading', 'empty', 'login', 'no-match', 'repository-\\(repository.id)']:
@@ -232,12 +232,17 @@ assert 'for repository in filteredRepositories' in collection
 assert '.swipeActions(edge: .trailing, allowsFullSwipe: false)' in collection
 assert '!RepositoryGroupRules.isOwned(repository.full_name, login: api.login)' in collection
 assert 'Button("复刻") { pendingFork = repository }.tint(.accentColor).disabled(busy)' in collection
-for file in ['AccountManagement.swift', 'DebEditorView.swift', 'DesktopViews.swift',
+for file in ['AccountManagement.swift', 'DesktopViews.swift',
              'RepositoryDeletionView.swift', 'RepositorySearchView.swift', 'ExternalFileActions.swift']:
     text = source(file)
     if file == 'RepositorySearchView.swift':
         assert 'SoftGroupRows {' in text and 'SoftGroupRows(top: false)' in text
         assert 'CommunityProfileSection(api: api, login: user.login, avatar: user.avatar_url, connected: true)' in text
+        assert '.softGroupedRow(' not in text
+    elif file == 'ExternalFileActions.swift':
+        assert 'SoftGroupRows {' in text
+        assert 'for file in files' in text
+        assert 'SoftGroupRow(file.absoluteString)' in text
         assert '.softGroupedRow(' not in text
     else:
         assert '.softGroupedRow(' in text and 'top:' in text and 'bottom:' in text, file
@@ -332,12 +337,6 @@ for directories, files, files_only, folders_only, busy, error, nested in itertoo
     count = 3 + int(nested) + int(not files_only) + int(busy) + 2 * error + directories
     if not folders_only: count += 1 + files
     edges_ok(shared_edges(count))
-# Optional/folded DEB rows use the same shared edge calculation in every state.
-for name, author, section, priority, homepage, expanded in itertools.product((False, True), repeat=6):
-    count = int(name) + 6 + int(author or section or priority or homepage)
-    if expanded: count += author + section + priority + homepage
-    edges_ok([(i == 0, i == count - 1) for i in range(count)])
-
 # cc62549 local allowance is ONLY UI rendering. Preserve the exact historic
 # logic and shared decoration, not a broad regex normalization of whole files.
 # The Actions checkout is shallow. Fetch only this immutable baseline when it
@@ -356,6 +355,14 @@ def baseline(name):
         text = text[:start] + text[end:]
         start, end = text.index('    static func trollSize('), text.index('    func downloadFile(')
         text = text[:start] + text[end:]
+        start, end = text.index('    func saveRemoteDeb('), text.index('    func downloadFile(')
+        text = text[:start] + text[end:]
+        for line in [
+            '        let prepared = try DebControlEditor.prepareForUpload(file)\n',
+            '        defer { if prepared.file != file { try? FileManager.default.removeItem(at: prepared.file.deletingLastPathComponent()) } }\n',
+            '        if let notice = prepared.notice { message = notice }\n',
+            '        let file = prepared.file\n',
+        ]: text = text.replace(line, '')
     return text
 for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
              'RepositoryStar.swift', 'RepositoryStarUI.swift', 'ReleaseManagement.swift',
@@ -494,6 +501,9 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         if current[rename_end:rename_end + 1] == '\n': rename_end += 1
         assert 'func renameBranch(' in current[rename_start:rename_end]
         current = current[:rename_start] + current[rename_end:]
+        start = current.index('    func downloadForCenter(')
+        end = current.index('    private func download(', start)
+        current = current[:start] + current[end:]
         old_github = baseline(file)
         # Only the obsolete manual cache-reset hook is removed; retain the
         # byte guard on cache fetching and every unrelated API operation.
@@ -537,7 +547,6 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
             ('    func commitWorkspace(', '    func commitQueue('),
             ('    func commitQueue(', '    func identify('),
             ('    func commit(_ repo:', '    func delete('),
-            ('    func saveRemoteDeb(', '    func downloadFile('),
         ):
             current_start = current.index(signature)
             current_end = current.index(next_signature, current_start)
@@ -643,37 +652,12 @@ def restore_workspace_operations(current, old):
             current = current.replace(updated, body, 1)
     return current
 
-def without_deb_release_metadata(current):
-    # Explicitly authorized metadata additions; retain the byte-freeze for every
-    # other presentation, upload, safety-copy and submission operation.
-    current = current.replace('                let release = DebControlEditor.releaseInformation(fields: fields)\n                releaseDate = release.date; changelog = release.changelog\n', '')
-    current = current.replace(', releaseDate: releaseDate, changelog: changelog)', ')')
-    current = current.replace('            let release = try DebControlEditor.releaseFields(package: package, originalPackage: original["Package"] ?? "", version: version, date: releaseDate, changelog: changelog)\n', '')
-    current = current.replace('.merging(release) { _, new in new }', '')
-    current = current.replace('''            if let onUseForUpload {
-                try onUseForUpload(target)
-                // The queue owns its verified copy before this editor is dismissed.
-                try? FileManager.default.removeItem(at: dir)
-                dismiss()
-            } else {
-                completed = true
-                output = target
-            }''', '''            completed = true
-            output = target''')
-    current = current.replace('            .alert("无法编辑 deb"', '''            .sheet(isPresented: $showUpload) {
-                if let output { UploadView(api: api, initialRepo: remote?.repo ?? "", initialBranch: remote?.branch ?? "", initialFile: output, openedFromFolder: true) }
-            }
-            .alert("无法编辑 deb"''', 1)
-    return current.replace('verified[$0.key] == ($0.value.isEmpty ? nil : $0.value)', 'verified[$0.key] == $0.value')
-
 for file, marker in [
     ('ReleaseBranchPicker.swift', 'struct ReleaseBranchPicker: View {'),
     ('TargetPickerView.swift', '    private func load() async {'),
     ('RepositorySearchView.swift', '    private func begin('),
-    ('DebEditorView.swift', '    private var editorPresentation: some View {'),
     ('WorkspaceView.swift', '    @MainActor private func importItems(')]:
     current, old = source(file), baseline(file)
-    if file == 'DebEditorView.swift': current = without_deb_release_metadata(current)
     if file == 'ReleaseBranchPicker.swift':
         assert current.split(marker)[0] == old.split(marker)[0], file
     elif file == 'WorkspaceView.swift':
@@ -698,25 +682,19 @@ for file, marker in [
         assert current.split('    private func load() async {')[-1] == old.split('    private func load() async {')[-1]
     else:
         assert current.split(marker, 1)[1] == old.split(marker, 1)[1], file
-print('PASS feature-page matrices: release pagination/status/attachments, direct management entry and 64 optional/folded deb field combinations; native branch/SHA expansion boundaries; exact cc62549 business/shared-style protection')
+print('PASS feature-page matrices: release pagination/status/attachments, direct management entry; native branch/SHA expansion boundaries; exact cc62549 business/shared-style protection')
 
 # Byte-exact operation bodies for mixed UI/logic files: rendering may move, API
 # calls/cancellation/permission and destructive confirmation logic may not.
 for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.swift',
              'UploadView.swift', 'RepositoryDeletionView.swift', 'RepositorySections.swift',
-             'AccountManagement.swift', 'DebEditorView.swift', 'TargetPickerView.swift',
+             'AccountManagement.swift', 'TargetPickerView.swift',
              'WorkspaceView.swift']:
     current_source = source(file)
-    if file == 'DebEditorView.swift': current_source = without_deb_release_metadata(current_source)
     old, current = function_blocks(baseline(file)), function_blocks(current_source)
     # Pure rendering helpers may move; business operations remain byte-frozen.
     rendering = ['workspaceManagement(', 'bindingSection(', 'outputSection(']
     for signature, body in old.items():
-        if file == 'DebEditorView.swift' and signature.startswith('private func differenceRow('):
-            assert 'SoftGroupRow(item.0)' in source(file)
-            assert 'VStack(alignment: .leading, spacing: 4)' in source(file)
-            assert 'if differencesExpanded' in source(file)
-            continue
         if any(token in signature for token in rendering): continue
         if file == 'WorkspaceView.swift' and any(signature.startswith(prefix) for prefix in workspace_operations):
             # Explicitly replaced by linked-directory production regressions.
@@ -734,7 +712,7 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             # result with the approved native ZIP completion alert; focused
             # download tests protect this changed path and the file fallback.
             body = current.get(signature, '')
-            assert 'try await DownloadStore.shared.persist(' in body, signature
+            assert 'try await DownloadStore.shared.download(' in body, signature
             if signature == 'private func zip() async':
                 assert 'downloadedZIP = saved' in body, signature
             else:
@@ -750,7 +728,9 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'defer { if operation == token { busy = false; task = nil } }' in body
             continue
         if file == 'ReleaseManagementUI.swift' and signature == 'func cancel()':
-            assert 'task?.cancel()' in current[signature] and 'assetDownload?.stage = .cancelled' in current[signature]
+            changed = current['func cancel(preservingDownload: Bool = false)']
+            assert 'task?.cancel()' in changed and 'assetDownload?.stage = .cancelled' in changed
+            assert 'preservingDownload && downloader.keepsDownloadedFile' in changed
             continue
         if file == 'ReleaseManagementUI.swift' and signature == 'func list(reset: Bool)':
             # Confirmed edits/deletions preserve loaded rows; production controller fixtures cover paging and stale responses.
@@ -776,23 +756,22 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'confirmation' not in body and 'secondDelete' not in body
             assert 'deleteManagedRelease' in body
             continue
+        if file == 'UploadView.swift' and (signature.startswith('private func beginEditing(') or signature.startswith('private func adoptGeneratedDeb(')):
+            assert signature not in current, signature
+            continue
         if file == 'UploadView.swift' and signature in (
-            'private func beginEditing(_ item: PendingRepoItem)',
-            'private func adoptGeneratedDeb(_ source: URL, replacing id: UUID? = nil)',
             'private func openTargetPicker() async',
             'private func invalidateTarget()',
         ):
-            # Approved upload target inheritance and single-item DEB presentation.
+            # Approved upload target inheritance; package editing is removed.
             # Real Swift rules: test_upload_destination; real screens: UploadEditorTests.
             # All other upload operations retain their byte-exact historical guard.
             expected = '@MainActor ' + signature if signature == 'private func openTargetPicker() async' else signature
-            if signature.startswith('private func adoptGeneratedDeb('):
-                expected += ' throws'
             assert expected in current, signature
             continue
         if file == 'UploadView.swift' and signature == 'private func select(_ result: Result<[URL], Error>) async':
             changed = current.get(signature, '')
-            for token in ['RepoQueue.addingUploadBytes(size, to: total)', 'RepoQueue.addingUploadBytes(actual, to: total)', 'DebControlEditor.prepareForUpload', 'var accepted = false', 'if !accepted', 'queue.append(contentsOf: pending)', 'accepted = true']:
+            for token in ['RepoQueue.addingUploadBytes(size, to: total)', 'RepoQueue.addingUploadBytes(actual, to: total)', 'var accepted = false', 'if !accepted', 'queue.append(contentsOf: pending)', 'accepted = true']:
                 assert token in changed, token
             continue
         if file == 'UploadView.swift' and signature == 'private func commit() async':
@@ -859,6 +838,9 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             changed = changed.replace('if api.isCurrentSession, !RefreshFailure.isCancellation(error) { loadError = error.localizedDescription; api.message = loadError }',
                                       'if !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription }')
             assert changed == body, (file, signature)
+            continue
+        if file == 'RepoPocketApp.swift' and signature in ('func makeUIViewController(context: Context) -> UIActivityViewController', 'func makeCoordinator() -> Coordinator', 'static func dismantleUIViewController(_ vc: UIActivityViewController, coordinator: Coordinator)', 'func release()'):
+            # App-owned downloads no longer acquire external directory security scopes.
             continue
         assert current.get(signature) == body, (file, signature)
 print('PASS byte-exact baseline operation bodies: account, navigation/API actions, local/remote workspace, upload, release and destructive guards')

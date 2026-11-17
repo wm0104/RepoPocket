@@ -64,6 +64,24 @@ public final class TomorrowTheme: EditorTheme {
 
 private extension UIColor {
     convenience init(namedInModule name: String) {
-        self.init(named: name, in: .module, compatibleWith: nil)!
+        if let color = UIColor(named: name, in: .module, compatibleWith: nil) {
+            self.init(cgColor: color.cgColor)
+            return
+        }
+        // Exact Colors.xcassets palette if the device cannot read its compiled catalog.
+        switch name {
+        case "TomorrowAqua": self.init(red: 0.243, green: 0.600, blue: 0.624, alpha: 1.000)
+        case "TomorrowBackground": self.init(red: 1.000, green: 1.000, blue: 1.000, alpha: 1.000)
+        case "TomorrowBlue": self.init(red: 0.259, green: 0.443, blue: 0.682, alpha: 1.000)
+        case "TomorrowComment": self.init(red: 0.557, green: 0.565, blue: 0.549, alpha: 1.000)
+        case "TomorrowCurrentLine": self.init(red: 0.937, green: 0.937, blue: 0.937, alpha: 1.000)
+        case "TomorrowForeground": self.init(red: 0.302, green: 0.302, blue: 0.298, alpha: 1.000)
+        case "TomorrowGreen": self.init(red: 0.443, green: 0.549, blue: 0.000, alpha: 1.000)
+        case "TomorrowOrange": self.init(red: 0.961, green: 0.529, blue: 0.122, alpha: 1.000)
+        case "TomorrowPurple": self.init(red: 0.537, green: 0.349, blue: 0.659, alpha: 1.000)
+        case "TomorrowRed": self.init(red: 0.784, green: 0.157, blue: 0.161, alpha: 1.000)
+        case "TomorrowYellow": self.init(red: 0.918, green: 0.718, blue: 0.000, alpha: 1.000)
+        default: self.init(cgColor: UIColor.label.cgColor)
+        }
     }
 }

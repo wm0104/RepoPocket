@@ -93,12 +93,14 @@ final class ContentSnapshotCache {
 }
 
 extension GitHub {
-    func cachedWorkflowRuns(_ repo: String, branch: String, failedOnly: Bool = false, headSHA: String = "") -> (value: [WorkflowRun], savedAt: Date)? {
+    func cachedWorkflowRuns(_ repo: String, branch: String, failedOnly: Bool = false, headSHA: String = "", workflowID: Int? = nil, status: WorkflowRunStatusFilter = .all) -> (value: [WorkflowRun], savedAt: Date)? {
+        if let workflowID, workflowID <= 0 { return nil }
         guard let page = try? CommunityRules.page(1) else { return nil }
         let query = page + (branch.isEmpty ? [] : [.init(name: "branch", value: branch)])
-            + (failedOnly ? [.init(name: "status", value: "failure")] : [])
+            + (failedOnly || status != .all ? [.init(name: "status", value: failedOnly ? "failure" : status.rawValue)] : [])
             + (headSHA.isEmpty ? [] : [.init(name: "head_sha", value: headSHA)])
-        guard let cached = try? cachedContent(WorkflowRuns.self, key: ContentSnapshotCache.key(Self.repoPath(repo) + "/actions/runs", query: query)) else { return nil }
+        let suffix = workflowID.map { "/actions/workflows/\($0)/runs" } ?? "/actions/runs"
+        guard let cached = try? cachedContent(WorkflowRuns.self, key: ContentSnapshotCache.key(Self.repoPath(repo) + suffix, query: query)) else { return nil }
         return (cached.value.workflow_runs.filter { headSHA.isEmpty || ($0.head_sha == headSHA && (branch.isEmpty || $0.head_branch == branch)) }, cached.savedAt)
     }
     func cachedContent<T: Decodable>(_ type: T.Type, key: String) -> (value: T, savedAt: Date)? {
