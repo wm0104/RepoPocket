@@ -67,9 +67,11 @@ class SocialPlatformTests(unittest.TestCase):
 
     def test_safari_done_also_dismisses_the_swiftui_sheet(self):
         source = (ROOT / 'RepoPocket/NativeLinkDestination.swift').read_text(encoding='utf-8')
-        self.assertIn('controller.delegate = context.coordinator', source)
+        self.assertIn('browser.delegate = self', source)
         self.assertIn('func safariViewControllerDidFinish(_ controller: SFSafariViewController)', source)
-        self.assertIn('context.coordinator.onClose = onClose', source)
+        self.assertIn('controller.onClose = onClose', source)
+        returned = source.split('case .covered:', 1)[1].split('case .presenting, .finished:', 1)[0]
+        self.assertLess(returned.index('phase = .finished'), returned.index('onClose()'))
         self.assertNotIn('reading-link-close', source)
         self.assertNotIn('.navigationTitle("网页")', source)
         self.assertIn('onClose()', source)

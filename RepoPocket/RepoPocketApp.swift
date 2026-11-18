@@ -7,6 +7,7 @@ struct RepoPocketApp: App {
     @StateObject private var selectionStore = WorkspaceSelectionStore()
     @StateObject private var accountPresentation = AccountPresentation()
     @AppStorage("appearance.mode") private var appearance = "system"
+    @ObservedObject private var downloads = DownloadStore.shared
     var body: some Scene {
         WindowGroup {
             Group {
@@ -28,6 +29,7 @@ struct RepoPocketApp: App {
                 .alert("GitHub 授权成功", isPresented: Binding(get: { accountPresentation.authorizationNotice != nil }, set: { if !$0 { accountPresentation.authorizationNotice = nil } })) {
                     Button("好", role: .cancel) { accountPresentation.authorizationNotice = nil }
                 } message: { Text(accountPresentation.authorizationNotice ?? "") }
+                .background(DownloadFolderPresentation(downloads: downloads))
                 .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in
                     accountID = AccountStore.generation
                 }
@@ -41,6 +43,99 @@ struct RepoPocketApp: App {
         #else
         AccountManagementView()
         #endif
+    }
+}
+
+// Folder authorization must also cover download pages already presented in a sheet.
+private struct DownloadFolderPresentation: UIViewRepresentable {
+    @ObservedObject var downloads: DownloadStore
+    func makeCoordinator() -> Coordinator { Coordinator(downloads: downloads) }
+    func makeUIView(context: Context) -> AnchorView {
+        let view = AnchorView()
+        view.isUserInteractionEnabled = false
+        context.coordinator.view = view
+        view.changed = { [weak coordinator = context.coordinator] in coordinator?.schedule() }
+        return view
+    }
+    func updateUIView(_ view: AnchorView, context: Context) { context.coordinator.schedule() }
+    static func dismantleUIView(_ view: AnchorView, coordinator: Coordinator) {
+        view.changed = nil
+        coordinator.stop()
+    }
+    final class AnchorView: UIView {
+        var changed: (() -> Void)?
+        override func didMoveToWindow() { super.didMoveToWindow(); changed?() }
+    }
+    @MainActor final class Coordinator: NSObject, UIAdaptivePresentationControllerDelegate {
+        let downloads: DownloadStore
+        weak var view: UIView?
+        private var controller: UIViewController?
+        private var requestID: UUID?
+        private var transitioning = false
+        init(downloads: DownloadStore) { self.downloads = downloads }
+        func schedule() { DispatchQueue.main.async { [weak self] in self?.synchronize() } }
+        func synchronize() {
+            guard !transitioning, var presenter = view?.window?.rootViewController else { return }
+            if let controller {
+                if let id = requestID, downloads.picker?.id == id { return }
+                if let alert = controller as? UIAlertController, downloads.picker == nil, !downloads.error.isEmpty {
+                    alert.message = downloads.error; return
+                }
+                dismissCurrent(); return
+            }
+            while let presented = presenter.presentedViewController { presenter = presented }
+            if presenter.isBeingPresented || presenter.isBeingDismissed {
+                presenter.transitionCoordinator?.animate(alongsideTransition: nil) { [weak self] _ in self?.schedule() }
+                return
+            }
+            let controller: UIViewController
+            if let request = downloads.picker {
+                let picker = WorkspaceDocumentPicker(request: request, allowsMultipleSelection: false, cancelTitle: "取消") { [weak self] urls in
+                    self?.finish(urls, id: request.id)
+                }
+                controller = UIHostingController(rootView: picker)
+                controller.modalPresentationStyle = .pageSheet
+                requestID = request.id
+            } else if !downloads.error.isEmpty {
+                let alert = UIAlertController(title: "下载位置不可用", message: downloads.error, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "好", style: .cancel) { [weak self] _ in
+                    self?.downloads.clearError(); self?.dismissCurrent()
+                })
+                controller = alert
+            } else { return }
+            self.controller = controller
+            transitioning = true
+            presenter.present(controller, animated: true) { [weak self] in
+                self?.transitioning = false; self?.synchronize()
+            }
+            controller.presentationController?.delegate = self
+        }
+        private func finish(_ urls: [URL]?, id: UUID) {
+            guard requestID == id else { return }
+            if downloads.picker?.id == id { downloads.selected(urls) }
+            dismissCurrent()
+        }
+        private func dismissCurrent() {
+            guard !transitioning, let controller else { return }
+            transitioning = true
+            controller.dismiss(animated: true) { [weak self] in
+                guard let self else { return }
+                self.controller = nil; self.requestID = nil; self.transitioning = false
+                self.synchronize()
+            }
+        }
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            guard presentationController.presentedViewController === controller else { return }
+            let id = requestID
+            controller = nil; requestID = nil; transitioning = false
+            if let id, downloads.picker?.id == id { downloads.selected(nil) }
+            synchronize()
+        }
+        func stop() {
+            if let id = requestID, downloads.picker?.id == id { downloads.selected(nil) }
+            controller?.dismiss(animated: false)
+            controller = nil; requestID = nil; view = nil
+        }
     }
 }
 
@@ -84,13 +179,23 @@ struct AccountRootView: View {
     }
 }
 
-struct SharedFile: Identifiable { let id = UUID(); let url: URL }
+struct SharedFile: Identifiable { let id = UUID(); let url: URL; var bookmark: Data? = nil }
 struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
+    var bookmark: Data? = nil
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        context.coordinator.scope = DownloadStore.shared.shareScope(for: url, bookmark: bookmark)
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, _ in context.coordinator.release() }
+        return controller
     }
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    static func dismantleUIViewController(_ vc: UIActivityViewController, coordinator: Coordinator) { coordinator.release() }
+    final class Coordinator {
+        var scope: URL?
+        func release() { scope?.stopAccessingSecurityScopedResource(); scope = nil }
+    }
 }
 
 struct RepositoriesView: View {
@@ -123,7 +228,6 @@ struct RepositoriesView: View {
     var body: some View {
         AppNavigationStack {
             QuotaScrollStack {
-                ExternalInboxSection(api: api)
                 if CredentialStore.read().isEmpty {
                     Section {
                         VStack(spacing: 12) {
@@ -629,7 +733,14 @@ struct BrowserView: View {
         busy = true; defer { busy = false }
         do {
             downloadedZIP = nil
-            let saved = try await DownloadStore.shared.download(.archive(repo: repo, ref: activeBranch), api: api)
+            let session = AccountStore.generation
+            let downloads = DownloadStore.shared
+            try await downloads.requireAuthorization()
+            guard api.isCurrentSession, session == AccountStore.generation else { throw CancellationError() }
+            downloads.begin(); defer { downloads.end() }
+            let file = try await api.downloadZIP(repo, branch: activeBranch)
+            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let saved = try await downloads.persist(file, session: session)
             guard api.isCurrentSession else { throw CancellationError() }
             downloadedZIP = saved
         }
@@ -803,7 +914,14 @@ struct FileView: View {
         busy = true; defer { busy = false }
         do {
             downloadedFile = nil
-            let saved = try await DownloadStore.shared.download(.file(repo: repo, path: entry.path, ref: branch, name: entry.name), api: api)
+            let session = AccountStore.generation
+            let downloads = DownloadStore.shared
+            try await downloads.requireAuthorization()
+            guard api.isCurrentSession, session == AccountStore.generation else { throw CancellationError() }
+            downloads.begin(); defer { downloads.end() }
+            let file = try await api.downloadFile(repo, entry: entry, branch: branch)
+            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let saved = try await downloads.persist(file, session: session)
             guard api.isCurrentSession else { throw CancellationError() }
             downloadedFile = saved
         }
@@ -853,7 +971,6 @@ struct SettingsView: View {
                     }
                     }.environment(\.softGroupPresentation, .rows)
                 }
-                SettingsAppearanceRow()
                 QuotaCard(accessibilityID: "settings-about-card") {
                     Group {
                     Text("关于").font(.subheadline).foregroundStyle(.secondary).softGroupedRow(top: true)
@@ -863,6 +980,7 @@ struct SettingsView: View {
                     }.environment(\.softGroupPresentation, .rows)
                 }
             }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline).adaptiveWorkspaceLayout()
+            .toolbar { SettingsOptionsMenu() }
             .task { if !CredentialStore.read().isEmpty { try? await api.identify() } }
             .task { updateChecker.enterPage() }
             .onDisappear { if !updateChecker.sharing { updateChecker.leavePage() } }
@@ -898,37 +1016,21 @@ struct SettingsView: View {
     }
 }
 
-// Own storage observation at the rendered choices, not in a type-erased row builder.
-private struct SettingsAppearanceRow: View {
+// Own storage observation at the actual menu host, not in a type-erased row builder.
+private struct SettingsOptionsMenu: View {
     @AppStorage("appearance.mode") private var appearance = "system"
-    @State private var appearanceExpanded = false
+    @ObservedObject private var downloads = DownloadStore.shared
     var body: some View {
-        let selectedAppearance = appearance
-        return QuotaCard(accessibilityID: "settings-appearance-card") {
-            DisclosureGroup(isExpanded: $appearanceExpanded) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(["system", "light", "dark"], id: \.self) { mode in
-                        Button { appearance = mode } label: {
-                            HStack {
-                                Text(mode == "system" ? "跟随系统" : (mode == "light" ? "浅色" : "深色"))
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if selectedAppearance == mode {
-                                    Image(systemName: "checkmark").foregroundStyle(Color.accentColor).accessibilityHidden(true)
-                                }
-                            }.frame(minHeight: 44).contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("theme-" + mode)
-                        .accessibilityAddTraits(selectedAppearance == mode ? [.isSelected] : [])
-                    }
-                }
-            } label: {
-                Text("外观").foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .accessibilityIdentifier("settings-appearance")
-            }.tint(.secondary).padding(12)
-        }
+        NativeActionMenu(title: "设置选项", accessibilityIdentifier: "settings-options", items: [
+            NativeMenuItem.submenu("通用", symbol: "gearshape", children: [
+                NativeMenuItem.submenu("主题", symbol: "circle.lefthalf.filled", singleSelection: true, children:
+                    [("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")].map { mode, title in
+                        NativeMenuItem(id: "theme-" + mode, title: title, selected: appearance == mode, selectedState: { appearance == mode }) { appearance = mode }
+                    })
+            ]),
+            NativeMenuItem(id: "download-folder", title: "选择文件夹", symbol: "folder", enabled: downloads.operations == 0, hint: downloads.label) {
+                guard downloads.operations == 0 else { return }; downloads.choose()
+            }
+        ]).frame(width: 44, height: 44)
     }
 }

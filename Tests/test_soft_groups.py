@@ -85,7 +85,7 @@ assert '.softGroupedRow(' not in commit_group
 assert 'mode ==' not in upload and 'private var releaseSection' not in upload
 assert 'private var fileSection:' in upload
 assert 'Button("待上传文件")' in upload and '.softGroupedRow(bottom: true)' in upload
-assert 'ReleaseEntryView(api: api' in Path(REPO_ROOT, 'RepoPocket/ExternalFileActions.swift').read_text()
+assert 'ReleaseEntryView(api: state.api, initialRepo: state.repo)' in Path(REPO_ROOT, 'RepoPocket/ReleaseManagementUI.swift').read_text()
 for count in (0, 1, 4):
     edges = [(i == 0, i == count - 1) for i in range(count)]
     if count: assert sum(top for top, _ in edges) == sum(bottom for _, bottom in edges) == 1
@@ -233,16 +233,16 @@ assert '.swipeActions(edge: .trailing, allowsFullSwipe: false)' in collection
 assert '!RepositoryGroupRules.isOwned(repository.full_name, login: api.login)' in collection
 assert 'Button("复刻") { pendingFork = repository }.tint(.accentColor).disabled(busy)' in collection
 for file in ['AccountManagement.swift', 'DesktopViews.swift',
-             'RepositoryDeletionView.swift', 'RepositorySearchView.swift', 'ExternalFileActions.swift']:
+             'RepositoryDeletionView.swift', 'RepositorySearchView.swift', 'ShareInboxView.swift']:
     text = source(file)
     if file == 'RepositorySearchView.swift':
         assert 'SoftGroupRows {' in text and 'SoftGroupRows(top: false)' in text
         assert 'CommunityProfileSection(api: api, login: user.login, avatar: user.avatar_url, connected: true)' in text
         assert '.softGroupedRow(' not in text
-    elif file == 'ExternalFileActions.swift':
+    elif file == 'ShareInboxView.swift':
         assert 'SoftGroupRows {' in text
-        assert 'for file in files' in text
-        assert 'SoftGroupRow(file.absoluteString)' in text
+        assert 'for item in items' in text
+        assert 'SoftGroupRow("file-" + item.id.uuidString)' in text
         assert '.softGroupedRow(' not in text
     else:
         assert '.softGroupedRow(' in text and 'top:' in text and 'bottom:' in text, file
@@ -501,9 +501,6 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         if current[rename_end:rename_end + 1] == '\n': rename_end += 1
         assert 'func renameBranch(' in current[rename_start:rename_end]
         current = current[:rename_start] + current[rename_end:]
-        start = current.index('    func downloadForCenter(')
-        end = current.index('    private func download(', start)
-        current = current[:start] + current[end:]
         old_github = baseline(file)
         # Only the obsolete manual cache-reset hook is removed; retain the
         # byte guard on cache fetching and every unrelated API operation.
@@ -712,7 +709,8 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             # result with the approved native ZIP completion alert; focused
             # download tests protect this changed path and the file fallback.
             body = current.get(signature, '')
-            assert 'try await DownloadStore.shared.download(' in body, signature
+            assert 'try await downloads.requireAuthorization()' in body, signature
+            assert 'try await downloads.persist(file, session: session)' in body, signature
             if signature == 'private func zip() async':
                 assert 'downloadedZIP = saved' in body, signature
             else:
@@ -728,9 +726,8 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'defer { if operation == token { busy = false; task = nil } }' in body
             continue
         if file == 'ReleaseManagementUI.swift' and signature == 'func cancel()':
-            changed = current['func cancel(preservingDownload: Bool = false)']
+            changed = current[signature]
             assert 'task?.cancel()' in changed and 'assetDownload?.stage = .cancelled' in changed
-            assert 'preservingDownload && downloader.keepsDownloadedFile' in changed
             continue
         if file == 'ReleaseManagementUI.swift' and signature == 'func list(reset: Bool)':
             # Confirmed edits/deletions preserve loaded rows; production controller fixtures cover paging and stale responses.

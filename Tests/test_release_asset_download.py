@@ -3,6 +3,16 @@ import shutil, subprocess, tempfile, unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 class ReleaseAssetDownloadTests(unittest.TestCase):
+    def test_external_download_saves_once_and_only_cleans_the_temporary_parent(self):
+        source=(ROOT/'RepoPocket/ReleaseAssetDownload.swift').read_text()
+        for token in ['DownloadStore.shared.begin()', 'DownloadStore.shared.end()', 'api.downloadManagedAssetWithProgress(repo, asset: asset, transfer: update)', 'DownloadStore.shared.persist(file, session: generation)']:
+            self.assertIn(token,source)
+        ui=(ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
+        self.assertIn('defer { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) }',ui)
+        self.assertIn('.onDisappear { state.cancel() }',ui)
+        github=(ROOT/'RepoPocket/GitHub.swift').read_text()
+        download=github.split('    func downloadManagedAssetWithProgress(',1)[1].split('\n    }',1)[0]
+        self.assertIn('guard asset.id > 0',download)
     def test_compact_actions_inline_progress_and_request_identity(self):
         ui=(ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
         row=ui.split('for asset in state.assets {',1)[1].split('if state.assets.isEmpty',1)[0]
@@ -19,6 +29,21 @@ class ReleaseAssetDownloadTests(unittest.TestCase):
         delegate=(ROOT/'RepoPocket/ReleaseAssetDownload.swift').read_text()
         self.assertIn('ReleaseAssetRedirectPolicy()',delegate)
         self.assertNotIn('Timer',delegate)
+
+    def test_retry_hit_area_is_inside_its_button_label_and_failures_keep_diagnostics(self):
+        status=(ROOT/'RepoPocket/ReleaseAssetDownloadStatusView.swift').read_text()
+        self.assertIn('Button(action: retry) {',status)
+        retry=status.split('Button(action: retry) {',1)[1].split('}.buttonStyle(.borderless)',1)[0]
+        self.assertIn('Text("重试")',retry)
+        self.assertIn('.frame(minWidth: 44, minHeight: 44)',retry)
+        self.assertIn('.contentShape(Rectangle())',retry)
+        self.assertIn('.accessibilityIdentifier("release-download-retry-\\(download.assetID)")',status)
+        preview=(ROOT/'RepoPocket/ReleaseDownloadStylePreview.swift').read_text()
+        for token in ['@Published private(set) var attempts = 0', 'ReleaseDownloadDiagnostics(state: state, downloader: downloader)', 'release-download-fixture-state', 'busy=\\(state.busy)', 'valid=\\(state.valid)']:
+            self.assertIn(token,preview)
+        test=(ROOT/'StyleUITests/StyleBoundaryTests.swift').read_text().split('    func testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates()',1)[1].split('    func testSharedProfileFollowStateAndFailureHandling()',1)[0]
+        for token in ['addTeardownBlock', 'failureCount', 'release-download-failure', 'app.debugDescription', 'hierarchy.lifetime = .keepAlways', "label CONTAINS '40%'", "label == '下载已取消'", 'completion.waitForExistence(timeout: 15)']:
+            self.assertIn(token,test)
 
     @unittest.skipUnless(shutil.which('swiftc'),'Production Swift regression runs on macOS')
     def test_production_controller_and_real_progress_delegate(self):

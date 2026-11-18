@@ -8,7 +8,35 @@ from unittest.mock import patch
 
 
 class StyleFailureDiagnosticsTests(unittest.TestCase):
-    def test_recovery_regressions_run_real_theme_geometry_readme_and_download_cases(self):
+    def test_download_settings_recheck_keeps_failed_cases_and_picker_sibling_regression(self):
+        expected = [
+            'SettingsTests/testFolderAuthorizationPresentsAboveExistingSheet',
+            'SettingsTests/testFolderPickerCancelsAndSettingsRemainResponsive',
+            'SettingsTests/testUpdateMenuReturnsFromOfficialReleasesAfterThemeChanges',
+            'StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates',
+            'StyleBoundaryTests/testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile',
+        ]
+        self.assertEqual(self.selection('download-settings-recheck', 'selected'),
+                         ['-only-testing:RepoPocketStyleUITests/' + case for case in expected])
+        workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/ui-check.yml').read_text()
+        self.assertIn('download-settings-recheck', workflow)
+        self.assertIn('screenshots/*-ax.txt', workflow)
+        collector = (Path(__file__).resolve().parents[1] / 'Scripts/run_style_preview.sh').read_text()
+        self.assertIn('process == "SafariViewService"', collector)
+
+    def test_profile_browser_done_has_no_swipe_fallback_that_can_mask_a_broken_button(self):
+        ui = (Path(__file__).resolve().parents[1] / 'StyleUITests/StyleBoundaryTests.swift').read_text()
+        method = ui.split('func testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile()', 1)[1].split('func test', 1)[0]
+        self.assertIn('tapNativeSafariDone(app', method)
+        close = method.split('tapNativeSafariDone(app', 1)[1].split('XCTAssertTrue(contact.waitForExistence', 1)[0]
+        self.assertNotIn('thenDragTo:', close)
+        self.assertNotIn('coordinate(', close)
+        self.assertIn('object: contact)', close)
+        self.assertIn('exists == true AND enabled == true AND hittable == true', close)
+        self.assertIn('XCTWaiter.wait(for: [closed, restored], timeout: 10) == .completed', close)
+        self.assertIn('profile-browser-close-timing-and-ax', close)
+
+    def test_recovery_regressions_run_real_theme_geometry_readme_and_folder_cases(self):
         root = Path(__file__).resolve().parents[1]
         workflow = (root / '.github/workflows/ui-check.yml').read_text()
         self.assertIn('recovery-regressions', workflow)
@@ -16,54 +44,39 @@ class StyleFailureDiagnosticsTests(unittest.TestCase):
         block = script.split('  recovery-regressions) TEST_ARGUMENTS=(', 1)[1].split(') ;;', 1)[0]
         for method in [
             'SettingsTests/testProductionRootThemeCheckmarksAndSchemePersistWithoutPreviewProbe',
-            'SettingsTests/testProfileAndAboutStayVisibleWithInlineAppearance',
+            'SettingsTests/testProfileAndAboutStayVisibleWithNativeMenu',
+            'SettingsTests/testFolderPickerCancelsAndSettingsRemainResponsive',
             'StyleBoundaryTests/testRepositoryMoreReusesDisclosureAndRemovesConditionalTailRows',
             'StyleBoundaryTests/testReadmeBadgesAndInAppLink',
             'StyleBoundaryTests/testReadmeOpensFormattedWithoutManualReload',
         ]:
             self.assertIn('-only-testing:RepoPocketStyleUITests/' + method, block)
-        self.assertIn('-only-testing:RepoPocketStyleUITests/DownloadCenterTests', block)
+        self.assertNotIn('DownloadCenterTests', script)
         self.assertIn('-only-testing:RepoPocketStyleUITests/NativeDisclosureTests', block)
         entitlements = script.split('case "${RP_STYLE_TEST_SCOPE:-all}" in', 1)[1].split('esac', 1)[0]
         self.assertIn('recovery-regressions', entitlements)
         export = (root / 'Scripts/export_style_attachments.py').read_text()
         self.assertIn("scope == 'recovery-regressions'", export)
-        for name in ['settings-production-root-expanded-after-folding',
-                     'readme-first-open-formatted', 'download-preview-native-done',
-                     'download-preview-returned-to-center', 'download-preview-share-cancel',
-                     'download-preview-records-retained']:
+        for name in ['settings-production-root-menu-ready', 'settings-production-root-menu-reopened',
+                     'readme-first-open-formatted', 'settings-folder-picker-1', 'settings-folder-picker-2']:
             self.assertIn(name, export)
         build = (root / '.github/workflows/build.yml').read_text()
-        for name in ['test_disclosure_cards.py', 'test_download_container.py']:
+        for name in ['test_disclosure_cards.py', 'test_release_asset_download.py']:
             self.assertIn('python3 Tests/' + name, build)
-
-    def test_recovery_recheck_runs_only_remaining_failed_case(self):
-        root = Path(__file__).resolve().parents[1]
-        workflow = (root / '.github/workflows/ui-check.yml').read_text()
-        self.assertIn('recovery-recheck', workflow)
-        self.assertEqual(self.selection('recovery-recheck', 'selected'), [
-            '-only-testing:RepoPocketStyleUITests/DownloadCenterTests/testCompletedFilesAndInterruptedRecordsRemainAfterRelaunch',
-        ])
-        self.assertEqual(workflow.count("&& inputs.test_scope != 'recovery-recheck'"), 2,
-                         'The test-only retry must not repeat the already successful complete host suite')
-        targeted = workflow.split('name: Check failed recovery contracts', 1)[1].split('      - ', 1)[0]
-        self.assertIn("inputs.test_scope == 'recovery-recheck'", targeted)
-        for module in ['test_download_center.py', 'test_disclosure_cards.py',
-                       'test_quota_scroll_cards.py', 'test_style_failure_diagnostics.py']:
-            self.assertIn('python3 Tests/' + module, targeted)
-        export = (root / 'Scripts/export_style_attachments.py').read_text()
-        self.assertIn("scope == 'recovery-recheck'", export)
-        self.assertIn("recovery_recheck = {'download-center-records'}", export)
 
     def test_recovery_wait_diagnostics_export_as_optional_text_not_success_evidence(self):
         import json, runpy, subprocess
         script = Path(__file__).resolve().parents[1] / 'Scripts/export_style_attachments.py'
         with tempfile.TemporaryDirectory() as directory, \
-                patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'recovery-recheck']):
+                patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'recovery-regressions']):
             config = {}
             exec(compile(script.read_text().split('\nwhile pending:', 1)[0], str(script), 'exec'), config)
-            diagnostic_names = {'download-readiness-timing-and-ax', 'disclosure-stability-timing-and-ax'}
+            diagnostic_names = {'disclosure-stability-timing-and-ax', 'profile-browser-close-missing',
+                                'profile-browser-close-timing-and-ax', 'settings-state-timeout',
+                                'settings-state-timeout-ax', 'release-download-failure',
+                                'release-download-failure-ax'}
             self.assertTrue(diagnostic_names <= config['diagnostics'])
+            self.assertNotIn('download-readiness-timing-and-ax', config['diagnostics'])
             self.assertTrue(config['expected'].isdisjoint(diagnostic_names))
             for attached in [set(), diagnostic_names]:
                 tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
@@ -72,8 +85,10 @@ class StyleFailureDiagnosticsTests(unittest.TestCase):
                         patch.object(subprocess, 'run') as exported, redirect_stdout(io.StringIO()):
                     runpy.run_path(str(script), run_name='__main__')
                 paths = {Path(call.args[0][-1]).name for call in exported.call_args_list}
-                self.assertEqual(paths, {name + '.png' for name in config['expected']} |
-                                 {name + '.txt' for name in attached})
+                self.assertEqual(paths, {name + ('.txt' if name.endswith('-ax') else '.png')
+                                         for name in config['expected']} |
+                                 {name + ('.txt' if name.endswith('-ax') else '.png')
+                                  for name in attached})
 
     def test_boundary_feedback_recheck_keeps_only_the_three_failed_cases_and_diagnostics(self):
         root = Path(__file__).resolve().parents[1]
@@ -191,6 +206,37 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                                 capture_output=True, text=True, check=True)
         return result.stdout.splitlines()
 
+    def test_download_settings_workflow_selects_exact_native_cases_with_full_host_preflight(self):
+        import re
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / '.github/workflows/ui-check.yml').read_text(encoding='utf-8')
+        scopes = {name.strip() for name in re.search(r'options: \[([^\]]+)\]', workflow).group(1).split(',')}
+        self.assertIn('download-settings-workflow', scopes)
+        self.assertIn("inputs.test_scope == 'download-settings-workflow' && '下载·设置·工作流回归'", workflow)
+        self.assertEqual(workflow.count("if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck')"), 2)
+        selectors = self.selection('download-settings-workflow', 'selected')
+        self.assertEqual(selectors, [
+            '-only-testing:RepoPocketStyleUITests/SettingsTests',
+            '-only-testing:RepoPocketStyleUITests/NativeDisclosureTests',
+            '-only-testing:RepoPocketStyleUITests/RepositoryOperationsTests/testRepositoryActionsRowShowsLatestRunAndReusesRunningBadge',
+            '-only-testing:RepoPocketStyleUITests/RepositoryOperationsTests/testRepositoryActionsRowWithoutRunsStillNavigates',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryZIPCompletionIsNativeDismissibleAndReusable',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testProfileContactsOpenWebFallbackAndRetryWithoutLosingProfile',
+        ])
+        cases = {f'RepoPocketStyleUITests/{name}/{method}'
+                 for path in (root / 'StyleUITests').glob('*.swift')
+                 for text in [path.read_text(encoding='utf-8')]
+                 for name in re.findall(r'final class (\w+): XCTestCase', text)
+                 for method in re.findall(r'(?m)^    func (test\w+)\(', text)}
+        selected = {case for case in cases if any(case == item or case.startswith(item + '/')
+                    for item in (selector.split(':', 1)[1] for selector in selectors))}
+        self.assertEqual(len(selected), 12)
+        self.assertEqual(len({case for case in selected if '/SettingsTests/' in case}), 5)
+        self.assertIn('RepoPocketStyleUITests/SettingsTests/testFolderAuthorizationPresentsAboveExistingSheet', selected)
+        self.assertIn('RepoPocketStyleUITests/SettingsTests/testUpdateMenuReturnsFromOfficialReleasesAfterThemeChanges', selected)
+        self.assertFalse(any(item.startswith('-skip-testing:') for item in selectors))
+
     def test_all_groups_cover_each_real_ui_case_once_without_changing_focused_scopes(self):
         import re
         root = Path(__file__).resolve().parents[1]
@@ -215,15 +261,17 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                  for name in re.findall(r'final class (\w+): XCTestCase', text)
                  for method in re.findall(r'(?m)^    func (test\w+)\(', text)}
         baseline = {case for case in cases if '/RepositoryOperationsTests/' not in case and '/RepositoryCollectionsTests/' not in case}
-        self.assertEqual(len(baseline), 88, 'Retain unrelated UI coverage and include commit-theme crash regression')
+        self.assertEqual(len(baseline), 86, 'Retain unrelated UI coverage and include folder-picker and commit-theme regressions')
         commit_theme = 'RepoPocketStyleUITests/CommitFileTests/testCommitDiffAndCompleteFileOpenInLightAndDarkWithoutCrashing'
         self.assertIn(commit_theme, baseline)
-        self.assertEqual(len({case for case in cases if '/RepositoryOperationsTests/' in case}), 4)
+        self.assertEqual(len({case for case in cases if '/RepositoryOperationsTests/' in case}), 6)
         self.assertEqual(len({case for case in cases if '/RepositoryCollectionsTests/' in case}), 6)
         groups = {}
         accepted_device_check = 'RepoPocketStyleUITests/SettingsTests/testUpdateMenuReturnsFromOfficialReleasesAfterThemeChanges'
         self.assertIn(accepted_device_check, cases)
         self.assertIn('-only-testing:' + accepted_device_check, self.selection('device-feedback-recheck', 'selected'))
+        folder_picker = 'RepoPocketStyleUITests/SettingsTests/testFolderPickerCancelsAndSettingsRemainResponsive'
+        self.assertIn(folder_picker, baseline)
         for group, count in [('boundaries-a', 25), ('boundaries-b', 25), ('editors', 47)]:
             arguments = self.selection('all', group)
             self.assertEqual(len(arguments), len(set(arguments)), group)
@@ -234,6 +282,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
             self.assertEqual(len(groups[group]), count, group)
         self.assertEqual(set.union(*groups.values()), cases - {accepted_device_check})
         self.assertIn(commit_theme, groups['editors'])
+        self.assertIn(folder_picker, groups['editors'])
         self.assertEqual(sum(map(len, groups.values())), len(cases) - 1)
         scopes = ['maintenance-regressions', 'branch-merge', 'profiles', 'actions']
         combined = {item for scope in scopes for item in self.selection(scope, 'selected')}
@@ -246,7 +295,8 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         import re
         script = (Path(__file__).resolve().parents[1] / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8')
         focused = re.findall(r'(?m)^  ([a-z-]+)\)', script)
-        self.assertEqual(len(focused), 26)
+        self.assertEqual(len(focused), 27)
+        self.assertNotIn('recovery-recheck', focused)
         self.assertEqual(self.selection('workflow-log-navigation', 'selected'), [
             '-only-testing:RepoPocketStyleUITests/WorkflowLogTests/testExplicitLineHighlightsKeepTheCompleteReadOnlyContext',
             '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSourcePreviewAndEditorHorizontalScrolling',
@@ -264,7 +314,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         ])
         self.assertEqual(self.selection('ui-fixes-failed', 'selected'), [
             '-only-testing:RepoPocketStyleUITests/RepositoryCollectionsTests/testPartialBatchRemovalKeepsSuccessAndOffersOnlyRemainingItems',
-            '-only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWithInlineAppearance',
+            '-only-testing:RepoPocketStyleUITests/SettingsTests/testProfileAndAboutStayVisibleWithNativeMenu',
             '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositorySearchFindsNestedFoldersAndFilesOnSelectedBranch',
         ])
         self.assertEqual(self.selection('ui-fixes', 'selected'), [
@@ -306,22 +356,25 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                              'mobile-editor-saved-preview', 'long-patch-leading',
                              'patch-highlight-left', 'patch-highlight-right', 'patch-raw-left', 'patch-raw-right'}
                             <= config['regression_recheck'])
-            self.assertEqual(len(config['repository_operations']), 4)
+            self.assertEqual(len(config['repository_operations']), 9)
             self.assertEqual(len(config['repository_collections']), 6)
-            self.assertEqual((len(all_names - additions), len(first), len(second), len(editors - additions)), (244, 54, 37, 153))
-            self.assertEqual((len(all_names), len(editors)), (254, 163))
-            self.assertEqual(len(config['disclosure_transitions']), 117)
-            self.assertEqual(config['recovery_recheck'], {'download-center-records'})
-            self.assertEqual(len([n for n in config['disclosure_transitions'] if n.endswith('-timing-and-ax')]), 9)
+            self.assertEqual((len(all_names - additions), len(first), len(second), len(editors - additions)), (202, 54, 37, 111))
+            self.assertEqual((len(all_names), len(editors)), (217, 126))
+            self.assertEqual(len(config['disclosure_transitions']), 78)
+            self.assertEqual(config['transition_phases'], {
+                page + '-' + phase for page in ('home-issues', 'repository-more')
+                for phase in ('opening', 'closing-and-reopening', 'closing')})
+            self.assertEqual(len([n for n in config['disclosure_transitions'] if n.endswith('-timing-and-ax')]), 6)
+            self.assertTrue({'settings-production-root-menu-ready', 'settings-production-root-menu-reopened',
+                             'settings-folder-picker-1', 'settings-folder-picker-2'} <= editors)
             self.assertEqual(first | second | editors, all_names)
             self.assertEqual(len(first) + len(second) + len(editors), len(all_names))
             tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
-                    for name in all_names | config['recovery_recheck'] | config['regression_recheck'] | config['ui_fixes'] | config['path_time'] | config['reading_layout'] | config['workflow_log_navigation']]
+                    for name in all_names | config['regression_recheck'] | config['ui_fixes'] | config['path_time'] | config['reading_layout'] | config['workflow_log_navigation']]
             for scope, group, expected in [('all', 'boundaries-a', first), ('all', 'boundaries-b', second),
                                            ('all', 'editors', editors),
                                            ('all', 'selected', all_names),
                                            ('recovery-regressions', 'selected', config['recovery_regressions']),
-                                           ('recovery-recheck', 'selected', config['recovery_recheck']),
                                            ('regression-recheck', 'selected', config['regression_recheck']),
                                            ('ui-fixes', 'selected', config['ui_fixes']),
                                            ('ui-fixes-failed', 'selected', config['ui_fixes_failed']),
@@ -339,11 +392,11 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                 paths = {Path(call.args[0][-1]).stem for call in export.call_args_list}
                 optional = config['diagnostics'] & (all_names | config['regression_recheck'] | config['workflow_log_navigation'])
                 self.assertEqual(paths, expected | optional)
-            for missing in ['download-center-records']:
+            for missing in ['settings-folder-picker-1', 'settings-production-root-menu-reopened']:
                 incomplete = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
-                              for name in config['recovery_recheck'] if name != missing]
+                              for name in config['recovery_regressions'] if name != missing]
                 with self.subTest(missing_recheck=missing), \
-                        patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'recovery-recheck']), \
+                        patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'recovery-regressions']), \
                         patch.dict(os.environ, {'RP_STYLE_TEST_GROUP': 'selected'}), \
                         patch.object(subprocess, 'check_output', return_value=json.dumps(incomplete).encode()), \
                         patch.object(subprocess, 'run'), redirect_stdout(io.StringIO()), \

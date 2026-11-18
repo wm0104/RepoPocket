@@ -267,9 +267,6 @@ class BrowserRollbackTests(unittest.TestCase):
         search_end = normalized.index('    func searchUsers(', search_start)
         self.assertNotIn('\n    func ', normalized[search_start + 5:search_end])
         normalized = normalized[:search_start] + normalized[search_end:]
-        start = normalized.index('    func downloadForCenter(')
-        end = normalized.index('    private func download(', start)
-        normalized = normalized[:start] + normalized[end:]
         self.assertEqual(normalized.rstrip() + '\n}\n', api_original)
         self.assertEqual(BROWSER.count('.task { await load() }'), 1)
         self.assertIn('metadataFresh && RepositoryWriteRules.canWrite', BROWSER)

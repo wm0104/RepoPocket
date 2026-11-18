@@ -29,7 +29,9 @@ class CompactHomeGroupsTests(unittest.TestCase):
         self.assertIn('SoftGroupRow("discovery")', body)
         self.assertIn('SoftGroupRow("permission-help")', body)
         self.assertNotIn('.softGroupedRow(', body)
-        self.assertIn('ExternalInboxSection(api: api)', body)
+        self.assertNotIn('ExternalInboxSection', body)
+        self.assertNotIn('ExternalFileActions', body)
+        self.assertNotIn('ShareInboxView', body)
         self.assertIn('Text("连接 GitHub 账号")', body)
         self.assertIn('@StateObject private var personalIssues = CommunityPageStore<CollaborationItem>()', home)
         self.assertIn('@StateObject private var upstreamUpdates = UpstreamUpdatesStore()', home)
@@ -65,9 +67,6 @@ class CompactHomeGroupsTests(unittest.TestCase):
                       '.issueDeletionMenu(api: api', 'ForEach(Array(visible.prefix(3)))',
                       'CollaborationDetailView(api: api, repo: repo, kind: .issues, number: item.number)']:
             self.assertIn(token, issues)
-        external = source('ExternalFileActions.swift').split('struct ExternalInboxSection:', 1)[1]
-        self.assertIn('if !files.isEmpty {', external)
-        self.assertIn('Section("外部文件")', external)
 
     def test_upstream_detail_commits_and_branches_have_one_group_and_namespaced_ids(self):
         detail = between(source('UpstreamUpdates.swift'), 'private struct UpstreamUpdatesDetail:', 'private struct UpstreamWatchTargetView:')

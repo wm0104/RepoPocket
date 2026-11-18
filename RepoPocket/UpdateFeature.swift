@@ -7,6 +7,7 @@ import ZIPFoundation
     @Published var message = ""
     @Published var release: AppUpdateRelease?
     @Published var downloaded: URL?
+    private(set) var downloadedBookmark: Data?
     @Published var downloadCompletion: URL?
     @Published var downloading = false
     @Published var progress: Double = 0
@@ -72,13 +73,13 @@ import ZIPFoundation
         downloadTask = nil; downloadSession = nil; delegate = nil
         downloading = false; progress = 0
         // Persisted user downloads survive leaving settings.
-        downloaded = nil; downloadCompletion = nil
+        downloaded = nil; downloadedBookmark = nil; downloadCompletion = nil
     }
     func check(api: GitHub, automatic: Bool = false) async {
         guard !checking, !downloading else { return }
         guard api.canCheckOfficialUpdate else { showTransient("请重新打开 App", duration: UpdateNoticeRules.latestNanoseconds); return }
         generation = UUID(); let token = generation
-        clearNotice(); checking = true; downloaded = nil; downloadCompletion = nil
+        clearNotice(); checking = true; downloaded = nil; downloadedBookmark = nil; downloadCompletion = nil
         defer { if generation == token { checking = false } }
         do {
             let data = try await api.officialAppUpdateData()
@@ -106,7 +107,7 @@ import ZIPFoundation
         guard !downloading, let release, let source = release.ipaURL else { showTransient("未找到唯一可信的 RepoPocket IPA 附件，请查看发布页。"); return }
         generation = UUID(); let token = generation; let accountSession = AccountStore.generation; clearNotice()
         DownloadStore.shared.begin()
-        downloading = true; progress = 0; downloaded = nil; downloadCompletion = nil; message = "正在下载到本机，完成后校验 IPA。"
+        downloading = true; progress = 0; downloaded = nil; downloadedBookmark = nil; downloadCompletion = nil; message = "正在下载到本机，完成后校验 IPA。"
         let handler = UpdateDownloadDelegate(progress: { [weak self] value in Task { @MainActor in guard let self, self.generation == token, self.downloading else { return }; self.progress = value } }, completion: { [weak self] result in
             Task { @MainActor in
                 defer { DownloadStore.shared.end() }
@@ -138,6 +139,7 @@ import ZIPFoundation
                         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
                         guard self.generation == token, accountSession == AccountStore.generation else { throw CancellationError() }
                         self.message = ""
+                        self.downloadedBookmark = DownloadStore.shared.shareBookmark(for: saved)
                         self.downloaded = saved
                         self.downloadCompletion = saved
                     } catch { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()); throw error }
@@ -200,12 +202,23 @@ struct AppUpdateSection: View {
                 } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .accessibilityLabel("应用更新选项").accessibilityIdentifier("settings-update-options")
             }.softGroupedRow(top: !connected, cardVerticalPadding: 0)
+            .downloadCompletionNotice($checker.downloadCompletion)
+            .sheet(isPresented: $showingOfficialReleases) {
+                ContainedWebPage(url: URL(string: "https://github.com/wm0104/RepoPocket/releases")!, onClose: { showingOfficialReleases = false }).ignoresSafeArea()
+            }
+            .sheet(item: $share, onDismiss: { checker.sharing = false }) { ShareSheet(url: $0.url, bookmark: $0.bookmark) }
+            .alert("使用 TrollStore 更新", isPresented: $confirmTrollStore) {
+                Button("取消", role: .cancel) {}
+                Button("继续") { trollStoreLinkAcknowledged = true; openTrollStoreInstall() }
+            } message: {
+                Text("请先在 TrollStore 设置中启用 URL Scheme，并按它的提示应用设置。TrollStore 将下载官方 IPA 并处理安装，此方式不经过 RepoPocket 的本地 SHA256 校验。未安装 TrollStore 或未启用协议时可能打开放大器；也可取消后使用下载更新和分享安装。")
+            }.onDisappear { confirmTrollStore = false; openingTrollStore = false; trollStoreRequestID = UUID() }
             if !checker.message.isEmpty { Text(checker.message).font(.caption).textSelection(.enabled).softGroupedRow() }
             if checker.downloading {
                 ProgressView(value: checker.progress).softGroupedRow()
                 Button("取消下载", role: .cancel) { checker.cancelDownload() }.softGroupedRow()
             } else if let file = checker.downloaded {
-                Button("分享 IPA 安装") { checker.sharing = true; share = SharedFile(url: file) }.softGroupedRow()
+                Button("分享 IPA 安装") { checker.sharing = true; share = SharedFile(url: file, bookmark: checker.downloadedBookmark) }.softGroupedRow()
             } else if let release = checker.release {
                 Text("新版本 " + release.displayVersionWithBuild).softGroupedRow()
                 DisclosureGroup("发布说明", isExpanded: $expanded) {
@@ -224,17 +237,7 @@ struct AppUpdateSection: View {
             } else {
                 Button(checker.checking ? "检查中…" : "检查更新") { Task { await checker.check(api: api) } }.disabled(checker.checking || checker.downloading).softGroupedRow()
             }
-        }.downloadCompletionNotice($checker.downloadCompletion)
-        .sheet(isPresented: $showingOfficialReleases) {
-            ContainedWebPage(url: URL(string: "https://github.com/wm0104/RepoPocket/releases")!, onClose: { showingOfficialReleases = false }).ignoresSafeArea()
         }
-        .sheet(item: $share, onDismiss: { checker.sharing = false }) { ShareSheet(url: $0.url) }
-        .alert("使用 TrollStore 更新", isPresented: $confirmTrollStore) {
-            Button("取消", role: .cancel) {}
-            Button("继续") { trollStoreLinkAcknowledged = true; openTrollStoreInstall() }
-        } message: {
-            Text("请先在 TrollStore 设置中启用 URL Scheme，并按它的提示应用设置。TrollStore 将下载官方 IPA 并处理安装，此方式不经过 RepoPocket 的本地 SHA256 校验。未安装 TrollStore 或未启用协议时可能打开放大器；也可取消后使用下载更新和分享安装。")
-        }.onDisappear { confirmTrollStore = false; openingTrollStore = false; trollStoreRequestID = UUID() }
     }
     private func requestTrollStoreInstall() {
         guard api.isCurrentSession, !checker.checking, !checker.downloading, !authorizing, !openingTrollStore,

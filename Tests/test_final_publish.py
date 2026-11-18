@@ -34,7 +34,7 @@ class FinalPublishTests(unittest.TestCase):
         self.assertLess(publish.index('plan.mayFinalize'), publish.rindex('saveManagedRelease'))
         self.assertNotIn('deleteManaged', publish)
         self.assertNotIn('ReleaseEntryView(api: api', upload)
-        self.assertIn('ReleaseEntryView(api: api', (ROOT/'RepoPocket/ExternalFileActions.swift').read_text())
+        self.assertIn('ReleaseEntryView(api: state.api, initialRepo: state.repo)', ui)
         self.assertIn('ReleaseEntryView(api: api', workspace)
         self.assertIn('ReleaseEditorView(api: api', entry)
         self.assertIn('requireWriteAccess(canonical)', ui)
@@ -59,7 +59,7 @@ class FinalPublishTests(unittest.TestCase):
             text = path.read_text()
             self.assertNotIn('willEnterForegroundNotification', text)
             # External local Git edits need a guarded recheck; other workspaces stay inert.
-            self.assertEqual('scenePhase' in text, path.name in ('RepoPocketApp.swift', 'WorkflowViews.swift', 'LocalProjectView.swift', 'LocalGitStageView.swift'), path.name)
+            self.assertEqual('scenePhase' in text, path.name in ('RepoPocketApp.swift', 'WorkflowViews.swift', 'LocalProjectView.swift', 'LocalGitStageView.swift', 'CollaborationViews.swift'), path.name)
             if path.name == 'LocalGitStageView.swift':
                 foreground = text.split('.onChange(of: scenePhase)', 1)[1].split('.refreshable', 1)[0]
                 self.assertIn('if phase == .active, valid, !busy { refresh() }', foreground)

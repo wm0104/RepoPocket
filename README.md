@@ -1,121 +1,58 @@
 # RepoPocket
 
-![累计下载次数](https://img.shields.io/github/downloads/wm0104/RepoPocket/total?label=Downloads&color=007AFF&cacheSeconds=300&v=2)
-[![最新版本](https://img.shields.io/github/v/release/wm0104/RepoPocket?label=Release&color=007AFF&cacheSeconds=300&v=20261018)](https://github.com/wm0104/RepoPocket/releases/latest)
+![累计下载次数](https://img.shields.io/github/downloads/wm0104/RepoPocket/total?label=Downloads&color=007AFF)
+[![最新版本](https://img.shields.io/github/v/release/wm0104/RepoPocket?label=Release&color=007AFF)](https://github.com/wm0104/RepoPocket/releases/latest)
 
-[下载 RepoPocket](https://github.com/wm0104/RepoPocket/releases/latest)
+**在 iPhone、iPad 上浏览 GitHub、编辑代码和管理 Git 项目。**
 
-**让 iOS 16 上的 GitHub 浏览，省心一点。**
+## 下载与安装
 
-你是否也遇到过：用苹果自带的 Safari 打开 GitHub，页面布局错乱、按钮挤在一起，想点开代码，却怎么也点不进去？
+### [下载最新版本](https://github.com/wm0104/RepoPocket/releases/latest)
 
-以为是网络问题，换了几个节点；怀疑是浏览器缓存，又清理了一遍。折腾到最后，代码还是看不了，文件也打不开。换用官方 App，有些想用的功能又不够顺手。
+**兼容目标：iOS 15～17。仅在 iOS 16.3 真机测试，其他系统版本请自行测试。**
 
-下面是 iOS 16.3 上实际遇到的 Safari 网页显示情况：
+## 说明
 
-<table>
-  <tr><th>GitHub 首页</th><th>仓库与代码页面</th><th>个人主页与贡献记录</th></tr>
-  <tr>
-    <td><img src="docs/images/safari-github-home-ios16.png" width="260" alt="iOS 16 Safari 打开 GitHub 首页时布局重叠、内容持续加载"></td>
-    <td><img src="docs/images/safari-github-repository-ios16.png" width="260" alt="iOS 16 Safari 打开 GitHub 仓库时按钮重叠、代码列表显示异常"></td>
-    <td><img src="docs/images/safari-github-profile-ios16.png" width="260" alt="iOS 16.3 Safari 打开 GitHub 个人主页时贡献记录挤压、文字异常换行"></td>
-  </tr>
-</table>
+RepoPocket 借助 **Codex 辅助开发**，功能仍在完善，欢迎通过 [Issues](https://github.com/wm0104/RepoPocket/issues) 反馈问题。
 
-**RepoPocket 就是为解决这些日常使用中的不便而开发的。**
-
-它是一款借助 **Codex 辅助开发**的 iOS GitHub 工具，让你通过 App 浏览仓库、阅读代码、下载文件，也能完成常用的仓库管理操作。
-
-## App 预览
-
-浏览仓库、查看代码目录、管理发行版，常用操作在 App 内完成。
+## 界面预览
 
 <table>
-  <tr>
-    <th>仓库主页</th>
-    <th>代码目录</th>
-    <th>发行版</th>
-  </tr>
-  <tr>
-    <td><img src="docs/images/app-repository-home.png" width="240" alt="RepoPocket 仓库主页，展示项目简介、协作入口与发行版"></td>
-    <td><img src="docs/images/app-code-browser.png" width="240" alt="RepoPocket 代码目录，展示仓库文件夹和文件列表"></td>
-    <td><img src="docs/images/app-releases.png" width="240" alt="RepoPocket 发行版列表，展示版本记录和新建发行版入口"></td>
-  </tr>
+<tr><th>首页</th><th>仓库主页</th><th>发行版详情</th></tr>
+<tr><td><img src="docs/images/app-home.png" width="240" alt="首页"></td><td><img src="docs/images/app-repository.png" width="240" alt="仓库主页"></td><td><img src="docs/images/app-release-detail.png" width="240" alt="发行版详情"></td></tr>
 </table>
 
-### Git 功能预览
-
-添加本地项目或克隆 GitHub 仓库，选择分支，在手机上管理项目文件与本地提交。
+<details>
+<summary>展开查看本地 Git 功能</summary>
 
 <table>
-  <tr>
-    <th>添加项目 / 克隆仓库</th>
-    <th>选择仓库分支</th>
-    <th>本地变更与提交</th>
-  </tr>
-  <tr>
-    <td><img src="docs/images/app-git-clone.png" width="260" alt="RepoPocket 添加本地项目，选择仓库、分支和克隆位置"></td>
-    <td><img src="docs/images/app-git-branches.png" width="260" alt="RepoPocket 选择 GitHub 仓库分支"></td>
-    <td><img src="docs/images/app-git-project.png" width="260" alt="RepoPocket 本地 Git 项目，展示变更选择、文件导入、本地提交、拉取和推送"></td>
-  </tr>
+<tr><th>Git 工作区</th><th>暂存与提交</th></tr>
+<tr><td><img src="docs/images/git-workspace.png" width="360" alt="Git 工作区"></td><td><img src="docs/images/git-staging.png" width="360" alt="暂存与提交"></td></tr>
 </table>
 
-## 主要功能
+</details>
 
-📂 **浏览仓库与代码**<br>
-查看仓库目录、文件内容和代码预览，切换分支、查看提交历史，在手机上也能方便地翻阅项目。
+<details>
+<summary>为什么开发 RepoPocket？查看 iOS 16.3 真机情况</summary>
 
-📖 **阅读项目自述文件**<br>
-支持 README 排版、图片与徽章展示，可展开正文或进入全屏阅读，快速了解项目介绍和使用方法。
+在 iOS 16.3 真机上，使用 Safari 浏览 GitHub 时，曾遇到页面布局错乱、按钮挤在一起、代码和文件难以打开等情况。
 
-⬇️ **下载需要的文件**<br>
-下载单个文件、整个仓库 ZIP、发行版附件和 Actions 构建产物，支持选择保存文件夹。
+**RepoPocket 就是为改善这些日常使用中的不便而开发的。**
 
-✏️ **编辑与提交文件**<br>
-在具备权限的仓库中编辑文本、上传或删除文件，并提交到指定分支。普通仓库上传的单文件及单次文件总量均须**小于 100 MiB**（最大 104857599 字节），可以直接放入代码目录；大文件会增加上传耗时和仓库历史体积，仍可能受网络及 GitHub 服务端限制。文本编辑与发行版附件保留各自独立限额。
+下面是当时实际遇到的 Safari 网页显示情况：
 
-🌿 **管理本地 Git 项目**<br>
-关联已有项目或克隆 GitHub 仓库，浏览和编辑文件、就地导入文件与文件夹、查看变更和差异；可直接提交选中文件，也可独立暂存、取消暂存并仅提交已暂存内容，再单独推送。支持安全快进和分叉后的本地合并，冲突时逐文件查看双方、编辑结果、继续或中止。历史支持反向提交，以及经过新鲜远端核验的最新未推送提交移除和顶部连续未推送提交压缩；不自动强制推送，复杂或无法确认的情况保守拒绝。
+<table>
+<tr><th>GitHub 首页</th><th>仓库与代码</th><th>个人主页</th></tr>
+<tr><td><img src="docs/images/safari-github-home-ios16.png" width="240" alt="GitHub 首页"></td><td><img src="docs/images/safari-github-repository-ios16.png" width="240" alt="仓库与代码"></td><td><img src="docs/images/safari-github-profile-ios16.png" width="240" alt="个人主页"></td></tr>
+</table>
 
-⭐ **收藏与复刻仓库**<br>
-为喜欢的项目添加星标，将仓库复刻到自己的账号，查看复刻来源和状态。
+</details>
 
-🔄 **同步上游更新**<br>
-把其他仓库的更新拉到自己项目：先预览差异，在临时分支合并，确认后再更新目标分支；遇到冲突会停下，不会覆盖你的改动。
+## 能做什么
 
-📦 **管理发行版**<br>
-查看版本说明、下载附件，也能在有权限的仓库中创建、编辑发行版和管理附件。
-
-⚙️ **查看 GitHub Actions**<br>
-浏览工作流运行状态、任务与步骤，获取构建产物；手动运行时读取所选分支声明的参数，使用原生表单填写、校验并确认，也支持重新运行失败任务。
-
-👤 **多账号切换**<br>
-支持添加和切换多个 GitHub 账号，按各账号的访问权限使用仓库功能。
-
-## 插件与更多功能
-
-- 主页下载中心统一管理文件、仓库 ZIP、发行版附件和 Actions 产物；按账号保留记录，中断后可手动重试。已完成记录紧凑显示文件名及本地文件大小。
-- 下载文件可手动分享、加入待上传；普通 `.deb` 保持原样下载和上传，不提供编辑或重新打包。
-- Actions 支持工作流及状态筛选，参数按实际配置展开；议题、外观和次要选项采用原生折叠。
-- 提交详情可查看准确提交版本的完整只读文件，不回退到最新分支。
-- 查看 Issue / PR、讨论评论、审查记录、行内评论及 PR 文件差异。
-- 创建仓库和分支，搜索仓库并按语言筛选、排序。
-- 浏览用户资料、公开活动、关注动态、贡献者与语言统计。
-- 发现近期新建的热门仓库和活跃开发者。
-- 支持浏览器设备授权登录，以及跟随系统、浅色和深色外观。
-
-RepoPocket 源于个人使用需求，借助 AI 辅助编写、调试和完善。**目前主要在 iOS 16 上测试**，功能仍在持续改进，欢迎反馈使用中遇到的问题。
-
-兼容目标：iOS 15 或更高版本，本轮重点覆盖 iOS 15～17 的 API 兼容路径。**最低部署版本和构建通过不代表各系统真机功能均已验收**；目前主要真机使用环境仍是 iOS 16。
-
-手动构建工作流提供同一应用的四种封装（同一 Bundle ID，不支持并存）：
-
-| 文件 | 安装方式 |
-|---|---|
-| `RepoPocket.ipa` / `RepoPocket.tipa` | 相同内容的 TrollStore 安装包，不是普通侧载版 |
-| `RepoPocket_版本_iphoneos-arm64e.deb` | roothide 越狱环境，由对应包管理器重定位 |
-| `RepoPocket_版本_iphoneos-arm64.deb` | 标准 rootless 越狱环境，安装到 `/var/jb/Applications` |
-
-系统兼容性与安装工具支持范围不同：TrollStore 官方支持至 16.6.1、16.7 RC（20H18）及 17.0 等特定版本，**不支持普通 16.7.x 和 17.0.1+**。两种 deb 必须匹配实际 bootstrap，不能只按设备 CPU 选包。切换 TrollStore/deb 安装方式前先备份；容器、钥匙串、共享扩展和数据迁移须实际验证，不承诺自动保留或无损迁移。
-
-**少一点反复刷新，多一点顺手浏览。**
+- **浏览与阅读**：查看仓库、代码、README、分支和提交历史，支持搜索与代码预览。
+- **编辑与上传**：编辑文本、上传和删除文件，提交到有权限的仓库分支。
+- **本地 Git**：克隆或关联项目，查看差异、暂存、提交、拉取、推送及处理合并冲突。
+- **协作管理**：查看和参与 Issue、PR、讨论与代码审查，收藏、复刻仓库并同步上游更新。
+- **发行版与下载**：创建和管理发行版，下载文件、仓库 ZIP、附件和构建产物，自选保存目录。
+- **GitHub Actions**：筛选工作流、查看运行状态和日志、填写参数启动运行，以及重跑失败任务。

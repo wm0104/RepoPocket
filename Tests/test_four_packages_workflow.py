@@ -41,7 +41,7 @@ class FourPackageWorkflowTests(unittest.TestCase):
     def test_original_identity_and_trollstore_entitlements_unchanged(self):
         project=(ROOT/'project.yml').read_text()
         self.assertIn('PRODUCT_BUNDLE_IDENTIFIER: com.wm0104.RepoPocket',project)
-        self.assertIn('MARKETING_VERSION: "1.2.3"',project)
+        self.assertIn('MARKETING_VERSION: "1.2.4"',project)
         ent=(ROOT/'Entitlements.plist').read_text()
         self.assertIn('TROLLTROLL.com.wm0104.RepoPocket',ent)
         self.assertIn('com.apple.private.security.no-sandbox',ent)

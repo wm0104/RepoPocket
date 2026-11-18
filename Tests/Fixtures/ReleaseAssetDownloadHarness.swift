@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-enum DownloadSource { case releaseAsset(repo:String,id:Int,name:String) }
 struct Asset:Identifiable { let id:Int; let name:String }
 struct AppError:LocalizedError { let text:String; var errorDescription:String? {text} }
 // PRODUCTION_RELEASE_MODELS
@@ -21,9 +20,6 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
  var operations=0, cancelAuthorization=false, holdSave=false
  var save:CheckedContinuation<URL,Error>?
  var label="fixture-downloads"
- func download(_ source:DownloadSource,api:GitHub,progress:@escaping(ReleaseDownloadProgress)->Void) async throws -> URL {
-  switch source { case let .releaseAsset(repo,id,name): return try await api.downloadManagedAssetWithProgress(repo,asset:Asset(id:id,name:name),transfer:progress) }
- }
  func requireAuthorization() async throws { if cancelAuthorization {throw CancellationError()} }
  func begin(){operations+=1}
  func end(){operations-=1}

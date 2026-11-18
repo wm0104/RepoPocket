@@ -46,11 +46,6 @@ struct RepositoryHomeLinksSection: View {
                     }
                 }
                 SoftGroupRow("favorites") { RepositoryFavoritesHomeLink(api: api, favorites: api.favorites, showsIndicator: connected) }
-                SoftGroupRow("downloads") {
-                    NavigationLink { DownloadCenterView(api: api) } label: {
-                        QuotaNavigationLabel(showsIndicator: connected) { Label { Text("下载中心") } icon: { Image(systemName: "arrow.down.circle").foregroundStyle(Color.accentColor) } }
-                    }.accessibilityIdentifier("home-downloads")
-                }
             }
     }
 }

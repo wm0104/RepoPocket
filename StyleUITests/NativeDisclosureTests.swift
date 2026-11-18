@@ -29,7 +29,6 @@ final class NativeDisclosureTests: XCTestCase {
     func testThreeScrollHostDisclosureTransitionsAndRepeatedInput() {
         continueAfterFailure = false
         let cases: [(String, [String], String, [String])] = [
-            ("appearance", ["-style-preview", "-settings-style-preview"], "settings-appearance", ["theme-system", "theme-light", "theme-dark"]),
             ("home-issues", ["-style-preview", "-user-connections-style-preview"], "home-issues-disclosure", ["home-issue-4", "home-personal-issues"]),
             ("repository-more", ["-style-preview", "-user-connections-style-preview", "-upstream-sync-style-preview"], "repository-more", ["repository-more-tools", "repository-more-owner"])
         ]

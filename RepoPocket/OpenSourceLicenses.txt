@@ -1735,10 +1735,10 @@ Runestone source: 00426ba7f8681a90c1ea0b5c03a0e0bec8cba883 (engine and copied On
 TreeSitterLanguages source: 4442182303a00bf2764b10ead923a1066a0946f6 (34 selected language products).
 Tree-sitter runtime: 10eb5ac119eec9cb4267a8e035066473983f5f3a (0.27.1).
 No precompiled Runestone wrapper is linked. Selected Lua source: tree-sitter-grammars/tree-sitter-lua 10fe0054734eec83049514ea2e718b2a56acd0c9, MIT, Munif Tanjim.
-Licenses remain their owners' terms; MIT on the wrapper or a parser does not relicense queries. See Licenses/SourceText/AUDIT.md and SOURCE_MANIFEST.json for exact evidence and review limits. This is not legal certification or device validation.
+Licenses remain their owners' terms; MIT on the wrapper or a parser does not relicense queries. Current source revisions, notice digests and copied resource digests are recorded in the source provenance appendix below. This is not legal certification or device validation.
 
 
---- Licenses/SourceText/Fila-MIT.txt ---
+--- Source text: Fila-MIT.txt ---
 
 MIT License
 
@@ -1762,7 +1762,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/Runestone-MIT.txt ---
+--- Source text: Runestone-MIT.txt ---
 
 MIT License
 
@@ -1786,7 +1786,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitter-runtime-MIT.txt ---
+--- Source text: TreeSitter-runtime-MIT.txt ---
 
 The MIT License (MIT)
 
@@ -1810,7 +1810,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/LICENSE ---
+--- Source text: TreeSitterLanguages/LICENSE ---
 
 MIT License
 
@@ -1834,7 +1834,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Folding/Perl-LICENSE.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Folding/Perl-LICENSE.txt ---
 
 Copyright 2025 Avishai "Veesh" Goldman
 
@@ -1844,7 +1844,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Folding/Svelte.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Folding/Svelte.txt ---
 
 The MIT License (MIT)
 
@@ -1868,7 +1868,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Folding/Swift.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Folding/Swift.txt ---
 
 MIT License
 
@@ -1892,7 +1892,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Folding/nvim-treesitter-APACHE-2.0.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Folding/nvim-treesitter-APACHE-2.0.txt ---
 
 Apache License
                            Version 2.0, January 2004
@@ -2096,7 +2096,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Astro.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Astro.txt ---
 
 MIT License
 
@@ -2120,7 +2120,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Bash-LICENSE.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Bash-LICENSE.txt ---
 
 The MIT License (MIT)
 
@@ -2144,7 +2144,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/C.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/C.txt ---
 
 The MIT License (MIT)
 
@@ -2168,7 +2168,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/CPP.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/CPP.txt ---
 
 The MIT License (MIT)
 
@@ -2192,7 +2192,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/CSS.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/CSS.txt ---
 
 The MIT License (MIT)
 
@@ -2216,7 +2216,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/CSharp.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/CSharp.txt ---
 
 The MIT License (MIT)
 
@@ -2240,7 +2240,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Elixir-LICENSE.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Elixir-LICENSE.txt ---
 
 Apache License
                            Version 2.0, January 2004
@@ -2419,7 +2419,7 @@ Apache License
 
    END OF TERMS AND CONDITIONS
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Elm-LICENSE.md.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Elm-LICENSE.md.txt ---
 
 The MIT License (MIT)
 
@@ -2443,7 +2443,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Go.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Go.txt ---
 
 The MIT License (MIT)
 
@@ -2467,7 +2467,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/HTML.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/HTML.txt ---
 
 The MIT License (MIT)
 
@@ -2491,7 +2491,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Haskell-LICENSE.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Haskell-LICENSE.txt ---
 
 The MIT License (MIT)
 
@@ -2515,7 +2515,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/JSON.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/JSON.txt ---
 
 The MIT License (MIT)
 
@@ -2539,7 +2539,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/JSON5.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/JSON5.txt ---
 
 MIT License
 
@@ -2563,7 +2563,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Java.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Java.txt ---
 
 MIT License
 
@@ -2587,7 +2587,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/JavaScript.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/JavaScript.txt ---
 
 The MIT License (MIT)
 
@@ -2611,7 +2611,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Julia-LICENSE.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Julia-LICENSE.txt ---
 
 The MIT License (MIT)
 
@@ -2635,7 +2635,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/LaTeX.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/LaTeX.txt ---
 
 MIT License
 
@@ -2659,7 +2659,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Lua.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Lua.txt ---
 
 The MIT License (MIT)
 
@@ -2683,7 +2683,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Markdown-nvim-treesitter.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Markdown-nvim-treesitter.txt ---
 
 Apache License
                            Version 2.0, January 2004
@@ -2887,7 +2887,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Markdown.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Markdown.txt ---
 
 MIT License
 
@@ -2911,7 +2911,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/OCaml-LICENSE.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/OCaml-LICENSE.txt ---
 
 MIT License
 
@@ -2935,7 +2935,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/PHP.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/PHP.txt ---
 
 The MIT License (MIT)
 
@@ -2960,7 +2960,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Perl-LICENSE.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Perl-LICENSE.txt ---
 
 Copyright 2025 Avishai "Veesh" Goldman
 
@@ -2970,7 +2970,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Python.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Python.txt ---
 
 The MIT License (MIT)
 
@@ -2994,7 +2994,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/R-LICENSE.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/R-LICENSE.txt ---
 
 MIT License
 
@@ -3006,7 +3006,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Ruby.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Ruby.txt ---
 
 The MIT License (MIT)
 
@@ -3030,7 +3030,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Rust.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Rust.txt ---
 
 The MIT License (MIT)
 
@@ -3054,7 +3054,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/SCSS.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/SCSS.txt ---
 
 The MIT License (MIT)
 
@@ -3078,7 +3078,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/SQL-LICENSE.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/SQL-LICENSE.txt ---
 
 MIT License
 
@@ -3102,7 +3102,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Svelte.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Svelte.txt ---
 
 The MIT License (MIT)
 
@@ -3126,7 +3126,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/Swift.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/Swift.txt ---
 
 MIT License
 
@@ -3150,7 +3150,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/TOML.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/TOML.txt ---
 
 The MIT License (MIT)
 
@@ -3174,7 +3174,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/TSX.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/TSX.txt ---
 
 The MIT License (MIT)
 
@@ -3198,7 +3198,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/TypeScript.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/TypeScript.txt ---
 
 The MIT License (MIT)
 
@@ -3222,7 +3222,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
---- Licenses/SourceText/TreeSitterLanguages/Licenses/Updates/YAML.txt ---
+--- Source text: TreeSitterLanguages/Licenses/Updates/YAML.txt ---
 
 Copyright (c) 2024 tree-sitter-grammars contributors
 Copyright (c) 2019-2021 Ika
@@ -3293,3 +3293,808 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+--- Source provenance ---
+SOURCE PROVENANCE AND REVIEW BOUNDARIES
+MarkdownUI 2.4.1: https://github.com/gonzalezreal/swift-markdown-ui (Guillermo Gonzalez, MIT).
+Its NetworkImage and swift-cmark licenses and ZIPFoundation terms remain included above.
+Community feature code is implemented for RepoPocket; SwiftHub source, branding and assets were not copied.
+Local Git: libgit2 1.9.7, commit 49e408b3208bc3093757a1c2db938d3590f3f412, GPL v2 with Linking Exception.
+Source: https://github.com/libgit2/libgit2 ; full terms also retained at Vendor/NativeGit/COPYING.
+HTTPS uses Apple's SecureTransport; SSH and external Git commands are disabled.
+Yams 5.1.3: https://github.com/jpsim/Yams at 3036ba9d69cf1fd04d433527bc339dc0dc75433d (JP Simard, MIT).
+Bundled CYaml derives from libYAML (MIT); no separate upstream libYAML revision is asserted for modified CYaml.
+Yams declares Swift tools 5.4, no external package dependencies; platform compilation is a separate check.
+Fila search/mapping: OwnGoal Studio/Fila 04868b752294bd1f53411610440de483b3b32578 (2026 OwnGoal Studio, MIT).
+Find/replace input layout and Undo adaptation: wm0104/Fila 70820797f29dabbb78e58d48328401ef0e99e5b5, FindBar.swift, same MIT terms.
+The UIKit find bar adds no Fila backend, FilaUI, SnapKit or Then dependency.
+Packages/RepoPocketSyntax selects 34 language products and copied OneDark/Tomorrow source/resources from the pinned Runestone revision.
+Copied theme source includes resource-loader fallbacks; asset bytes are unchanged. The appendix hashes the current adapted source and resources.
+MIT parser licenses do not relicense Apache-2.0 query components (including Elixir and nvim-treesitter).
+Lua parser bytes were matched to the stated upstream revision; scanner/query adaptations are identified below.
+Active source attribution is not a retroactive resolution of the retired binary wrapper's provenance: its original authorship, generated inputs and redistribution rights remain unverified.
+Source pins and notices are not legal certification, native compilation or device validation; package resolution, compilation and device behavior require their respective checks.
+The appendix contains only active language origins/adaptations, required full-notice digests, and local source/resource SHA-256 values, not historical upstream-wide indexes.
+Notice digests use UTF-8 after trimming trailing whitespace on each line and surrounding blank lines; complete notice bodies remain in the sections above.
+
+--- BEGIN ACTIVE SOURCE EVIDENCE JSON ---
+{
+  "languages": {
+    "Astro": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Astro.txt"
+      ],
+      "query_adaptations": [
+        "Update frontmatter/interpolation nodes for current grammar; supply CSS/SCSS and explicit script language injections with mutually exclusive default selection."
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/virchau13/tree-sitter-astro",
+          "revision": "213f6e6973d9b456c6e50e86f19f66877e7ef0ee"
+        }
+      ],
+      "repo": "https://github.com/virchau13/tree-sitter-astro",
+      "revision": "213f6e6973d9b456c6e50e86f19f66877e7ef0ee"
+    },
+    "Bash": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Bash-LICENSE.txt"
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter/tree-sitter-bash",
+          "revision": "a06c2e4415e9bc0346c6b86d401879ffb44058f7"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-bash",
+      "revision": "a06c2e4415e9bc0346c6b86d401879ffb44058f7"
+    },
+    "C": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/C.txt"
+      ],
+      "query_adaptations": [
+        "Give contextual function captures .call/.definition subscopes so generic variable/property captures do not override function styling at the same range.",
+        "Use punctuation.delimiter scope instead of unsupported delimiter; add storage-class/type-qualifier keyword coverage (including C23 constexpr)."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-c",
+          "revision": "b780e47fc780ddc8da13afa35a3f4ed5c157823d"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-c",
+      "revision": "b780e47fc780ddc8da13afa35a3f4ed5c157823d"
+    },
+    "CPP": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/CPP.txt"
+      ],
+      "query_adaptations": [
+        "Give contextual function captures .call/.definition subscopes so generic variable/property captures do not override function styling at the same range.",
+        "Continue combining C highlights before C++ highlights; normalize module to namespace."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-cpp",
+          "revision": "c009222808634c1014f82438d4883753516a2c24"
+        },
+        {
+          "paths": [
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-c",
+          "revision": "b780e47fc780ddc8da13afa35a3f4ed5c157823d",
+          "usage": "Inherited highlights"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-cpp",
+      "revision": "c009222808634c1014f82438d4883753516a2c24"
+    },
+    "CSS": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/CSS.txt"
+      ],
+      "query_adaptations": [
+        "Use current upstream highlights with Runestone-compatible captures."
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter/tree-sitter-css",
+          "revision": "dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-css",
+      "revision": "dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f"
+    },
+    "CSharp": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/CSharp.txt"
+      ],
+      "query_adaptations": [
+        "Give contextual function captures .call/.definition subscopes so generic variable/property captures do not override function styling at the same range.",
+        "Map namespace captures to namespace; add standalone call captures and an interpolation none capture so string style does not leak into expressions."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/tags.scm",
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-c-sharp",
+          "revision": "8c0abe0b84a3681d3e6852ce2e2a1eecb4f731c5"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-c-sharp",
+      "revision": "8c0abe0b84a3681d3e6852ce2e2a1eecb4f731c5"
+    },
+    "Elixir": {
+      "license": "Apache-2.0",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Elixir-LICENSE.txt"
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/elixir-lang/tree-sitter-elixir",
+          "revision": "cb32ccbe17c67037b09e31bf9beb22cdae6ed8e9"
+        }
+      ],
+      "repo": "https://github.com/elixir-lang/tree-sitter-elixir",
+      "revision": "cb32ccbe17c67037b09e31bf9beb22cdae6ed8e9"
+    },
+    "Elm": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Elm-LICENSE.md.txt"
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/elm-tooling/tree-sitter-elm",
+          "revision": "e1e8fea161a1e66f3997855d316be2a43e4e956f"
+        }
+      ],
+      "repo": "https://github.com/elm-tooling/tree-sitter-elm",
+      "revision": "e1e8fea161a1e66f3997855d316be2a43e4e956f"
+    },
+    "Go": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Go.txt"
+      ],
+      "query_adaptations": [
+        "Give contextual function captures .call/.definition subscopes so generic variable/property captures do not override function styling at the same range.",
+        "Map escape to string.escape; drop tag documentation stripping/adjacency directives while retaining untransformed doc and tag captures."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/tags.scm",
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-go",
+          "revision": "2346a3ab1bb3857b48b29d779a1ef9799a248cd7"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-go",
+      "revision": "2346a3ab1bb3857b48b29d779a1ef9799a248cd7"
+    },
+    "HTML": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/HTML.txt"
+      ],
+      "query_adaptations": [
+        "Use script MIME type to distinguish JavaScript and JSON; do not inject JSON scripts as JavaScript."
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter/tree-sitter-html",
+          "revision": "73a3947324f6efddf9e17c0ea58d454843590cc0"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-html",
+      "revision": "73a3947324f6efddf9e17c0ea58d454843590cc0"
+    },
+    "Haskell": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Haskell-LICENSE.txt"
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter/tree-sitter-haskell",
+          "revision": "97288e585b0bd44199720280d067fa35bacd81ff"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-haskell",
+      "revision": "97288e585b0bd44199720280d067fa35bacd81ff"
+    },
+    "JSON": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/JSON.txt"
+      ],
+      "query_adaptations": [
+        "Use current upstream highlights with Runestone-compatible captures."
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter/tree-sitter-json",
+          "revision": "254c42a6476413b776221e03982ac8ae159eeb72"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-json",
+      "revision": "254c42a6476413b776221e03982ac8ae159eeb72"
+    },
+    "JSON5": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/JSON5.txt"
+      ],
+      "query_adaptations": [
+        "Use legacy Runestone number/constant names; highlight every string and distinguish member keys from values; remove ineffective comment-language injection."
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/Joakker/tree-sitter-json5",
+          "revision": "248b8564567087d7866be76569b182f6dd7e14e9"
+        }
+      ],
+      "repo": "https://github.com/Joakker/tree-sitter-json5",
+      "revision": "248b8564567087d7866be76569b182f6dd7e14e9"
+    },
+    "Java": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Java.txt"
+      ],
+      "query_adaptations": [],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/tags.scm",
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-java",
+          "revision": "e10607b45ff745f5f876bfa3e94fbcc6b44bdc11"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-java",
+      "revision": "e10607b45ff745f5f876bfa3e94fbcc6b44bdc11"
+    },
+    "JavaScript": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/JavaScript.txt"
+      ],
+      "query_adaptations": [
+        "Give contextual function captures .call/.definition subscopes so generic variable/property captures do not override function styling at the same range.",
+        "Omit local-dependent builtin specializations because Runestone does not evaluate local scopes; structural calls remain styled.",
+        "Map embedded interpolation to none to restore foreground inside template strings.",
+        "Preserve dynamic tagged-template language/content pairs using string_fragment ranges; omit unsupported combined/include-children/offset directives; regex uses regex capture and JSDoc injection is restricted to documentation comments.",
+        "Drop tag documentation stripping/adjacency directives; retain untransformed doc and tag captures."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/tags.scm",
+            "queries/highlights-params.scm",
+            "queries/locals.scm",
+            "queries/highlights.scm",
+            "queries/highlights-jsx.scm",
+            "queries/injections.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-javascript",
+          "revision": "58404d8cf191d69f2674a8fd507bd5776f46cb11"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-javascript",
+      "revision": "58404d8cf191d69f2674a8fd507bd5776f46cb11"
+    },
+    "Julia": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Julia-LICENSE.txt"
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter/tree-sitter-julia",
+          "revision": "e0f9dcd180fdcfcfa8d79a3531e11d99e79321d3"
+        },
+        {
+          "path": "Sources/TreeSitterJuliaQueries/injections.scm",
+          "repo": "https://github.com/simonbs/TreeSitterLanguages",
+          "revision": "9adbb839524e47e0eee8803f8e02d81b78ad1847"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-julia",
+      "revision": "e0f9dcd180fdcfcfa8d79a3531e11d99e79321d3"
+    },
+    "LaTeX": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/LaTeX.txt"
+      ],
+      "query_adaptations": [
+        "Preserve Runestone formatting, update theorem/label/bibliography/hyperlink node shapes, replace unsupported any-of? with eq?, repair minted injection capture names and limit Asymptote C fallback to source_code."
+      ],
+      "query_provenance": [
+        {
+          "path": "Sources/TreeSitterLaTeXQueries/highlights.scm",
+          "repo": "https://github.com/simonbs/TreeSitterLanguages",
+          "revision": "9adbb839524e47e0eee8803f8e02d81b78ad1847"
+        }
+      ],
+      "repo": "https://github.com/latex-lsp/tree-sitter-latex",
+      "revision": "fa8df448fc2c0192a8c2f8cfc97de53cb2b4ecb9"
+    },
+    "Lua": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Lua.txt"
+      ],
+      "query_adaptations": [
+        "Give contextual function captures .call/.definition subscopes so generic variable/property captures do not override function styling at the same range.",
+        "Switch parser, scanner and queries coherently to canonical tree-sitter-grammars/tree-sitter-lua.",
+        "Clear per-instance scanner payload before deserialize, including length0 reset; tested with independent scanner/parser instances and reset/reuse.",
+        "Normalize upstream legacy repeat/conditional/field/parameter/method/preproc and boolean captures to Runestone scopes; convert any-of? builtin list to equivalent anchored regex.",
+        "Use c injection for ffi.cdef string contents and preserve exact cdef predicate."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/highlights.scm",
+            "queries/injections.scm"
+          ],
+          "repo": "https://github.com/tree-sitter-grammars/tree-sitter-lua",
+          "revision": "10fe0054734eec83049514ea2e718b2a56acd0c9"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter-grammars/tree-sitter-lua",
+      "revision": "10fe0054734eec83049514ea2e718b2a56acd0c9",
+      "scanner_adaptations": [
+        "Reset payload before deserializing initial/short state; see lua_scanner_state.c."
+      ]
+    },
+    "Markdown": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Markdown.txt",
+        "Source text: TreeSitterLanguages/Licenses/Updates/Markdown-nvim-treesitter.txt"
+      ],
+      "query_adaptations": [
+        "Preserve Runestone text.* captures and inline language injection. Fix plus metadata language to TOML, add task markers and inline injection for table cells."
+      ],
+      "query_provenance": [
+        {
+          "path": "tree-sitter-markdown/queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
+          "revision": "41ff24a6c775492c543b09228aeb98d1cd2b3a0f"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter-grammars/tree-sitter-markdown",
+      "revision": "41ff24a6c775492c543b09228aeb98d1cd2b3a0f"
+    },
+    "OCaml": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/OCaml-LICENSE.txt"
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter/tree-sitter-ocaml",
+          "revision": "3b2e14e0697d405c9aa0beddfa09b71f45abc504"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-ocaml",
+      "revision": "3b2e14e0697d405c9aa0beddfa09b71f45abc504"
+    },
+    "PHP": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/PHP.txt"
+      ],
+      "query_adaptations": [
+        "Give contextual function captures .call/.definition subscopes so generic variable/property captures do not override function styling at the same range.",
+        "Localize shared scanner.h include. Convert any-of? to an equivalent anchored match? alternation; module captures become namespace.",
+        "Use html injection on text nodes; Runestone injects the whole range and does not implement upstream combined metadata.",
+        "Add contextual PHP 8.4 get/set property-hook keyword highlighting."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/tags.scm",
+            "queries/highlights.scm",
+            "queries/injections.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-php",
+          "revision": "58d5643086ae60e93a3746cca648363ee97c8761"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-php",
+      "revision": "58d5643086ae60e93a3746cca648363ee97c8761"
+    },
+    "Perl": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Perl-LICENSE.txt"
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter-perl/tree-sitter-perl",
+          "revision": "775e75a51c1230fccbde7d607cd6d424b0ce1016"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter-perl/tree-sitter-perl",
+      "revision": "775e75a51c1230fccbde7d607cd6d424b0ce1016"
+    },
+    "Python": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Python.txt"
+      ],
+      "query_adaptations": [
+        "Give contextual function captures .call/.definition subscopes so generic variable/property captures do not override function styling at the same range.",
+        "Map escape to string.escape and embedded interpolation to none; add Python 3.12 type-alias soft-keyword capture."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/tags.scm",
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-python",
+          "revision": "26855eabccb19c6abf499fbc5b8dc7cc9ab8bc64"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-python",
+      "revision": "26855eabccb19c6abf499fbc5b8dc7cc9ab8bc64"
+    },
+    "R": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/R-LICENSE.txt"
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/r-lib/tree-sitter-r",
+          "revision": "58a22794466c0fc15b0d3b40531db751593721e8"
+        }
+      ],
+      "repo": "https://github.com/r-lib/tree-sitter-r",
+      "revision": "58a22794466c0fc15b0d3b40531db751593721e8"
+    },
+    "Ruby": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Ruby.txt"
+      ],
+      "query_adaptations": [
+        "Use upstream C scanner (replacing old C++ scanner); pinned revision contains the heredoc serialization bounds fix. Sanitizer regression covers near-limit/oversized delimiter states and roundtrip.",
+        "Omit local-dependent catch-all identifier/function/reference patterns; structural method captures remain. Bare ambiguous identifiers use normal variable styling.",
+        "Map escape to string.escape and embedded interpolation to none; drop tag documentation transformations while preserving raw docs/tags."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/tags.scm",
+            "queries/locals.scm",
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-ruby",
+          "revision": "ad907a69da0c8a4f7a943a7fe012712208da6dee"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-ruby",
+      "revision": "ad907a69da0c8a4f7a943a7fe012712208da6dee"
+    },
+    "Rust": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Rust.txt"
+      ],
+      "query_adaptations": [
+        "Give contextual function captures .call/.definition subscopes so generic variable/property captures do not override function styling at the same range.",
+        "Fix upstream constant regexp trailing apostrophe and exclude all-cap constants from constructor heuristic.",
+        "Map integer and float literals to number and float rather than constant.builtin.",
+        "Use rust captures for complete macro token-tree ranges; unsupported injection.include-children metadata is unnecessary because Runestone includes the entire captured range.",
+        "Replace removed if_let_expression indentation node with if_expression."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/highlights.scm",
+            "queries/injections.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-rust",
+          "revision": "77a3747266f4d621d0757825e6b11edcbf991ca5"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-rust",
+      "revision": "77a3747266f4d621d0757825e6b11edcbf991ca5"
+    },
+    "SCSS": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/SCSS.txt"
+      ],
+      "query_adaptations": [
+        "Parser/scanner already match upstream and are retained byte-for-byte. Preserve fixed #match? predicates; add SCSS variables, comments, directives and punctuation missing from CSS-derived upstream query."
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/serenadeai/tree-sitter-scss",
+          "revision": "c478c6868648eff49eb04a4df90d703dc45b312a"
+        },
+        {
+          "path": "Sources/TreeSitterSCSSQueries/highlights.scm",
+          "repo": "https://github.com/simonbs/TreeSitterLanguages",
+          "revision": "9adbb839524e47e0eee8803f8e02d81b78ad1847"
+        }
+      ],
+      "repo": "https://github.com/serenadeai/tree-sitter-scss",
+      "revision": "c478c6868648eff49eb04a4df90d703dc45b312a"
+    },
+    "SQL": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/SQL-LICENSE.txt"
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/DerekStride/tree-sitter-sql",
+          "revision": "e038788e5d4daba82dea35676bf49a216629e141"
+        }
+      ],
+      "repo": "https://github.com/DerekStride/tree-sitter-sql",
+      "revision": "e038788e5d4daba82dea35676bf49a216629e141"
+    },
+    "Svelte": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Svelte.txt"
+      ],
+      "query_adaptations": [
+        "Keep existing Runestone HTML text formatting; migrate to current Svelte5 snippet/render syntax. Use svelte_raw_text for TypeScript-compatible template expressions. Guard default and type fallback so lang=ts cannot overlap JavaScript; retain inline style injection."
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter-grammars/tree-sitter-svelte",
+          "revision": "ae5199db47757f785e43a14b332118a5474de1a2"
+        },
+        {
+          "path": "Sources/TreeSitterSvelteQueries/highlights.scm",
+          "repo": "https://github.com/simonbs/TreeSitterLanguages",
+          "revision": "9adbb839524e47e0eee8803f8e02d81b78ad1847"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter-grammars/tree-sitter-svelte",
+      "revision": "ae5199db47757f785e43a14b332118a5474de1a2"
+    },
+    "Swift": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/Swift.txt"
+      ],
+      "query_adaptations": [
+        "Generate parser.c from pinned upstream HEAD with official Tree-sitter CLI 0.27.1, ABI15.",
+        "Map variable.member to property, boolean to constant.builtin, and number.float to float; omit unsupported spell metadata capture."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/locals.scm",
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/alex-pinkus/tree-sitter-swift",
+          "revision": "9e3b87f66f1fd2f3b931376fd3723ab788e337c3"
+        }
+      ],
+      "repo": "https://github.com/alex-pinkus/tree-sitter-swift",
+      "revision": "9e3b87f66f1fd2f3b931376fd3723ab788e337c3"
+    },
+    "TOML": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/TOML.txt"
+      ],
+      "query_adaptations": [
+        "Retain property capture on key nodes rather than upstream whole-pair capture."
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter-grammars/tree-sitter-toml",
+          "revision": "64b56832c2cffe41758f28e05c756a3a98d16f41"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter-grammars/tree-sitter-toml",
+      "revision": "64b56832c2cffe41758f28e05c756a3a98d16f41"
+    },
+    "TSX": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/TSX.txt"
+      ],
+      "query_adaptations": [
+        "Continue combining current JavaScript, JSX and TypeScript highlights; use localized common scanner header."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/tags.scm",
+            "queries/locals.scm",
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-typescript",
+          "revision": "75b3874edb2dc714fb1fd77a32013d0f8699989f"
+        },
+        {
+          "paths": [
+            "queries/highlights.scm",
+            "queries/highlights-jsx.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-javascript",
+          "revision": "58404d8cf191d69f2674a8fd507bd5776f46cb11",
+          "usage": "Inherited highlights"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-typescript",
+      "revision": "75b3874edb2dc714fb1fd77a32013d0f8699989f"
+    },
+    "TypeScript": {
+      "license": "MIT",
+      "license_files": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/TypeScript.txt"
+      ],
+      "query_adaptations": [
+        "Continue combining current JavaScript and TypeScript highlights; use localized common scanner header."
+      ],
+      "query_provenance": [
+        {
+          "paths": [
+            "queries/tags.scm",
+            "queries/locals.scm",
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-typescript",
+          "revision": "75b3874edb2dc714fb1fd77a32013d0f8699989f"
+        },
+        {
+          "paths": [
+            "queries/highlights.scm"
+          ],
+          "repo": "https://github.com/tree-sitter/tree-sitter-javascript",
+          "revision": "58404d8cf191d69f2674a8fd507bd5776f46cb11",
+          "usage": "Inherited highlights"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter/tree-sitter-typescript",
+      "revision": "75b3874edb2dc714fb1fd77a32013d0f8699989f"
+    },
+    "YAML": {
+      "license": "MIT",
+      "licenses": [
+        "Source text: TreeSitterLanguages/Licenses/Updates/YAML.txt"
+      ],
+      "query_adaptations": [
+        "Retain Runestone field/type names; add upstream full coverage for flow strings and block scalars; retain escape highlighting."
+      ],
+      "query_provenance": [
+        {
+          "path": "queries/highlights.scm",
+          "repo": "https://github.com/tree-sitter-grammars/tree-sitter-yaml",
+          "revision": "a1c4812a73ec5e089de8e441fdea3a921e8d5079"
+        }
+      ],
+      "repo": "https://github.com/tree-sitter-grammars/tree-sitter-yaml",
+      "revision": "a1c4812a73ec5e089de8e441fdea3a921e8d5079"
+    }
+  },
+  "notices": {
+    "Source text: Fila-MIT.txt": "5e126c09808059cfd6fc162a6e6ac114b6e0be3c10d607e1cb6ebdd86d6b1a11",
+    "Source text: Runestone-MIT.txt": "78a24aa7bea03dc44ff26a2729b620d2eb6c5826171cbb1ecf048d94aba4d2f3",
+    "Source text: TreeSitter-runtime-MIT.txt": "f32c5526bd0327b8b304e7d92df701fa7816380ed72570a17d966c419665d974",
+    "Source text: TreeSitterLanguages/LICENSE": "78a24aa7bea03dc44ff26a2729b620d2eb6c5826171cbb1ecf048d94aba4d2f3",
+    "Source text: TreeSitterLanguages/Licenses/Folding/Perl-LICENSE.txt": "9f6e8acdd11748baa28b5b63edfec38114bcbc4ee97195b066cd9d01e7a04094",
+    "Source text: TreeSitterLanguages/Licenses/Folding/Svelte.txt": "9b7b273af55e0c42aa5cd77b4711f269d5052678808976412b7333fd73efd273",
+    "Source text: TreeSitterLanguages/Licenses/Folding/Swift.txt": "208cb5cf840ec5522d0e9effde080ed9b7a9562cb8a7e2589d57a5371c89dad0",
+    "Source text: TreeSitterLanguages/Licenses/Folding/nvim-treesitter-APACHE-2.0.txt": "283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Astro.txt": "3a72e22843d7b27d6910f1a81c2ae47f33d3f6a87a60e64ebff77ce6745d3fed",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Bash-LICENSE.txt": "803670539ad399b303ca7d63336847b7d32d7eba3cd8b50920ebbdfe69f1592c",
+    "Source text: TreeSitterLanguages/Licenses/Updates/C.txt": "ed00a4624e3b7ec4db6e8940dc30e0ac88b54306684740ca0520e59f4b0879ba",
+    "Source text: TreeSitterLanguages/Licenses/Updates/CPP.txt": "ed00a4624e3b7ec4db6e8940dc30e0ac88b54306684740ca0520e59f4b0879ba",
+    "Source text: TreeSitterLanguages/Licenses/Updates/CSS.txt": "f32c5526bd0327b8b304e7d92df701fa7816380ed72570a17d966c419665d974",
+    "Source text: TreeSitterLanguages/Licenses/Updates/CSharp.txt": "b4439bbe1b62cd55680f11fe983030c41c0ca94991c6c7342e4ecedc3e3a8ac4",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Elixir-LICENSE.txt": "4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Elm-LICENSE.md.txt": "f183f9fe81defedfd56c5db9bfc10a3dd97e4272119df90b123a28688bdc6b15",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Go.txt": "ed00a4624e3b7ec4db6e8940dc30e0ac88b54306684740ca0520e59f4b0879ba",
+    "Source text: TreeSitterLanguages/Licenses/Updates/HTML.txt": "ed00a4624e3b7ec4db6e8940dc30e0ac88b54306684740ca0520e59f4b0879ba",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Haskell-LICENSE.txt": "ed00a4624e3b7ec4db6e8940dc30e0ac88b54306684740ca0520e59f4b0879ba",
+    "Source text: TreeSitterLanguages/Licenses/Updates/JSON.txt": "ed00a4624e3b7ec4db6e8940dc30e0ac88b54306684740ca0520e59f4b0879ba",
+    "Source text: TreeSitterLanguages/Licenses/Updates/JSON5.txt": "6c9613e35c3df2db6973156c0f0d2050bbd9aca9cf044f9cf3021d14dc71dbc8",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Java.txt": "e4b318c1f4cbbe02fb13d547a3434ae4928bb0d9fe553a82ce0740ff86e795ef",
+    "Source text: TreeSitterLanguages/Licenses/Updates/JavaScript.txt": "ed00a4624e3b7ec4db6e8940dc30e0ac88b54306684740ca0520e59f4b0879ba",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Julia-LICENSE.txt": "693db662254c3e27d560682bcd5ec07ee34b065c2613d5313e60268baaecc1f6",
+    "Source text: TreeSitterLanguages/Licenses/Updates/LaTeX.txt": "eb7e32c043e40684e72b0040720d7904a9094f9bcf5fd9ed4707fce7bae9c34f",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Lua.txt": "7a85c53f1ebd2f53a56df324700c3d78dee7a36527351bef028077fdb2d1cc73",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Markdown-nvim-treesitter.txt": "283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Markdown.txt": "c152e914bb8ad1fce9806348db1dd09c0fdf68e59a43e8148f21cb46a9a18cb9",
+    "Source text: TreeSitterLanguages/Licenses/Updates/OCaml-LICENSE.txt": "1e2d01870890662eae934768b4490998654f6814c72364b98293709539532b9b",
+    "Source text: TreeSitterLanguages/Licenses/Updates/PHP.txt": "c423a3782a87b889d7c637cb69c0239c7afa072b310a70367f963b87f6e65138",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Perl-LICENSE.txt": "9f6e8acdd11748baa28b5b63edfec38114bcbc4ee97195b066cd9d01e7a04094",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Python.txt": "a3471e4b26b47637b4e9c3bed8914cc6204859fc006fea77f8c4362dded5cea0",
+    "Source text: TreeSitterLanguages/Licenses/Updates/R-LICENSE.txt": "e7639c7ff74f46e62b0090b10f2dd93f4cbc15db9305e1e164c87e961a01b93a",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Ruby.txt": "60d611b46d1d36880aba0e0ab6934d85919c7fac7693b67742f3f6718dad026b",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Rust.txt": "2cb0abdb8e3fef85bdc9f3e699edc483ef701125ba4cf6478b8482ea8c9ab4c3",
+    "Source text: TreeSitterLanguages/Licenses/Updates/SCSS.txt": "735f237e58f9bd12095802110c24b981b971fcae0a7a6d2eb60cfd9fae6cab68",
+    "Source text: TreeSitterLanguages/Licenses/Updates/SQL-LICENSE.txt": "ae7daffaab3a45086deabaa3c2cd18702228adb5eca90bffb76e7f610f618810",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Svelte.txt": "9b7b273af55e0c42aa5cd77b4711f269d5052678808976412b7333fd73efd273",
+    "Source text: TreeSitterLanguages/Licenses/Updates/Swift.txt": "208cb5cf840ec5522d0e9effde080ed9b7a9562cb8a7e2589d57a5371c89dad0",
+    "Source text: TreeSitterLanguages/Licenses/Updates/TOML.txt": "cb6a7351610d6ff483273d6be0942e6e5dec25c1a2f84f1545eba3cd81a69b4f",
+    "Source text: TreeSitterLanguages/Licenses/Updates/TSX.txt": "803670539ad399b303ca7d63336847b7d32d7eba3cd8b50920ebbdfe69f1592c",
+    "Source text: TreeSitterLanguages/Licenses/Updates/TypeScript.txt": "803670539ad399b303ca7d63336847b7d32d7eba3cd8b50920ebbdfe69f1592c",
+    "Source text: TreeSitterLanguages/Licenses/Updates/YAML.txt": "e11ca5486a721f11a8192a6dbba1c948eccfdc62c5d2658a25a2c9c6f40e53e5",
+    "Yams-MIT.txt": "bbe6b21a0ee19ffe6f62251bd686ad6d745c6ca9d9b1d2a10d0c35f9a378b568",
+    "libyaml-MIT.txt": "beef500d9c6cb5cf61050b6d559d333e2d5c9c89381ec431e887c9f8600cd011"
+  },
+  "resources": {
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/Contents.json": "0fd49ba3c3585c709678e0046a821c3c60685ec7063720d30d3a3448be3a208b",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkAqua.colorset/Contents.json": "01fe685a1dabc2300f598dbf27b8c38cbc5b7b783a144d9f3be2b7574f4f8009",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkBackground.colorset/Contents.json": "9ccca3fdeb664fa2d84ebdfabf4a1e2025ba2fedbcb9c9290f7b32078b6439c8",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkBlue.colorset/Contents.json": "164fb98157074c9a2ea6a50df57a88e486c5cb24dd0e8c69ad37c01b3789b7b9",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkComment.colorset/Contents.json": "a0ffdaeb956a9a05e47fd691351774c6891a2ca17983604df20b6d386e9b049d",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkCurrentLine.colorset/Contents.json": "e25f8b7c3d0036cd0e327cb01a429787801981c90b6584eb414e428ec9ff0279",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkForeground.colorset/Contents.json": "c0e336e3e0c0f211b8eec0b66c9a97a453f743d6d8074e6ade326d3441cc92f1",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkGreen.colorset/Contents.json": "9ccaad215ddec4fcdb9fc6adc2bcc83012ddf0b64e5c098aa12d421e640f2b7b",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkPurple.colorset/Contents.json": "dcfea8600ec99dc831ced3113d06d0952db42a1502e677040e6190462632c369",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkRed.colorset/Contents.json": "a9e249b07650ccf5240bc68017868267b0cb11e544a3de6a8bb772ef8a4c3613",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/Colors.xcassets/OneDarkYellow.colorset/Contents.json": "f0311dfc5ab5ef6aa5b232eb6c2f05a06605c61fcc5d7f891f838e427c5057fe",
+    "Packages/RepoPocketSyntax/Sources/RunestoneOneDarkTheme/OneDarkTheme.swift": "140840afb6b47532143d94f5e9aced8157fded77bf8873735954a4a2c02a6a4f",
+    "Packages/RepoPocketSyntax/Sources/RunestoneThemeCommon/EditorTheme.swift": "06e1285edf085222e8f729dad7abd4c35f353ce96428d7ee21989661932fe29d",
+    "Packages/RepoPocketSyntax/Sources/RunestoneThemeCommon/HighlightName.swift": "ae5e3f04f4001724c4a2292b2693ea1d3ec9323177c485f861969856f25c7952",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/Contents.json": "0fd49ba3c3585c709678e0046a821c3c60685ec7063720d30d3a3448be3a208b",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowAqua.colorset/Contents.json": "760a7480d9d8df0c464eb23527a5018128f07b2b6dacc9ee55d2771ef67c907c",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowBackground.colorset/Contents.json": "0db2c11f5b01b8d2c56aa4720b820a224143747b1b5264e51fcd049584267878",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowBlue.colorset/Contents.json": "f8017584ae3e33d7ce5447abd26eb4d8cc1afc315c060d8cfd6a52bb09b01266",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowComment.colorset/Contents.json": "fb24af4627f6df4423d9c09507032f76506f6fb97e76d20e14f6f4ef2bb08758",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowCurrentLine.colorset/Contents.json": "fefb69941f8c4619b71f10b20589305bd7c1f32a9b006418a3e0679b68113f47",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowForeground.colorset/Contents.json": "81a2271117bf39e5a815c0195fa7cdfdb4fa5bf6080a3cd1779c788766a70aca",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowGreen.colorset/Contents.json": "2c88881db5f3eebc6bb9691f489c8c642c2015c023bd6cce63a556bfbe46d560",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowOrange.colorset/Contents.json": "90d44a500e070a25fe755bfd336b96ef5be943751706d8ff886a6710945f118a",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowPurple.colorset/Contents.json": "2af1cbfd324383d6624e341861a1563644c151ee45e8005f5e468d3b84b22e46",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowRed.colorset/Contents.json": "80fc6fbf68b871e479a016647045bade512f34f29786a2d43865e75d87c266bc",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/Colors.xcassets/TomorrowYellow.colorset/Contents.json": "1faf01f44c8753bd0f9c975081e1166f736d35294dd8c73582a3e76fc205090b",
+    "Packages/RepoPocketSyntax/Sources/RunestoneTomorrowTheme/TomorrowTheme.swift": "6b3dcfbcf6cf478119a47757af95e36173be6852a7e7ae2d6c05ae24b6ccda39"
+  }
+}
+--- END ACTIVE SOURCE EVIDENCE JSON ---

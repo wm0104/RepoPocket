@@ -47,8 +47,7 @@ struct ReleaseManagementDestination: View {
         }
     }
     var valid: Bool { generation == AccountStore.generation && api.isCurrentSession }
-    func cancel(preservingDownload: Bool = false) {
-        if preservingDownload && downloader.keepsDownloadedFile && assetDownload?.active == true { return }
+    func cancel() {
         operation = UUID(); task?.cancel(); task = nil; busy = false
         if assetDownload?.active == true { assetDownload?.stage = .cancelled }
     }
@@ -144,7 +143,7 @@ struct ReleaseManagementDestination: View {
                     self.assetDownload?.stage = .downloading; self.assetDownload?.progress = value
                 }
             }
-            defer { if !self.downloader.keepsDownloadedFile { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) } }
+            defer { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) }
             try self.check()
             self.assetDownload?.stage = .saving
             let saved = try await self.downloader.persist(temporary, generation: self.generation)
@@ -207,7 +206,7 @@ struct ReleaseListView: View {
             }
         }
         .task { if !state.listLoaded { state.list(reset: true) } }
-        .onDisappear { state.cancel(preservingDownload: true) }
+        .onDisappear { state.cancel() }
         .sheet(isPresented: $creating, onDismiss: { state.list(reset: true) }) {
             ReleaseEntryView(api: state.api, initialRepo: state.repo).appSheetCornerRadius()
         }
@@ -320,7 +319,7 @@ struct ReleaseDetailView: View {
             }
         }
         .task { if state.release == nil { state.detail(id) } }
-        .onDisappear { state.cancel(preservingDownload: true) }
+        .onDisappear { state.cancel() }
         .sheet(isPresented: $editing, onDismiss: { state.detail(id) }) {
             if let r = state.release { ReleaseEditorView(api: state.api, repo: state.repo, original: r).appSheetCornerRadius() }
         }

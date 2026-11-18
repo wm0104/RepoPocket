@@ -8,8 +8,14 @@ for source in Path(REPO_ROOT, 'RepoPocket').glob('*.swift'):
     s=source.read_text()
     for forbidden in ['willEnterForegroundNotification', 'didBecomeActiveNotification']:
         assert forbidden not in s, source
-    # Visible local Git views may recheck external edits; never mutate on return.
-    assert ('scenePhase' in s) == (source.name in ('RepoPocketApp.swift', 'WorkflowViews.swift', 'LocalProjectView.swift', 'LocalGitStageView.swift')), source
+    # Visible Git and Actions status views may recheck; never mutate on return.
+    assert ('scenePhase' in s) == (source.name in ('RepoPocketApp.swift', 'WorkflowViews.swift', 'LocalProjectView.swift', 'LocalGitStageView.swift', 'CollaborationViews.swift')), source
+    if source.name == 'CollaborationViews.swift':
+        status = s.split('struct RepositoryWorkflowStatus:', 1)[1].split('struct CollaborationListView:', 1)[0]
+        assert 'guard visible, scenePhase == .active, api.isCurrentSession' in status
+        assert '.onDisappear { visible = false; store.cancel() }' in status
+        assert 'api.workflowRuns(repo, branch: "", page: $0)' in status
+        assert 'communityMutation(' not in status and 'scan()' not in status
     if source.name == 'LocalGitStageView.swift':
         foreground = s.split('.onChange(of: scenePhase)', 1)[1].split('.refreshable', 1)[0]
         assert 'if phase == .active, valid, !busy { refresh() }' in foreground
@@ -63,6 +69,6 @@ for signature in ['importItems(_ urls: [URL], zip: Bool)', 'downloadRemote()', '
 assert 'hasScanned = true' in scan  # no foreground reset/recreation identity
 import re
 build = re.search(r'CURRENT_PROJECT_VERSION: "([^"]+)"', Path(REPO_ROOT, "project.yml").read_text()).group(1)
-assert build == '1.2.3'
+assert build == '1.2.4'
 assert f'CFBundleVersion\' "$APP/Info.plist")" = "{build}"' in Path(REPO_ROOT, ".github/workflows/build.yml").read_text()
 print('PASS inert remote workspaces, guarded local Git foreground recheck, stable Text, atomic scan/reconciliation and operation busy gates')

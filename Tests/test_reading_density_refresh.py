@@ -106,13 +106,13 @@ class ReadingDensityTests(unittest.TestCase):
         self.assertIn(".padding(.top, spacingBefore)", text)
         self.assertNotIn("struct SoftGroupGap", text)
 
-    def test_theme_is_inline_with_persisted_single_selection(self):
+    def test_native_theme_menu_has_persisted_single_selection(self):
         text = source("NativeActionMenu.swift")
         self.assertIn("options: item.singleSelection ? .singleSelection : []", text)
         self.assertIn("singleSelection: Bool = false", text)
         app = source("RepoPocketApp.swift")
-        self.assertIn('DisclosureGroup(isExpanded: $appearanceExpanded)', app)
-        self.assertIn('selectedAppearance == mode ? [.isSelected] : []', app)
+        self.assertIn('SettingsOptionsMenu()', app)
+        self.assertIn('selectedState: { appearance == mode }', app)
         self.assertIn("current.perform()", text)
         self.assertIn("DispatchQueue.main.async", text)
 

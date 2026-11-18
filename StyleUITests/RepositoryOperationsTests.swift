@@ -1,6 +1,77 @@
 import XCTest
+import UIKit
 
 final class RepositoryOperationsTests: XCTestCase {
+    func testRepositoryActionsRowShowsLatestRunAndReusesRunningBadge() {
+        let app = launch(["-repository-workflow-row-preview"])
+        app.buttons["fixture-open-community"].tap()
+        let row = app.buttons["repository-actions"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        waitForLabel(row, containing: "运行中")
+        XCTAssertFalse(row.label.contains("失败"), "Use the first all-branch run, not the old main-branch result")
+        let motion = app.staticTexts["fixture-workflow-motion"].label
+        XCTAssertTrue(["动效开启", "动效关闭"].contains(motion))
+        let initial = row.screenshot()
+        guard let image = initial.image.cgImage else { return XCTFail("Missing production row pixels") }
+        let iconRect = runningIconRect(image)
+        let scale = CGFloat(image.width) / row.frame.width
+        if motion == "动效开启" {
+            XCTAssertEqual(iconRect.width / scale, 14, accuracy: 2, "Sample the existing 14pt badge, not the Actions icon or title")
+        }
+        var samples: [Data] = []
+        for index in 0..<3 {
+            let sample = index == 0 ? initial : row.screenshot()
+            guard let crop = sample.image.cgImage?.cropping(to: iconRect) else { return XCTFail("Missing fixed badge crop") }
+            samples.append(Data(rgba(crop)))
+            let attachment = XCTAttachment(image: UIImage(cgImage: crop))
+            attachment.name = "repository-actions-running-frame-\(index)"; attachment.lifetime = .keepAlways; add(attachment)
+            let advanced = expectation(description: "Native running badge advances")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) { advanced.fulfill() }
+            wait(for: [advanced], timeout: 2)
+        }
+        if motion == "动效开启" {
+            XCTAssertGreaterThan(Set(samples).count, 1, "The real production badge must animate, not show a static copied icon")
+        } else { XCTAssertEqual(Set(samples).count, 1, "Reduce Motion must retain the shared static symbol") }
+        let first = [UInt8](samples[0]), width = Int(iconRect.width), height = Int(iconRect.height)
+        var changedArcPixels = 0, changedCenterPixels = 0
+        for sample in samples.dropFirst() {
+            let bytes = [UInt8](sample)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let offset = (y * width + x) * 4
+                    let delta = (0..<3).map { abs(Int(bytes[offset + $0]) - Int(first[offset + $0])) }.max()!
+                    let radius = hypot(Double(x) - Double(width - 1) / 2, Double(y) - Double(height - 1) / 2)
+                    if delta > 8 {
+                        if radius < Double(width) * 0.15 { changedCenterPixels += 1 }
+                        if radius > Double(width) * 0.32 { changedArcPixels += 1 }
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(changedCenterPixels, 0, "The center dot must remain still")
+        if motion == "动效开启" {
+            XCTAssertGreaterThan(changedArcPixels, 0, "Only sampling the fixed icon crop must still detect the moving outer arc")
+        } else { XCTAssertEqual(changedArcPixels, 0) }
+        screenshot(app, "repository-actions-row-running")
+        app.buttons["模拟最近运行完成"].tap()
+        waitForLabel(row, containing: "成功", timeout: 25)
+        screenshot(app, "repository-actions-row-completed")
+        XCTAssertTrue(row.isEnabled && row.isHittable)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Actions"].waitForExistence(timeout: 10))
+    }
+
+    func testRepositoryActionsRowWithoutRunsStillNavigates() {
+        let app = launch(["-repository-workflow-row-empty-preview"])
+        app.buttons["fixture-open-community"].tap()
+        let row = app.buttons["repository-actions"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertFalse(row.label.contains("成功"))
+        XCTAssertFalse(app.descendants(matching: .any)["repository-workflow-status"].firstMatch.exists)
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Actions"].waitForExistence(timeout: 10))
+    }
+
     func testActionsManualRefreshRetainsFailuresAndAutomaticallyFollowsTheSameRun() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -97,6 +168,32 @@ final class RepositoryOperationsTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["fixture-open-history"].waitForExistence(timeout: 15))
         return app
+    }
+    private func runningIconRect(_ image: CGImage) -> CGRect {
+        let bytes = rgba(image)
+        var xs: [Int] = [], ys: [Int] = []
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                let offset = (y * image.width + x) * 4
+                let r = Int(bytes[offset]), g = Int(bytes[offset + 1]), b = Int(bytes[offset + 2])
+                // The real light-theme attention badge; excludes the orange feature icon and neutral text.
+                if r < 245 && r - g > 10 && g - b > 20 { xs.append(x); ys.append(y) }
+            }
+        }
+        guard let left = xs.min(), let right = xs.max(), let top = ys.min(), let bottom = ys.max() else {
+            XCTFail("The production running badge must paint yellow pixels"); return .zero
+        }
+        return CGRect(x: left, y: top, width: right - left + 1, height: bottom - top + 1)
+    }
+    private func rgba(_ image: CGImage) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        bytes.withUnsafeMutableBytes { buffer in
+            let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        return bytes
     }
     private func waitForLabel(_ element: XCUIElement, containing text: String, timeout: TimeInterval = 10) {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", text), object: element)], timeout: timeout), .completed)

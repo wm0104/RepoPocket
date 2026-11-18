@@ -15,6 +15,66 @@ DESTINATION = (ROOT / 'RepoPocket/NativeLinkDestination.swift').read_text(encodi
 
 
 class NativeLinkWiringTests(unittest.TestCase):
+    def test_native_safari_done_uses_one_explicit_center_tap_without_fallback(self):
+        helper = (ROOT / 'StyleUITests/NativeSafariAssertions.swift').read_text(encoding='utf-8')
+        for token in ['matching(identifier: "TopBrowserBar")', 'bar.buttons.matching(',
+                      'done.exists, done.isEnabled, done.isHittable', 'frames.allSatisfy',
+                      'barFrame.contains(doneFrame)', 'viewport.contains(doneFrame)',
+                      'done.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()',
+                      'XCTFail(message, file: file, line: line)']:
+            self.assertIn(token, helper)
+        self.assertEqual(helper.count('.tap()'), 1)
+        for forbidden in ['URL', 'staticTexts', 'SafariDoneHitTarget', '.withOffset(', 'app.coordinate(',
+                          'swipe', '.dismiss(', 'showingOfficialReleases', 'DownloadStore', 'sleep(']:
+            self.assertNotIn(forbidden, helper)
+        self.assertIn('tapNativeSafariDone(app, beforeTap:', (ROOT / 'StyleUITests/SettingsTests.swift').read_text(encoding='utf-8'))
+        self.assertIn('tapNativeSafariDone(app, failureNames:', (ROOT / 'StyleUITests/StyleBoundaryTests.swift').read_text(encoding='utf-8'))
+
+    def test_safari_debug_touch_trace_is_flagged_passive_and_structure_only(self):
+        self.assertIn('-safari-presentation-diagnostics', DESTINATION)
+        self.assertIn('#if DEBUG\n@MainActor private final class SafariPresentationDiagnostics:', DESTINATION)
+        diagnostic = DESTINATION.split('private final class SafariPresentationDiagnostics:', 1)[1].split('\n#endif', 1)[0]
+        for token in ['browser.viewIfLoaded?.window', 'UITapGestureRecognizer(target: nil, action: nil)',
+                      'probe.cancelsTouchesInView = false', 'probe.delaysTouchesBegan = false',
+                      'probe.delaysTouchesEnded = false', 'probe.view?.removeGestureRecognizer(probe)',
+                      'touch.view', 'touch.location(in: touch.window)', 'for _ in 0..<8', 'return false']:
+            self.assertIn(token, diagnostic)
+        for forbidden in ['hitTest(', 'sendEvent(', 'accessibilityLabel', 'accessibilityValue', '.url', 'label=']:
+            self.assertNotIn(forbidden, diagnostic)
+        receiver = diagnostic.split('func gestureRecognizer(', 1)[1].split('func stop()', 1)[0]
+        self.assertEqual(receiver.count('return '), 1)
+        self.assertIn('return false', receiver)
+        self.assertIn('#if DEBUG\n        private lazy var diagnostics:', DESTINATION)
+        self.assertIn('self.browser === browser, self.phase != .finished', DESTINATION)
+        self.assertIn('guard browser === controller, phase != .finished else { return }', DESTINATION)
+        for name in ['SettingsTests.swift', 'StyleBoundaryTests.swift']:
+            self.assertIn('-safari-presentation-diagnostics', (ROOT / 'StyleUITests' / name).read_text(encoding='utf-8'))
+
+    def test_safari_is_presented_modally_instead_of_embedded_as_a_child(self):
+        web = DESTINATION.split('struct ContainedWebPage:', 1)[1].split('/// Shares content/browser', 1)[0]
+        self.assertIn('func makeUIViewController(context: Context) -> Presenter', web)
+        self.assertNotIn('-> SFSafariViewController', web)
+        self.assertIn('override func viewDidAppear(_ animated: Bool)', web)
+        self.assertIn('browser.modalPresentationStyle = .fullScreen', web)
+        self.assertIn('present(browser, animated: true)', web)
+        self.assertNotIn('addChild(', web)
+
+    def test_safari_closes_the_outer_sheet_only_after_its_presenter_returns(self):
+        web = DESTINATION.split('struct ContainedWebPage:', 1)[1].split('/// Shares content/browser', 1)[0]
+        for token in ['controller.onClose = onClose', 'case ready, presenting, covered, finished',
+                      'override func viewDidDisappear(_ animated: Bool)',
+                      'if phase == .presenting { phase = .covered }',
+                      'case .covered:', 'phase = .finished', 'onClose()',
+                      'case .presenting, .finished: break', 'controller.stop()']:
+            self.assertIn(token, web)
+        callback = web.split('func safariViewControllerDidFinish(', 1)[1].split('func stop()', 1)[0]
+        self.assertNotIn('onClose()', callback)
+        self.assertNotIn('.dismiss(', callback)
+        cleanup = web.split('func stop()', 1)[1]
+        self.assertIn('presentedViewController === browser', cleanup)
+        self.assertIn('dismiss(animated: false)', cleanup)
+        self.assertNotIn('presentingViewController?.dismiss', web)
+
     def test_only_supported_github_content_opens_native_screens(self):
         self.assertNotIn('private var nativeDestination', DESTINATION)
         self.assertIn('if GitHubLinkRules.isGitHub(url), GitHubLinkRules.target(url) == nil {', DESTINATION)

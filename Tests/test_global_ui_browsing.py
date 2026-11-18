@@ -33,7 +33,7 @@ class GlobalBrowsingUI(unittest.TestCase):
         self.assertIn('@State private var showingHistory = false', FILE)
         self.assertIn('.appNavigationDestination(isPresented: $showingHistory)', FILE)
         self.assertIn('NativeFileHistoryView(api: api, repo: repo, path: entry.path, branch: branch)', FILE)
-        for token in ('"文件信息"', '"此文件的历史记录"', '"重新加载"', 'destructive: true', '.confirmationDialog(', '.downloadCompletionNotice($downloadedFile)', 'DownloadStore.shared.download(.file', 'guard api.isCurrentSession else { throw CancellationError() }'):
+        for token in ('"文件信息"', '"此文件的历史记录"', '"重新加载"', 'destructive: true', '.confirmationDialog(', '.downloadCompletionNotice($downloadedFile)', 'api.downloadFile(repo, entry: entry, branch: branch)', 'downloads.persist(file, session: session)', 'guard api.isCurrentSession else { throw CancellationError() }'):
             self.assertIn(token, FILE)
         self.assertNotIn('编辑包信息', FILE)
         self.assertIn('if writable && editable && !deleted', FILE)

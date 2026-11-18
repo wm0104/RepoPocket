@@ -7,7 +7,7 @@ class QuotaScrollCardTests(unittest.TestCase):
     def test_three_hosts_use_scroll_stack_and_directory_keeps_list(self):
         app = source('RepoPocketApp.swift')
         home = app.split('struct RepositoriesView:', 1)[1].split('struct BrowserView:', 1)[0]
-        settings = app.split('struct SettingsView:', 1)[1].split('private struct SettingsAppearanceRow:', 1)[0]
+        settings = app.split('struct SettingsView:', 1)[1].split('private struct SettingsOptionsMenu:', 1)[0]
         browser = app.split('struct BrowserView:', 1)[1].split('struct FileView:', 1)[0]
         self.assertIn('QuotaScrollStack {', home)
         self.assertIn('QuotaScrollStack {', settings)
@@ -22,7 +22,7 @@ class QuotaScrollCardTests(unittest.TestCase):
         for token in ['withAnimation', '.animation(', 'GeometryReader', '.frame(height:']:
             self.assertNotIn(token, shared)
     def test_disclosures_are_whole_cards_not_soft_list_rows(self):
-        for name, start, end in [('RepoPocketApp.swift','private struct SettingsAppearanceRow:', None), ('PersonalIssuesView.swift','struct PersonalIssuesSection:', 'struct PersonalIssueRow:'), ('CollaborationViews.swift','struct RepositoryCommunitySection:', 'struct CollaborationListView:')]:
+        for name, start, end in [('PersonalIssuesView.swift','struct PersonalIssuesSection:', 'struct PersonalIssueRow:'), ('CollaborationViews.swift','struct RepositoryCommunitySection:', 'struct CollaborationListView:')]:
             part = source(name).split(start,1)[1]
             if end: part = part.split(end,1)[0]
             self.assertIn('QuotaCard', part)
@@ -70,7 +70,6 @@ class QuotaScrollCardTests(unittest.TestCase):
         app = source('RepoPocketApp.swift')
         for symbol in ['safari', 'link']:
             self.assertIn('Image(systemName: "' + symbol + '").foregroundStyle(Color.accentColor)', app)
-        self.assertIn('Image(systemName: "arrow.down.circle").foregroundStyle(Color.accentColor)', source('RepositorySections.swift'))
         self.assertIn('Image(systemName: "bookmark").foregroundStyle(Color.accentColor)', source('RepositoryCollectionViews.swift'))
         ui = (ROOT / 'StyleUITests/StyleBoundaryTests.swift').read_text()
         self.assertIn('assertNeutralNavigationText(app, title: title)', ui)
@@ -108,16 +107,17 @@ class QuotaScrollCardTests(unittest.TestCase):
         # No re-query can silently replace the geometry actually proven stable.
         self.assertNotIn('cardFrame = card.frame', wait)
 
-    def test_settings_wait_context_preserves_theme_and_fold_semantics(self):
+    def test_settings_wait_context_preserves_native_menu_selection_and_reopening(self):
         ui = (ROOT / 'StyleUITests/SettingsTests.swift').read_text()
         root = ui.split('func testProductionRootThemeCheckmarksAndSchemePersistWithoutPreviewProbe()', 1)[1].split('func testProfileAndAbout', 1)[0]
-        for token in ['production-theme-', 'production-cycle-\\(cycle)-collapsed',
-                      'production-cycle-\\(cycle)-expanded', 'for cycle in 0..<3',
+        for token in ['settings-production-root-menu-ready', 'settings-production-root-menu-reopened',
+                      'for _ in 0..<3', 'openTheme(app)', 'closeTheme(app)',
                       'assertSelectedTheme(title, app: app)', 'assertVisibleThemeCheckmark(',
                       'app.terminate(); app.launch()', 'lightBrightness - brightness, 60']:
             self.assertIn(token, root)
-        layout = ui.split('private func assertAppearanceAndAboutLayout', 1)[1].split('private func assertSelectedTheme', 1)[0]
-        self.assertIn('phase: phase', layout)
+        layout = ui.split('private func assertSettingsLayout', 1)[1].split('private func assertSelectedTheme', 1)[0]
+        self.assertIn('app.otherElements["settings-profile-card"]', layout)
+        self.assertIn('app.otherElements["settings-about-card"]', layout)
         self.assertIn('expected: 10', layout)
 
     def test_disclosure_wait_simulated_slow_ax_empty_movement_and_deadline(self):

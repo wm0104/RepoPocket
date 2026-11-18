@@ -52,7 +52,7 @@ class ReleaseManagementTests(unittest.TestCase):
         self.assertIn('复制下载链接', ui)
         self.assertIn('UIPasteboard.general.url = link', ui)
         self.assertIn('asset.browser_download_url, repo: state.repo', ui)
-        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'for row in state.rows', 'for asset in state.assets', '.onDisappear { state.cancel(preservingDownload: true) }', 'generation == AccountStore.generation', '确认删除这个附件？', '确认删除整个发行版？', '此操作不可恢复。', 'Button("删除", role: .destructive) { performDelete() }', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'self.downloader.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup(isExpanded: $expanded)', 'Text("发布说明").foregroundStyle(Color.primary)', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
+        for token in ['private let build: () -> AnyView', 'var body: AnyView { build() }', 'for row in state.rows', 'for asset in state.assets', '.onDisappear { state.cancel() }', 'generation == AccountStore.generation', '确认删除这个附件？', '确认删除整个发行版？', '此操作不可恢复。', 'Button("删除", role: .destructive) { performDelete() }', 'target.repo == state.repo', 'target.generation == AccountStore.generation', 'self.downloader.persist', 'state.notice', 'state.download(asset)', 'DisclosureGroup(isExpanded: $expanded)', 'Text("发布说明").foregroundStyle(Color.primary)', 'original: r', 'RefreshFailure.isCancellation', '新建发行版', '不删除 git 标签', '同名不覆盖', '已公开发行版会立即受到影响']:
             self.assertIn(token,ui + (ROOT/'RepoPocket/ReleaseAttachmentReview.swift').read_text())
         self.assertNotIn('AsyncImage',ui)
         transfers=(ROOT/'RepoPocket/ReleaseTransfers.swift').read_text()

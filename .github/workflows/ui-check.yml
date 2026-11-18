@@ -1,11 +1,12 @@
 name: Native UI checks
+run-name: ${{ inputs.test_scope == 'download-settings-workflow' && '下载·设置·工作流回归' || inputs.test_scope == 'download-settings-recheck' && '下载·设置失败项复测' || github.event.pull_request.title || 'Native UI checks' }}
 on:
   workflow_dispatch:
     inputs:
       test_scope:
         description: Run all UI checks, profile navigation, or attachment/follow actions
         type: choice
-        options: [all, device-feedback-recheck, boundary-feedback-recheck, recovery-regressions, recovery-recheck, download-actions, download-actions-recheck, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck, ui-fixes, ui-fixes-failed, path-time, reading-layout, workflow-log-navigation]
+        options: [all, download-settings-workflow, download-settings-recheck, device-feedback-recheck, boundary-feedback-recheck, recovery-regressions, download-actions, download-actions-recheck, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck, ui-fixes, ui-fixes-failed, path-time, reading-layout, workflow-log-navigation]
         default: all
       test_group:
         description: For all scope, rerun only one existing UI group when needed
@@ -53,19 +54,10 @@ jobs:
       - name: Check download and workflow interaction contracts
         if: startsWith(inputs.test_scope, 'download-actions')
         run: |
-          python3 Tests/test_download_center.py
+          python3 Tests/test_download_store.py
           python3 Tests/test_commit_file.py
           python3 Tests/test_actions_folding.py
           python3 Tests/test_trollstore_local_install.py
-      - name: Check failed recovery contracts
-        if: inputs.test_scope == 'recovery-recheck'
-        run: |
-          python3 Tests/test_download_center.py
-          python3 Tests/test_download_container.py
-          python3 Tests/test_device_ui_feedback.py
-          python3 Tests/test_disclosure_cards.py
-          python3 Tests/test_quota_scroll_cards.py
-          python3 Tests/test_style_failure_diagnostics.py
       - name: Check remaining device feedback contracts
         if: inputs.test_scope == 'device-feedback-recheck' || inputs.test_scope == 'boundary-feedback-recheck'
         run: |
@@ -92,12 +84,12 @@ jobs:
           path: NativeBuild
           key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh', 'Scripts/patch_native_git.py') }}
       - name: Prepare native host regression fixtures
-        if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck' && inputs.test_scope != 'recovery-recheck')
+        if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck')
         run: |
           command -v dpkg-deb >/dev/null || brew install dpkg
           bash Scripts/build_native_git.sh macosx
       - name: Run complete host regression checks
-        if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck' && inputs.test_scope != 'recovery-recheck')
+        if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck')
         run: python3 -B -m unittest discover -s Tests -p 'test_*.py' -v
       - name: Build real simulator application
         run: |
@@ -126,7 +118,7 @@ jobs:
           path: |
             screenshots/*.png
             screenshots/*.mp4
-            screenshots/*-timing-and-ax.txt
+            screenshots/*-ax.txt
             local-git-recording.log
             preview-build.log
             style-test-build.log

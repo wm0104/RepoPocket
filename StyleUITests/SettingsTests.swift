@@ -9,39 +9,47 @@ final class SettingsTests: XCTestCase {
         app.launch()
         app.tabBars.buttons["设置"].tap()
         openTheme(app)
+        keepScreenshot(app, name: "settings-production-root-menu-ready")
+        closeTheme(app)
         var lightBrightness = 0
         for (title, value) in [("浅色", "light"), ("深色", "dark"), ("跟随系统", "system")] {
-            app.buttons["theme-" + value].tap()
+            openTheme(app)
+            app.buttons[title].tap()
+            waitForElement(app.buttons["跟随系统"], matching: "exists == false", app: app)
+            openTheme(app)
             assertSelectedTheme(title, app: app)
-            assertVisibleThemeCheckmark(app, selectedID: "theme-" + value)
-            assertAppearanceAndAboutLayout(app, phase: "production-theme-" + value)
-            let brightness = disclosureHeaderBrightness(app, header: app.buttons["外观"])
+            assertVisibleThemeCheckmark(app, selectedTitle: title)
+            keepScreenshot(app, name: "settings-production-root-\(value)-checked")
+            closeTheme(app)
+            assertSettingsLayout(app)
+            let brightness = disclosureHeaderBrightness(app, header: app.otherElements["settings-profile-card"])
             if value == "light" { lightBrightness = brightness }
             if value == "dark" { XCTAssertGreaterThan(lightBrightness - brightness, 60, "The actual production window must change color scheme") }
-            keepScreenshot(app, name: "settings-production-root-\(value)-checked")
             // Leaving the tab and relaunching must not mask a stale visible checkmark.
             app.tabBars.buttons["主页"].tap()
             app.tabBars.buttons["设置"].tap()
             openTheme(app); assertSelectedTheme(title, app: app)
+            assertVisibleThemeCheckmark(app, selectedTitle: title)
+            closeTheme(app)
             app.terminate(); app.launch()
             app.tabBars.buttons["设置"].tap()
             openTheme(app); assertSelectedTheme(title, app: app)
-            assertVisibleThemeCheckmark(app, selectedID: "theme-" + value)
+            assertVisibleThemeCheckmark(app, selectedTitle: title)
+            closeTheme(app)
         }
-        for cycle in 0..<3 {
-            tapNativeDisclosureHeader(app.buttons["外观"], trailing: cycle.isMultiple(of: 2))
-            waitForElement(app.buttons["theme-system"], matching: "exists == false", app: app)
+        for _ in 0..<3 {
+            openTheme(app); assertSelectedTheme("跟随系统", app: app)
+            assertVisibleThemeCheckmark(app, selectedTitle: "跟随系统")
+            closeTheme(app)
             XCTAssertTrue(app.staticTexts["关于"].isHittable)
-            assertDisclosureCard(app, headerID: "settings-appearance", childIDs: [], phase: "production-cycle-\(cycle)-collapsed")
-            if cycle == 0 { keepScreenshot(app, name: "settings-production-root-collapsed") }
-            tapNativeDisclosureHeader(app.buttons["外观"], trailing: !cycle.isMultiple(of: 2))
-            XCTAssertTrue(app.buttons["theme-system"].waitForExistence(timeout: 5))
-            assertAppearanceAndAboutLayout(app, phase: "production-cycle-\(cycle)-expanded")
+            assertSettingsLayout(app)
         }
-        keepScreenshot(app, name: "settings-production-root-expanded-after-folding")
+        openTheme(app); assertSelectedTheme("跟随系统", app: app)
+        keepScreenshot(app, name: "settings-production-root-menu-reopened")
+        closeTheme(app)
     }
 
-    func testProfileAndAboutStayVisibleWithInlineAppearance() {
+    func testProfileAndAboutStayVisibleWithNativeMenu() {
         let app = checkAppearanceAndPersistence()
         keepScreenshot(app, name: "settings-compact-native-menu")
     }
@@ -49,7 +57,16 @@ final class SettingsTests: XCTestCase {
     private func checkAppearanceAndPersistence() -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-style-preview", "-settings-style-preview"]
+        app.launchArguments = ["-style-preview", "-settings-style-preview", "-safari-presentation-diagnostics"]
+        addTeardownBlock { [weak self] in
+            guard let self, (self.testRun?.failureCount ?? 0) > 0 else { return }
+            self.keepScreenshot(app, name: "settings-state-timeout")
+            let hierarchy = app.debugDescription
+            print("Settings appearance failure hierarchy:\n" + hierarchy)
+            let attachment = XCTAttachment(string: hierarchy)
+            attachment.name = "settings-state-timeout-ax"
+            attachment.lifetime = .keepAlways; self.add(attachment)
+        }
         app.launch()
         let profile = app.staticTexts["设置测试账号"]
         XCTAssertTrue(profile.waitForExistence(timeout: 10))
@@ -57,47 +74,93 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(app.buttons["settings-social-accounts"].exists)
         XCTAssertTrue(app.staticTexts["关于"].exists)
         XCTAssertFalse(app.staticTexts["账号与安全"].exists)
-        XCTAssertFalse(app.buttons["选择文件夹"].exists)
         XCTAssertGreaterThanOrEqual(profile.frame.minY, app.navigationBars["设置"].frame.maxY)
-        let options = app.buttons["外观"]
+        let options = app.buttons["settings-options"]
         XCTAssertTrue(options.isHittable)
-        XCTAssertFalse(app.buttons["theme-system"].exists)
-        assertDisclosureCard(app, headerID: "settings-appearance", childIDs: [])
-        // Both the text side and the empty trailing side must toggle the native header.
-        tapNativeDisclosureHeader(options, trailing: false)
-        XCTAssertTrue(app.buttons["theme-system"].waitForExistence(timeout: 5))
-        tapNativeDisclosureHeader(options, trailing: true)
-        waitForElement(app.buttons["theme-system"], matching: "exists == false", app: app)
+        XCTAssertGreaterThanOrEqual(options.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(options.frame.height, 44)
+        assertSettingsLayout(app)
         openTheme(app)
-        assertAppearanceAndAboutLayout(app)
-        app.buttons["跟随系统"].tap(); waitForTheme("system", app: app)
-        openTheme(app); assertSelectedTheme("跟随系统", app: app)
+        app.buttons["跟随系统"].tap()
+        waitForElement(app.buttons["跟随系统"], matching: "exists == false", app: app)
+        waitForElement(options, matching: "exists == true AND hittable == true AND enabled == true", app: app)
+        waitForTheme("system", app: app)
         for (title, value) in [("深色", "dark"), ("浅色", "light"), ("跟随系统", "system")] {
-            app.buttons[title].tap(); waitForTheme(value, app: app)
-            openTheme(app); assertSelectedTheme(title, app: app)
-            assertVisibleThemeCheckmark(app, selectedID: "theme-" + value)
-            assertAppearanceAndAboutLayout(app)
-            keepScreenshot(app, name: "settings-theme-\(value)-checked")
+            openTheme(app)
             app.buttons[title].tap()
+            waitForElement(app.buttons["跟随系统"], matching: "exists == false", app: app)
+            waitForElement(options, matching: "exists == true AND hittable == true AND enabled == true", app: app)
+            waitForTheme(value, app: app)
+            openTheme(app); assertSelectedTheme(title, app: app)
+            assertVisibleThemeCheckmark(app, selectedTitle: title)
+            keepScreenshot(app, name: "settings-theme-\(value)-checked")
+            closeTheme(app)
+            assertSettingsLayout(app)
             app.terminate()
             app.launch()
             XCTAssertTrue(profile.waitForExistence(timeout: 10))
             waitForTheme(value, app: app)
             openTheme(app); assertSelectedTheme(title, app: app)
+            assertVisibleThemeCheckmark(app, selectedTitle: title)
+            closeTheme(app)
         }
-        app.buttons["跟随系统"].tap()
         waitForElement(options, matching: "exists == true AND hittable == true AND enabled == true", app: app)
-        options.tap()
-        waitForElement(app.buttons["theme-system"], matching: "exists == false", app: app)
-        XCTAssertFalse(app.buttons["theme-system"].exists)
-        openTheme(app); assertSelectedTheme("跟随系统", app: app)
         return app
+    }
+
+    func testFolderAuthorizationPresentsAboveExistingSheet() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-settings-style-preview", "-settings-folder-sheet-preview"]
+        app.launch()
+        let open = app.buttons["settings-open-modal-authorization"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10)); open.tap()
+        let parent = app.staticTexts["settings-modal-parent"]
+        XCTAssertTrue(parent.waitForExistence(timeout: 10))
+        let request = app.buttons["settings-modal-request-folder"]
+        for attempt in 1...2 {
+            XCTAssertTrue(request.isEnabled && request.isHittable); request.tap()
+            let cancel = app.buttons["workspace.import.cancel"]
+            XCTAssertTrue(cancel.waitForExistence(timeout: 10), "Files must finish presenting before checking its controls")
+            waitForElement(cancel, matching: "exists == true AND hittable == true AND enabled == true", app: app)
+            XCTAssertTrue(cancel.isHittable)
+            keepScreenshot(app, name: "settings-folder-over-existing-sheet-\(attempt)")
+            cancel.tap()
+            waitForElement(cancel, matching: "exists == false", app: app)
+            waitForElement(app.staticTexts["settings-modal-authorization-state"], matching: "label == '已取消'", app: app)
+            XCTAssertTrue(parent.exists)
+            XCTAssertTrue(parent.isHittable)
+            waitForElement(request, matching: "exists == true AND hittable == true AND enabled == true", app: app)
+        }
+        app.buttons["关闭父模态"].tap()
+        waitForElement(parent, matching: "exists == false", app: app)
+    }
+
+    func testFolderPickerCancelsAndSettingsRemainResponsive() {
+        let app = checkAppearanceAndPersistence()
+        for attempt in 1...2 {
+            app.buttons["settings-options"].tap()
+            let folder = app.buttons["选择文件夹"]
+            XCTAssertTrue(folder.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["通用"].exists, "Folder choice must be a sibling of General")
+            XCTAssertFalse(app.buttons["跟随系统"].exists)
+            folder.tap()
+            let cancel = app.buttons["workspace.import.cancel"]
+            XCTAssertTrue(cancel.waitForExistence(timeout: 10))
+            XCTAssertTrue(cancel.isHittable)
+            keepScreenshot(app, name: "settings-folder-picker-\(attempt)")
+            cancel.tap()
+            waitForElement(cancel, matching: "exists == false", app: app)
+            waitForElement(app.buttons["settings-options"], matching: "exists == true AND hittable == true AND enabled == true", app: app)
+            openTheme(app); assertSelectedTheme("跟随系统", app: app)
+            closeTheme(app)
+        }
     }
 
     // Keep the separately accepted device check available without blocking appearance regressions.
     func testUpdateMenuReturnsFromOfficialReleasesAfterThemeChanges() {
         let app = checkAppearanceAndPersistence()
-        let options = app.buttons["外观"], profile = app.staticTexts["设置测试账号"]
+        let options = app.buttons["settings-options"], profile = app.staticTexts["设置测试账号"]
         recordUpdateMenu(app, checkpoint: "after-appearance-toggle")
         for attempt in 1...2 {
             let updateOptions = updateMenuControl(app, checkpoint: "after-appearance-toggle-\(attempt)")
@@ -105,18 +168,17 @@ final class SettingsTests: XCTestCase {
             let releases = app.buttons["官方发行版页"]
             XCTAssertTrue(releases.waitForExistence(timeout: 5)); releases.tap()
             // SFSafariViewController's native Done control, not GitHub page content.
-            let done = app.buttons.matching(NSPredicate(format: "identifier IN %@ OR label IN %@", ["Done", "完成"], ["Done", "完成"])).firstMatch
-            XCTAssertTrue(done.waitForExistence(timeout: 10), "The real in-app Safari must present without waiting for GitHub to load")
-            XCTAssertTrue(done.isHittable)
-            keepScreenshot(app, name: "settings-official-releases-\(attempt)")
-            done.tap()
+            guard let done = tapNativeSafariDone(app, beforeTap: {
+                keepScreenshot(app, name: "settings-official-releases-\(attempt)")
+            }) else { return }
             waitForElement(done, matching: "exists == false", app: app)
             waitForElement(options, matching: "exists == true AND hittable == true AND enabled == true", app: app)
             XCTAssertTrue(profile.waitForExistence(timeout: 5))
             XCTAssertTrue(options.isHittable, "Closing Safari must restore responsive settings")
         }
         openTheme(app); assertSelectedTheme("跟随系统", app: app)
-        app.buttons["跟随系统"].tap()
+        assertVisibleThemeCheckmark(app, selectedTitle: "跟随系统")
+        closeTheme(app)
         keepScreenshot(app, name: "settings-compact-native-menu")
     }
     private func recordUpdateMenu(_ app: XCUIApplication, checkpoint: String) {
@@ -164,19 +226,29 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(result, .completed, "Expected \(element) to match \(predicate)", file: file, line: line)
     }
     private func openTheme(_ app: XCUIApplication) {
-        if !app.buttons["theme-system"].exists {
-            let item = app.buttons["外观"]
-            waitForElement(item, matching: "exists == true AND hittable == true AND enabled == true", app: app)
-            item.tap()
-        }
+        let options = app.buttons["settings-options"]
+        waitForElement(options, matching: "exists == true AND hittable == true AND enabled == true", app: app)
+        options.tap()
+        let general = app.buttons["通用"]
+        XCTAssertTrue(general.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["选择文件夹"].exists)
+        general.tap()
+        let theme = app.buttons["主题"]
+        XCTAssertTrue(theme.waitForExistence(timeout: 5)); theme.tap()
         XCTAssertTrue(app.buttons["跟随系统"].waitForExistence(timeout: 5))
     }
-    private func assertAppearanceAndAboutLayout(_ app: XCUIApplication, phase: String = "settings-layout") {
-        assertDisclosureCard(app, headerID: "settings-appearance", childIDs: ["theme-system", "theme-light", "theme-dark"], phase: phase)
-        let card = disclosureCard(app, headerID: "settings-appearance")
+    private func closeTheme(_ app: XCUIApplication) {
+        guard let selected = ["跟随系统", "浅色", "深色"].map({ app.buttons[$0] }).first(where: { $0.exists && $0.isSelected })
+        else { return XCTFail("Native theme menu must have exactly one selected action") }
+        selected.tap()
+        waitForElement(app.buttons["跟随系统"], matching: "exists == false", app: app)
+    }
+    private func assertSettingsLayout(_ app: XCUIApplication) {
+        let card = app.otherElements["settings-profile-card"]
+        XCTAssertTrue(card.exists)
         let about = app.staticTexts["关于"]
         XCTAssertTrue(about.exists)
-        XCTAssertTrue(about.isHittable, "About must remain visible after every native disclosure relayout")
+        XCTAssertTrue(about.isHittable, "About must remain visible after closing the native settings menu")
         let aboutCell = app.otherElements["settings-about-card"]
         XCTAssertTrue(aboutCell.frame.contains(about.frame), "About text must move with its own card")
         // Both AX card bounds and painted pixels must agree on the 10pt gap.
@@ -194,7 +266,7 @@ final class SettingsTests: XCTestCase {
         for title in ["跟随系统", "浅色", "深色"] {
             let item = app.buttons[title]
             XCTAssertTrue(item.exists)
-            // The inline choice exposes the same state as its visible checkmark.
+            // Inspect the real UIKit action state, not the preview's stored-value probe.
             XCTAssertEqual(item.isSelected, title == expected, "Only \(expected) should be checked; AX value: \(String(describing: item.value))")
         }
     }
@@ -204,7 +276,8 @@ final class SettingsTests: XCTestCase {
     }
     private func waitForTheme(_ value: String, app: XCUIApplication) {
         let changed = expectation(for: NSPredicate { _, _ in
-            app.staticTexts["settings-theme-probe"].label == value
+            let probe = app.staticTexts["settings-theme-probe"]
+            return probe.exists && probe.label == value
         }, evaluatedWith: nil)
         wait(for: [changed], timeout: 5)
     }

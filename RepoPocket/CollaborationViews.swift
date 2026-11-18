@@ -37,7 +37,16 @@ struct RepositoryCommunitySection: View {
                 Divider()
                 NavigationLink { CollaborationListView(api: api, repo: repo, kind: .pulls) } label: { QuotaNavigationLabel { RepositoryFeatureLabel(title: "拉取请求", symbol: "arrow.triangle.branch", color: .blue) } }.padding(12)
                 Divider()
-                NavigationLink { WorkflowRunsView(api: api, repo: repo, branch: branch) } label: { QuotaNavigationLabel { RepositoryFeatureLabel(title: "操作 · Actions", symbol: "play.circle", color: .orange) } }.padding(12)
+                NavigationLink { WorkflowRunsView(api: api, repo: repo, branch: branch) } label: {
+                    QuotaNavigationLabel {
+                        HStack(spacing: 8) {
+                            RepositoryFeatureLabel(title: "操作 · Actions", symbol: "play.circle", color: .orange)
+                            Spacer(minLength: 8)
+                            RepositoryWorkflowStatus(api: api, repo: repo)
+                                .id(api.accountID + ":" + repo + ":" + AccountStore.generation.uuidString)
+                        }
+                    }
+                }.accessibilityIdentifier("repository-actions").padding(12)
                 Divider()
                     DisclosureGroup(isExpanded: $expanded) {
                         VStack(alignment: .leading, spacing: 0) {
@@ -64,6 +73,50 @@ struct RepositoryCommunitySection: View {
                             .accessibilityValue(expanded ? "已展开" : "已折叠").accessibilityIdentifier("repository-more")
                     }.tint(.secondary).padding(12)
             }
+    }
+}
+
+private struct RepositoryWorkflowStatus: View {
+    @ObservedObject var api: GitHub
+    let repo: String
+    @StateObject private var store = CommunityPageStore<WorkflowRun>()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var visible = false
+    private var latest: WorkflowRun? {
+        api.isCurrentSession && store.error.isEmpty ? store.items.first : nil
+    }
+    private var shouldPoll: Bool {
+        guard let run = latest else { return false }
+        return visible && scenePhase == .active && ["queued", "in_progress", "waiting", "pending", "requested"].contains(run.status)
+    }
+    var body: some View {
+        ZStack {
+            if let run = latest {
+                WorkflowStatusBadge(status: run.status, conclusion: run.conclusion)
+                    .font(.caption).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    .accessibilityHint("仓库所有分支的最近一次运行")
+                    .accessibilityIdentifier("repository-workflow-status")
+            }
+        }
+        .task { visible = true; load() }
+        .task(id: shouldPoll) {
+            guard shouldPoll else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { return }
+                guard shouldPoll else { return }
+                if !store.busy { load() }
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active && visible { load() }
+            else { store.cancel() }
+        }
+        .onDisappear { visible = false; store.cancel() }
+    }
+    private func load() {
+        guard visible, scenePhase == .active, api.isCurrentSession else { return }
+        // Match the default Actions list: all branches, first page, server order.
+        store.load(reset: true, preserveItems: true, api: api) { try await api.workflowRuns(repo, branch: "", page: $0) }
     }
 }
 

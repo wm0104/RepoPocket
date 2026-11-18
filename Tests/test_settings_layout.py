@@ -22,15 +22,16 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertNotIn('DownloadLocationSection()', page)
         self.assertNotIn('Picker("主题"', page)
 
-    def test_inline_appearance_reuses_persisted_selection(self):
+    def test_native_options_restore_reference_menu_without_an_inline_appearance_card(self):
         page = self.source('RepoPocketApp.swift').split('struct SettingsView:', 1)[1]
-        for value in ['DisclosureGroup(isExpanded: $appearanceExpanded)',
-                      '@State private var appearanceExpanded = false',
-                      'appearance = mode', 'selectedAppearance == mode', '.isSelected',
-                      'Text("外观")', 'QuotaCard(accessibilityID: "settings-appearance-card")']:
+        for value in ['.toolbar { SettingsOptionsMenu() }', 'struct SettingsOptionsMenu: View',
+                      '@AppStorage("appearance.mode")', 'selectedState: { appearance == mode }',
+                      'NativeMenuItem.submenu("通用"', 'NativeMenuItem.submenu("主题"',
+                      'title: "选择文件夹"', 'downloads.choose()']:
             self.assertIn(value, page)
-        self.assertNotIn('downloads.choose()', page)
-        self.assertNotIn('NativeMenuItem.submenu("主题"', page)
+        self.assertNotIn('SettingsAppearanceRow', page)
+        self.assertNotIn('settings-appearance-card', page)
+        self.assertNotIn('DisclosureGroup(', page)
 
     def test_account_and_update_lifecycles_remain_unchanged(self):
         page = self.source('RepoPocketApp.swift').split('struct SettingsView:', 1)[1].split('\nstruct ', 1)[0]

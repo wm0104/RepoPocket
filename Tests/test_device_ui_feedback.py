@@ -31,29 +31,29 @@ class DeviceUIFeedbackTests(unittest.TestCase):
         self.assertIn('.foregroundStyle(Color.primary, Color.secondary, Color(uiColor: .tertiaryLabel))', label)
         self.assertIn('.foregroundStyle(Color(uiColor: .tertiaryLabel))', label)
         self.assertIn('foregroundStyle(Color.accentColor)', source('RepoPocketApp.swift'))
-        self.assertIn('Image(systemName: "checkmark").foregroundStyle(Color.accentColor)', source('RepoPocketApp.swift'))
-        self.assertIn('.foregroundStyle(.tint)', source('DownloadCenterView.swift'))
+        self.assertIn('selectedState: { appearance == mode }', source('RepoPocketApp.swift'))
         self.assertIn('Color.green', source('ReleaseAssetDownloadStatusView.swift'))
         self.assertIn('0x9a / 255.0', source('WorkflowViews.swift'))
         preview = source('StylePreviewGallery.swift')
         self.assertIn('Text("更改分支").foregroundStyle(.blue)', preview)
 
-    def test_theme_pixel_check_requires_accent_not_a_black_checkmark(self):
+    def test_theme_pixel_check_requires_the_native_leading_neutral_checkmark(self):
         helper = (ROOT / 'StyleUITests/DisclosureCardAssertions.swift').read_text(encoding='utf-8')
         check = helper.split('func assertVisibleThemeCheckmark(', 1)[1]
-        self.assertIn('XCTAssertGreaterThan(colored, 8', check)
-        self.assertIn('XCTAssertEqual(colored, 0', check)
-        self.assertNotIn('neutral primary text color', check)
-        self.assertNotIn('var ink = 0', check)
+        self.assertIn('frame.minX + 4', check)
+        self.assertIn('rgb.max()! - rgb.min()! < 50', check)
+        self.assertIn('XCTAssertGreaterThan(ink, 8', check)
+        self.assertIn('XCTAssertEqual(ink, 0', check)
+        self.assertNotIn('frame.maxX - 26', check)
 
-    def test_theme_reads_storage_before_deferred_card_content(self):
-        appearance = source('RepoPocketApp.swift').split('struct SettingsAppearanceRow:', 1)[1]
+    def test_theme_host_observes_storage_and_native_menu_resolves_the_latest_selection(self):
+        appearance = source('RepoPocketApp.swift').split('struct SettingsOptionsMenu:', 1)[1]
+        self.assertIn('@AppStorage("appearance.mode")', appearance)
         body = appearance.split('var body: some View {', 1)[1]
-        before_card, choices = body.split('QuotaCard(', 1)
-        self.assertIn('let selectedAppearance = appearance', before_card)
-        self.assertIn('if selectedAppearance == mode', choices)
-        self.assertIn('selectedAppearance == mode ? [.isSelected] : []', choices)
-        self.assertIn('Button { appearance = mode }', choices)
+        self.assertIn('NativeActionMenu(', body)
+        self.assertIn('selected: appearance == mode, selectedState: { appearance == mode }', body)
+        self.assertIn('{ appearance = mode }', body)
+        self.assertNotIn('AnyView', appearance)
         self.assertNotIn('.id(', appearance)
 
     def test_home_release_removes_single_action_menu_but_keeps_retry(self):

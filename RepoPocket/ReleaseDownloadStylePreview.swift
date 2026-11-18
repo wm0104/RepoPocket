@@ -5,9 +5,15 @@ import SwiftUI
 struct ReleaseDownloadStylePreview: View {
     @State private var state: ReleaseScreenState?
     @State private var error = ""
+    @StateObject private var downloader = PreviewAssetDownloader()
     var body: some View {
         Group {
-            if let state { AppNavigationStack { ReleaseDetailView(state: state, id: 7) } }
+            if let state {
+                AppNavigationStack {
+                    ReleaseDetailView(state: state, id: 7)
+                        .safeAreaInset(edge: .bottom) { ReleaseDownloadDiagnostics(state: state, downloader: downloader) }
+                }
+            }
             else if !error.isEmpty { Text(error) }
             else { ProgressView("准备下载测试") }
         }.task {
@@ -19,12 +25,22 @@ struct ReleaseDownloadStylePreview: View {
                 let config = URLSessionConfiguration.ephemeral
                 config.protocolClasses = [ReleaseActionsPreviewProtocol.self]
                 let api = GitHub(configuration: config); api.login = "fixture-owner"
-                let value = ReleaseScreenState(api: api, repo: "fixture-owner/sample", downloader: PreviewAssetDownloader())
+                let value = ReleaseScreenState(api: api, repo: "fixture-owner/sample", downloader: downloader)
                 value.release = ManagedRelease(id: 7, tag_name: "v1.1.0", name: "RepoPocket 1.1.0", draft: false, prerelease: false, created_at: "2026-10-19T00:00:00Z", published_at: nil, updated_at: "2026-10-19T00:00:00Z", body: "Download preview")
                 value.assets = (1...3).map { Asset(id: $0, name: "sample-\($0).ipa", size: 5_000_000, browser_download_url: "https://github.com/fixture-owner/sample/releases/download/v1.1.0/sample-\($0).ipa") }
                 value.canWrite = true; state = value
             } catch { self.error = error.localizedDescription }
         }
+    }
+}
+
+private struct ReleaseDownloadDiagnostics: View {
+    @ObservedObject var state: ReleaseScreenState
+    @ObservedObject var downloader: PreviewAssetDownloader
+    var body: some View {
+        Text("attempts=\(downloader.attempts) busy=\(state.busy) valid=\(state.valid)")
+            .font(.caption2).frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("release-download-fixture-state")
     }
 }
 
@@ -57,9 +73,9 @@ private final class ReleaseActionsPreviewProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
-@MainActor private final class PreviewAssetDownloader: ReleaseAssetDownloading {
+@MainActor private final class PreviewAssetDownloader: ObservableObject, ReleaseAssetDownloading {
     var label: String { "测试下载文件夹" }
-    private var attempts = 0
+    @Published private(set) var attempts = 0
     func authorize() async throws { try await Task.sleep(nanoseconds: 200_000_000) }
     func begin() {}
     func end() {}

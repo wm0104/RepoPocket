@@ -8,23 +8,22 @@ ROOT = Path(__file__).resolve().parents[1]
 class DisclosureCardTests(unittest.TestCase):
     def test_appearance_observes_storage_in_the_real_child_not_an_anyview_builder(self):
         text = (ROOT / 'RepoPocket/RepoPocketApp.swift').read_text()
-        settings, child = text.split('struct SettingsAppearanceRow:', 1)
+        settings, child = text.split('struct SettingsOptionsMenu:', 1)
         settings = settings.split('struct SettingsView:', 1)[1]
-        self.assertIn('SettingsAppearanceRow()', settings)
+        self.assertIn('SettingsOptionsMenu()', settings)
         self.assertNotIn('@AppStorage("appearance.mode")', settings)
-        for token in ['@AppStorage("appearance.mode")', 'appearance = mode', 'selectedAppearance == mode',
-                      '.isSelected', 'Image(systemName: "checkmark")', '.accessibilityIdentifier("theme-" + mode)']:
+        for token in ['@AppStorage("appearance.mode")', 'appearance = mode', 'selected: appearance == mode',
+                      'selectedState: { appearance == mode }', 'singleSelection: true']:
             self.assertIn(token, child)
         self.assertNotIn('AnyView', child)
         self.assertNotIn('.id(', child)
 
-    def test_appearance_native_header_has_full_width_and_44pt_hit_area(self):
-        child = (ROOT / 'RepoPocket/RepoPocketApp.swift').read_text().split('struct SettingsAppearanceRow:', 1)[1]
-        self.assertIn('QuotaCard(accessibilityID: "settings-appearance-card") {\n            DisclosureGroup(', child)
-        label = child.split('} label: {', 1)[1]
-        self.assertIn('.frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)', label)
-        self.assertIn('.contentShape(Rectangle())', label)
-        self.assertNotIn('.onTapGesture', label)
+    def test_appearance_uses_reference_native_toolbar_menu_with_44pt_hit_area(self):
+        child = (ROOT / 'RepoPocket/RepoPocketApp.swift').read_text().split('struct SettingsOptionsMenu:', 1)[1]
+        self.assertIn('NativeActionMenu(title: "设置选项", accessibilityIdentifier: "settings-options"', child)
+        self.assertIn('.frame(width: 44, height: 44)', child)
+        self.assertNotIn('DisclosureGroup', child)
+        self.assertNotIn('.onTapGesture', child)
 
     def test_more_is_one_native_row_with_full_width_native_header(self):
         more = (ROOT / 'RepoPocket/CollaborationViews.swift').read_text().split('QuotaCard(accessibilityID: "repository-community-card") {', 1)[1].split('struct CollaborationListView:', 1)[0]
@@ -39,7 +38,7 @@ class DisclosureCardTests(unittest.TestCase):
         root = ui.split('func testProductionRootThemeCheckmarksAndSchemePersistWithoutPreviewProbe()', 1)[1].split('func testProfileAndAbout', 1)[0]
         for token in ['app.launchArguments = []', 'app.tabBars.buttons["设置"].tap()',
                       'assertSelectedTheme(title, app: app)', 'assertVisibleThemeCheckmark(',
-                      'disclosureHeaderBrightness(', 'assertAppearanceAndAboutLayout(', 'app.terminate(); app.launch()']:
+                      'disclosureHeaderBrightness(', 'assertSettingsLayout(', 'app.terminate(); app.launch()']:
             self.assertIn(token, root)
         self.assertNotIn('waitForTheme(', root)
         self.assertNotIn('settings-theme-probe', root)
@@ -50,7 +49,7 @@ class DisclosureCardTests(unittest.TestCase):
                       'cardFrame.contains(child.frame)', 'card.descendants(matching: .button)',
                       'frame.minY + 1', 'frame.maxY - 2',
                       'through: lastChild.minY + 2', 'distance(pixel(x, y), fill)',
-                      'if id == selectedID', 'The old row must erase its checkmark']:
+                      'if title == selectedTitle', 'The old row must erase its checkmark']:
             self.assertIn(token, helper)
         boundary = (ROOT / 'StyleUITests/StyleBoundaryTests.swift').read_text()
         more = boundary.split('func testRepositoryMoreReusesDisclosureAndRemovesConditionalTailRows()', 1)[1].split('func testWorkflowFilters', 1)[0]
@@ -88,7 +87,7 @@ class DisclosureCardTests(unittest.TestCase):
 
     def test_card_gap_measures_painted_ten_points_not_padded_ax_text(self):
         ui = (ROOT / 'StyleUITests/SettingsTests.swift').read_text()
-        layout = ui.split('private func assertAppearanceAndAboutLayout', 1)[1].split('private func assertSelectedTheme', 1)[0]
+        layout = ui.split('private func assertSettingsLayout', 1)[1].split('private func assertSelectedTheme', 1)[0]
         self.assertNotIn('about.frame.minY, card.frame.maxY + 9', layout)
         for token in ['about.isHittable', 'aboutCell.frame.contains(about.frame)',
                       'assertPaintedCardGap(app, before: card, after: aboutCell, expected: 10)']:

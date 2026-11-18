@@ -28,7 +28,7 @@ def mobile_readme_fixture():
 
 class ReadmeRenderingTests(unittest.TestCase):
     def test_confirmed_122_readme_blobs_are_restored(self):
-        # Preserve the rollback except for the explicitly requested blue, underlined links.
+        # Preserve the renderer except for approved links and the license fallback pointer.
         # Confirmed baseline: a2eb15309564354a413296bbd8bb786485871970 (1.2.2).
         blobs = {
             'ReadmeDocument.swift': '2dd00e2aa92dfb7d94ebe88df229308d5878cd51',
@@ -42,6 +42,12 @@ class ReadmeRenderingTests(unittest.TestCase):
                 if filename == 'ReadmeDocument.swift':
                     self.assertIn(b'a { color: #0969da; text-decoration: underline; }', data)
                     data = data.replace(b'a { color: #0969da; text-decoration: underline; }', b'a { color: #0969da; text-decoration: none; }')
+                elif filename == 'ReadingViews.swift':
+                    new_notice = '许可文件未找到，请查看项目 RepoPocket/OpenSourceLicenses.txt。'.encode()
+                    old_notice = '许可文件未找到，请查看项目 THIRD_PARTY_NOTICES.md。'.encode()
+                    self.assertEqual(data.count(new_notice), 1)
+                    self.assertNotIn(old_notice, data)
+                    data = data.replace(new_notice, old_notice)
                 actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
                 self.assertEqual(actual, expected)
 

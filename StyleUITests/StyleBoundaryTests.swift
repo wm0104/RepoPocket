@@ -492,7 +492,7 @@ final class StyleBoundaryTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         func openAuthor(_ flags: [String] = []) {
-            app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-profile-contacts-preview"] + flags
+            app.launchArguments = ["-style-preview", "-user-connections-style-preview", "-profile-contacts-preview", "-safari-presentation-diagnostics"] + flags
             app.launch()
             expandHomeIssues(in: app)
             let issue = app.buttons["home-issue-4"]
@@ -524,24 +524,15 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertEqual(contact.value as? String, "https://mastodon.example.invalid/@author")
         keepScreenshot(app, name: "profile-public-contacts")
         tapContact(contact)
-        let done = app.buttons.matching(NSPredicate(format: "identifier == 'Close' OR label IN {'Done', '完成', 'Close', '关闭'}")).firstMatch
-        guard done.waitForExistence(timeout: 10) else {
-            XCTFail("The in-app browser must expose its native close button: " + app.debugDescription); return
-        }
-        XCTAssertFalse(app.buttons["reading-link-close"].exists, "Use Safari's existing Done button without a second close bar")
-        done.tap()
-        let safariClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)
-        if XCTWaiter.wait(for: [safariClosed], timeout: 3) != .completed {
-            // Remote Safari controls can ignore Simulator taps; also exercise native sheet dismissal.
-            let browser = app.descendants(matching: .other).matching(NSPredicate(format: "identifier BEGINSWITH 'BrowserView?'")).firstMatch
-            let frame = app.frame
-            let origin = app.coordinate(withNormalizedOffset: .zero)
-            let top = browser.exists ? browser.frame.minY + 4 : frame.minY + 75
-            origin.withOffset(CGVector(dx: frame.midX, dy: top)).press(forDuration: 0.1,
-                thenDragTo: origin.withOffset(CGVector(dx: frame.midX, dy: frame.maxY - 90)))
-        }
+        guard let done = tapNativeSafariDone(app, failureNames: ("profile-browser-close-missing", "profile-browser-close-timing-and-ax"), beforeTap: {
+            XCTAssertFalse(app.buttons["reading-link-close"].exists, "Use Safari's existing Done button without a second close bar")
+        }) else { return }
         let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)
-        guard XCTWaiter.wait(for: [closed], timeout: 10) == .completed else {
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"), object: contact)
+        guard XCTWaiter.wait(for: [closed, restored], timeout: 10) == .completed else {
+            keepScreenshot(app, name: "profile-browser-close-missing")
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = "profile-browser-close-timing-and-ax"; hierarchy.lifetime = .keepAlways; add(hierarchy)
             XCTFail("Closing the web page must dismiss its presentation: " + app.debugDescription); return
         }
         XCTAssertTrue(contact.waitForExistence(timeout: 10))
@@ -735,7 +726,7 @@ final class StyleBoundaryTests: XCTestCase {
             completed.tap()
             let alert = app.alerts["下载完成"]
             XCTAssertTrue(alert.waitForExistence(timeout: 5))
-            XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'my-python.zip' AND label CONTAINS '下载中心'")).firstMatch.exists)
+            XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'my-python.zip' AND label CONTAINS '已保存到：/Downloads/RepoPocket'")).firstMatch.exists)
             XCTAssertFalse(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS '/private/'")).firstMatch.exists)
             if attempt == 0 { keepScreenshot(app, name: "repository-zip-completion") }
             alert.buttons["好"].tap()
@@ -905,6 +896,13 @@ final class StyleBoundaryTests: XCTestCase {
     func testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates() {
         continueAfterFailure = false
         let app = XCUIApplication()
+        addTeardownBlock { [weak self] in
+            guard let self, (self.testRun?.failureCount ?? 0) > 0 else { return }
+            self.keepScreenshot(app, name: "release-download-failure")
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = "release-download-failure-ax"
+            hierarchy.lifetime = .keepAlways; self.add(hierarchy)
+        }
         app.launchArguments = ["-style-preview", "-release-download-style-preview", "-release-download-failure"]; app.launch()
         let file = app.buttons["release-asset-1"]
         XCTAssertTrue(file.waitForExistence(timeout: 20))

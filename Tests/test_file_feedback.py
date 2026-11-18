@@ -20,9 +20,10 @@ class FileFeedbackTests(unittest.TestCase):
         self.assertNotIn('Text(downloadNotice)', browser)
         self.assertIn('.downloadCompletionNotice($downloadedZIP)',browser)
         operation = browser.split('private func zip() async',1)[1]
-        self.assertLess(operation.index('try await DownloadStore.shared.download'),operation.index('downloadedZIP = saved'))
+        self.assertLess(operation.index('try await downloads.persist(file, session: session)'),operation.index('downloadedZIP = saved'))
         store = (ROOT/'RepoPocket/DownloadStore.swift').read_text(encoding='utf-8')
-        self.assertLess(store.index('let saved = try await persist'),store.index('return saved'))
+        self.assertIn('NSFileCoordinator().coordinate(', store)
+        self.assertIn('DownloadRules.save(temporary, parent: coordinated', store)
         self.assertIn('guard api.isCurrentSession else { throw CancellationError() }', operation)
 
     def test_all_download_destinations_use_the_shared_native_presenter(self):

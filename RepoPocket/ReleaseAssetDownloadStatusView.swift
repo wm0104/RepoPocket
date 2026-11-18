@@ -18,7 +18,9 @@ struct ReleaseAssetDownloadStatusView: View {
                     Button(action: cancel) { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44) }
                         .buttonStyle(.borderless).accessibilityLabel("取消下载")
                 } else if download.stage == .failed || download.stage == .cancelled {
-                    Button("重试", action: retry).buttonStyle(.borderless).frame(minHeight: 44)
+                    Button(action: retry) {
+                        Text("重试").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }.buttonStyle(.borderless)
                         .accessibilityIdentifier("release-download-retry-\(download.assetID)")
                 }
             }

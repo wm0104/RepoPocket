@@ -1,13 +1,14 @@
 import Foundation
 
-/// File operations are bounded to the App-owned account folder. Never overwrite.
+/// File operations are bounded to an explicitly authorized parent. Never overwrite.
 enum DownloadRules {
-    /// Only for an OS-provided App data container (or a controlled test root).
-    /// Never pass Downloads, account folders, or file URLs: their links must be rejected.
-    static func canonicalContainer(_ container: URL) -> URL {
-        container.resolvingSymlinksInPath()
+    /// Display the saved location without opening a file provider during launch.
+    static func initialLabel(_ cached: String?, hasBookmark: Bool) -> String {
+        guard hasBookmark else { return "请选择保存位置" }
+        if let cached, cached.hasPrefix("/") { return cached }
+        return "已保留下载位置；下次下载时更新完整路径，也可重新选择。"
     }
-    /// Existing account folders must not create RepoPocket/RepoPocket.
+    /// Selecting our existing download folder must not create RepoPocket/RepoPocket.
     static func destinationFolder(in parent: URL) -> URL {
         parent.lastPathComponent == "RepoPocket" ? parent : parent.appendingPathComponent("RepoPocket", isDirectory: true)
     }

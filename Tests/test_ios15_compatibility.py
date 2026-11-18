@@ -64,7 +64,7 @@ class IOS15CompatibilityTests(unittest.TestCase):
         self.assertNotIn('UIScrollView.appearance', compat)
         self.assertNotIn('UITableView.appearance', compat)
         self.assertIn('UIActivityViewController(activityItems: [url]', source('RepoPocketApp.swift'))
-        self.assertIn('ShareSheet(url: file)', source('ExternalFileActions.swift'))
+        self.assertIn('ShareSheet(url: $0.url, bookmark: $0.bookmark)', source('UpdateFeature.swift'))
         self.assertIn('复制下载链接', source('ReleaseManagementUI.swift'))
 
     def test_uikit_search_and_menu_size_are_guarded(self):

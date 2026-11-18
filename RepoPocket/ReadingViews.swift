@@ -8,7 +8,7 @@ struct OpenSourceNoticesView: View {
             .navigationTitle("开源组件许可")
             .task {
                 guard let url = Bundle.main.url(forResource: "OpenSourceLicenses", withExtension: "txt"),
-                      let value = try? String(contentsOf: url, encoding: .utf8) else { text = "许可文件未找到，请查看项目 THIRD_PARTY_NOTICES.md。"; return }
+                      let value = try? String(contentsOf: url, encoding: .utf8) else { text = "许可文件未找到，请查看项目 RepoPocket/OpenSourceLicenses.txt。"; return }
                 text = value
             }
     }

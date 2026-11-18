@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -126,45 +127,75 @@ class SourceTextSearchTests(unittest.TestCase):
         for marker in ['findTask?.cancel()', 'activeFindTerm = nil', 'searchManager.result = nil', 'findBar.showResult(nil)']:
             self.assertIn(marker, clear)
 
-    def test_copied_notice_bytes_match_their_retained_source_digests(self):
-        root = ROOT / 'Licenses/SourceText'
-        manifest = json.loads((root / 'SOURCE_MANIFEST.json').read_text())
-        self.assertEqual(len(manifest['language_products']), 34)
-        self.assertGreater(len(manifest['files']), 90)
-        for metadata in manifest['files']:
-            path = ROOT / metadata['path'] if metadata['path'].startswith('Packages/') else root / metadata['path']
-            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), metadata['sha256'], str(path))
-        for name in manifest['language_products']:
-            record = json.loads((root / 'TreeSitterLanguages/Tests/Updates' / (name + '.json')).read_text())
-            self.assertEqual(len(record['revision']), 40)
-            for notice in record.get('license_files', record.get('licenses', [])):
-                self.assertTrue((root / 'TreeSitterLanguages' / notice).is_file(), notice)
+    def validate_active_licenses(self, bundle, package=None, read_bytes=None):
+        package = package if package is not None else (ROOT / 'Packages/RepoPocketSyntax/Package.swift').read_text()
+        read_bytes = read_bytes or (lambda path: (ROOT / path).read_bytes())
+        encoded = bundle.split('--- BEGIN ACTIVE SOURCE EVIDENCE JSON ---\n', 1)[1].split('\n--- END ACTIVE SOURCE EVIDENCE JSON ---', 1)[0]
+        # Freeze all selected revisions, notice identities and resource digests, not just their shape.
+        self.assertEqual(hashlib.sha256(encoded.encode()).hexdigest(),
+                         '99bf1e57649555867f94d98010ce44cd0f5b77bcb856458d1edc1c8818a62f2e')
+        evidence = json.loads(encoded)
+        for revision in ['00426ba7f8681a90c1ea0b5c03a0e0bec8cba883',
+                         '4442182303a00bf2764b10ead923a1066a0946f6']:
+            self.assertIn('revision: "' + revision + '"', package)
+            self.assertIn(revision, bundle)
+        self.assertEqual(len(evidence['languages']), 34)
+        linked = set(re.findall(r'product\(name: "TreeSitter(\w+)Runestone"', package))
+        self.assertEqual(linked, set(evidence['languages']))
+        self.assertEqual(len(evidence['notices']), 45)
+        for section, digest in evidence['notices'].items():
+            self.assertEqual(bundle.count('--- ' + section + ' ---'), 1, section)
+            body = bundle.split('--- ' + section + ' ---', 1)[1].split('\n--- ', 1)[0]
+            body = '\n'.join(line.rstrip() for line in body.splitlines()).strip()
+            self.assertEqual(hashlib.sha256(body.encode()).hexdigest(), digest, section)
+        for record in evidence['languages'].values():
+            self.assertRegex(record['revision'], r'^[0-9a-f]{40}$')
+            notices = record.get('license_files', record.get('licenses', []))
+            self.assertTrue(notices, record)
+            for notice in notices:
+                self.assertIn(notice, evidence['notices'])
+        self.assertEqual(len(evidence['resources']), 27)
+        for path, digest in evidence['resources'].items():
+            self.assertEqual(hashlib.sha256(read_bytes(path)).hexdigest(), digest, path)
+        return evidence
+
+    def test_active_notices_pins_and_resource_bytes(self):
+        self.validate_active_licenses(self.source('OpenSourceLicenses.txt'))
+        self.assertFalse((ROOT / 'Licenses').exists())
 
     def test_notices_describe_active_source_not_clear_the_retired_binary(self):
-        root = ROOT / 'Licenses/SourceText'
-        audit = (root / 'AUDIT.md').read_text()
-        for marker in ['00426ba7f8681a90c1ea0b5c03a0e0bec8cba883',
-                       '4442182303a00bf2764b10ead923a1066a0946f6',
-                       '10eb5ac119eec9cb4267a8e035066473983f5f3a', '0.27.1',
+        bundle = self.source('OpenSourceLicenses.txt')
+        evidence = self.validate_active_licenses(bundle)
+        for marker in ['10eb5ac119eec9cb4267a8e035066473983f5f3a', '0.27.1',
                        'not a retroactive resolution', 'remain unverified',
-                       '933206d96a78f7785c13b2600182f1527dcd755c200b1271bb5bc4d8da4b17b3']:
-            self.assertIn(marker, audit)
-        self.assertIn('OwnGoal Studio', (root / 'Fila-MIT.txt').read_text())
-        language = root / 'TreeSitterLanguages'
-        self.assertIn('Munif Tanjim', (language / 'Licenses/Updates/Lua.txt').read_text())
-        self.assertTrue((language / 'Licenses/Folding/nvim-treesitter-APACHE-2.0.txt').is_file())
-        self.assertFalse((root / 'Runestone-wrapper-MIT.txt').exists())
-        lua = json.loads((language / 'Tests/Updates/Lua.json').read_text())
+                       'OwnGoal Studio', 'Munif Tanjim', 'SOURCE TEXT MODULE',
+                       'Apache-2.0', 'Yams 5.1.3', 'Kirill Simonov', 'Ingy döt Net']:
+            self.assertIn(marker, bundle)
+        lua = evidence['languages']['Lua']
         self.assertEqual(lua['revision'], '10fe0054734eec83049514ea2e718b2a56acd0c9')
         self.assertEqual(lua['repo'], 'https://github.com/tree-sitter-grammars/tree-sitter-lua')
+        self.assertIn('Source text: TreeSitterLanguages/Licenses/Folding/nvim-treesitter-APACHE-2.0.txt', evidence['notices'])
+
+    def test_missing_required_notice_is_rejected(self):
         bundle = self.source('OpenSourceLicenses.txt')
-        self.assertIn('OwnGoal Studio', bundle)
-        self.assertIn('SOURCE TEXT MODULE', bundle)
-        for path in [root / 'Fila-MIT.txt', root / 'Runestone-MIT.txt', root / 'TreeSitter-runtime-MIT.txt', language / 'LICENSE'] + list((language / 'Licenses').rglob('*')):
-            if path.is_file():
-                # Display copies omit trailing whitespace; retained evidence is byte-checked above.
-                display_text = '\n'.join(line.rstrip() for line in path.read_text().splitlines()).strip()
-                self.assertIn(display_text, bundle, str(path))
+        for author in ['OwnGoal Studio', 'Munif Tanjim', 'JP Simard.', 'Kirill Simonov']:
+            with self.subTest(author=author), self.assertRaises(AssertionError):
+                self.validate_active_licenses(bundle.replace(author, 'REMOVED'))
+
+    def test_wrong_package_or_language_revision_is_rejected(self):
+        bundle = self.source('OpenSourceLicenses.txt')
+        package = (ROOT / 'Packages/RepoPocketSyntax/Package.swift').read_text()
+        with self.assertRaises(AssertionError):
+            self.validate_active_licenses(bundle, package.replace('00426ba7f8681a90c1ea0b5c03a0e0bec8cba883', '0' * 40))
+        with self.assertRaises(AssertionError):
+            self.validate_active_licenses(bundle.replace('10fe0054734eec83049514ea2e718b2a56acd0c9', '0' * 40))
+
+    def test_tampered_local_resource_is_rejected(self):
+        bundle = self.source('OpenSourceLicenses.txt')
+        evidence = self.validate_active_licenses(bundle)
+        resource = next(path for path in evidence['resources'] if 'Colors.xcassets' in path)
+        with self.assertRaises(AssertionError):
+            self.validate_active_licenses(bundle, read_bytes=lambda path: (ROOT / path).read_bytes() + (b'changed' if path == resource else b''))
 
 
 if __name__ == '__main__':

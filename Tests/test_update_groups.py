@@ -28,7 +28,7 @@ class UpdateGroupTests(unittest.TestCase):
         self.assertIn('List { rows }', preview)
 
     def test_each_concrete_row_is_decorated_once(self):
-        group = body.split('        Group {',1)[1].split('        }.downloadCompletionNotice',1)[0]
+        group = body.split('        Group {',1)[1].split('\n    private func ',1)[0]
         rows = [line.strip() for line in group.splitlines()
                 if '.softGroupedRow(' in line]
         # The expanded release notes are a concrete child row too.

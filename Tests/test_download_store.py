@@ -7,25 +7,66 @@ store = Path(REPO_ROOT, 'RepoPocket/DownloadStore.swift').read_text()
 app = Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text()
 account = Path(REPO_ROOT, 'RepoPocket/AccountManagement.swift').read_text()
 class DownloadTests(unittest.TestCase):
- def test_app_owned_storage_does_not_touch_old_external_folders(self):
-  self.assertIn('NSHomeDirectory()', store)
-  self.assertIn('DownloadRules.canonicalContainer(container)', store)
-  self.assertIn('.appendingPathComponent("Library/Application Support/Downloads"', store)
-  for removed in ['resolvingBookmarkData', 'startAccessingSecurityScopedResource', 'func choose()', 'func selected(', 'WorkspaceImportRequest']:
-   self.assertNotIn(removed, store)
-  self.assertNotIn('removeObject(forKey:', store)
+ def test_remembers_the_user_folder_without_loading_or_deleting_old_history(self):
+  for token in ['RepoPocket.download.folder.v1', 'RepoPocket.download.label.v1', 'resolvingBookmarkData', 'startAccessingSecurityScopedResource', 'bookmarkDataIsStale: &stale', 'if stale', 'func choose()', 'func selected(', 'WorkspaceImportRequest(kind: .folder)']:
+   self.assertIn(token, store)
+  self.assertIn('DownloadRules.initialLabel', store)
+  self.assertNotIn('NSHomeDirectory()', store)
+  self.assertNotIn('history.json', store)
+  self.assertNotIn('Library/Application Support/Downloads', store)
+  self.assertNotIn('removeObject(forKey: bookmarkKey)', store)
+ def test_authorization_cancellation_and_selection_errors_are_observable(self):
+  authorize = store.split('    func requireAuthorization()', 1)[1].split('    func selected(', 1)[0]
+  for token in ['Task.checkCancellation()', 'withTaskCancellationHandler', 'withCheckedThrowingContinuation', 'waiters.removeValue(forKey: id)', 'continuation.resume(throwing: CancellationError())']:
+   self.assertIn(token, authorize)
+  selected = store.split('    func selected(', 1)[1].split('    func begin()', 1)[0]
+  for token in ['guard operations == 0', 'waiters = [:]', 'waiter.resume(with: result)', 'error.localizedDescription']:
+   self.assertIn(token, selected)
+  self.assertIn('func clearError()', store)
+  self.assertIn('guard operations == 0, picker == nil', store)
  def test_large_file_transaction_runs_off_main_and_can_be_cancelled(self):
   for token in ['func persist(_ temporary: URL, session: UUID', 'Task.detached(priority: .utility)', 'withTaskCancellationHandler', 'Task.isCancelled', 'volumeAvailableCapacityForImportantUsageKey', 'LocalStore.snapshotFileSHA256']:
    self.assertIn(token, store)
   for name in ['RepoPocketApp.swift', 'WorkflowViews.swift', 'ReleaseAssetDownload.swift']:
-   self.assertIn('DownloadStore.shared.download(', Path(REPO_ROOT, 'RepoPocket', name).read_text())
+   current = Path(REPO_ROOT, 'RepoPocket', name).read_text()
+   self.assertIn('.persist(', current)
+   self.assertIn('.requireAuthorization()', current)
+  self.assertIn('NSFileCoordinator().coordinate(writingItemAt: parent', store)
+  self.assertIn('defer { parent.stopAccessingSecurityScopedResource() }', store)
   self.assertIn('DownloadStore.shared.persist(file, session: accountSession)', Path(REPO_ROOT, 'RepoPocket/UpdateFeature.swift').read_text())
- def test_settings_remove_folder_choice_but_keep_update(self):
+ def test_settings_keep_folder_choice_and_update(self):
   self.assertNotIn('CacheSettingsSection', app)
-  self.assertNotIn('NativeMenuItem(id: "download-folder"', app)
-  self.assertNotIn('downloads.choose()', app)
+  self.assertIn('NativeMenuItem(id: "download-folder"', app)
+  self.assertIn('downloads.choose()', app)
   self.assertIn('AppUpdateSection(api: api, checker: updateChecker, connected: true)', app)
   self.assertNotIn('清缓存', store)
+
+ def test_update_share_keeps_its_original_folder_authorization(self):
+  update = Path(REPO_ROOT, 'RepoPocket/UpdateFeature.swift').read_text()
+  self.assertIn('func shareBookmark(for url: URL) -> Data?', store)
+  sharing = store.split('    func shareScope(', 1)[1]
+  self.assertIn('bookmark: Data? = nil', sharing)
+  original = sharing.split('if let bookmark {', 1)[1].split('} else {', 1)[0]
+  self.assertIn('resolvingBookmarkData: bookmark', original)
+  self.assertNotIn('resolve()', original)
+  self.assertNotIn('UserDefaults.standard.set', sharing)
+  self.assertNotIn('label =', sharing)
+  self.assertIn('private(set) var downloadedBookmark: Data?', update)
+  for line in update.splitlines():
+   if 'downloaded = nil' in line:
+    self.assertIn('downloadedBookmark = nil', line)
+  saved = update.split('let saved = try await DownloadStore.shared.persist(file, session: accountSession)', 1)[1]
+  self.assertLess(saved.index('self.downloadedBookmark = DownloadStore.shared.shareBookmark(for: saved)'), saved.index('self.downloaded = saved'))
+  self.assertIn('SharedFile(url: file, bookmark: checker.downloadedBookmark)', update)
+  self.assertIn('ShareSheet(url: $0.url, bookmark: $0.bookmark)', update)
+  shared = app.split('struct SharedFile:', 1)[1].split('struct ShareSheet:', 1)[0]
+  self.assertIn('var bookmark: Data? = nil', shared)
+  sheet = app.split('struct ShareSheet:', 1)[1].split('struct RepositoriesView:', 1)[0]
+  self.assertIn('var bookmark: Data? = nil', sheet)
+  self.assertLess(sheet.index('shareScope(for: url, bookmark: bookmark)'), sheet.index('UIActivityViewController(activityItems:'))
+  self.assertIn('completionWithItemsHandler = { _, _, _, _ in context.coordinator.release() }', sheet)
+  self.assertIn('coordinator: Coordinator) { coordinator.release() }', sheet)
+  self.assertIn('scope?.stopAccessingSecurityScopedResource(); scope = nil', sheet)
 
  def test_download_error_body_is_read_with_a_fixed_memory_bound(self):
   github = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
@@ -36,12 +77,12 @@ class DownloadTests(unittest.TestCase):
 
  def test_real_callsites_and_lifecycle(self):
   self.assertIn('AccountStore.generation', store)
-  self.assertIn('DownloadStore.shared.download(.archive', app)
+  self.assertIn('api.downloadZIP(repo, branch: activeBranch)', app)
   downloader = Path(REPO_ROOT, 'RepoPocket/ReleaseAssetDownload.swift').read_text()
-  self.assertIn('DownloadStore.shared.download(.releaseAsset', downloader)
+  self.assertIn('api.downloadManagedAssetWithProgress(repo, asset: asset, transfer: update)', downloader)
   management = Path(REPO_ROOT, 'RepoPocket/ReleaseManagementUI.swift').read_text()
-  self.assertIn('if !self.downloader.keepsDownloadedFile', management)
-  self.assertIn('preservingDownload: true', management)
+  self.assertIn('defer { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) }', management)
+  self.assertIn('.onDisappear { state.cancel() }', management)
   update = Path(REPO_ROOT, 'RepoPocket/UpdateFeature.swift').read_text()
   self.assertIn('DownloadStore.shared.persist(file, session: accountSession)', update)
   self.assertNotIn('removeItem(at: downloaded)', update)
@@ -50,6 +91,59 @@ class DownloadTests(unittest.TestCase):
   self.assertIn('accounts = AccountStore.accounts', account)
   self.assertIn('verification?.cancel()', account)
   self.assertIn('redirected.setValue(nil, forHTTPHeaderField: "Authorization")', Path(REPO_ROOT, 'RepoPocket/ReleaseAssetRedirectPolicy.swift').read_text())
+ @unittest.skipUnless(shutil.which('swiftc'), 'Production folder authorization executes on macOS')
+ def test_production_folder_authorization_releases_every_waiter(self):
+  source = r'''
+import Foundation
+import Combine
+let domain = "RepoPocket-folder-fixture-" + UUID().uuidString
+let fixtureDefaults = UserDefaults(suiteName: domain)!
+struct WorkspaceImportRequest { enum Kind { case folder }; let kind: Kind }
+struct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }
+enum AccountStore { static var generation = UUID() }
+enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error is CancellationError } }
+enum LocalStore { static func snapshotFileSHA256(_ file: URL) throws -> String { "unused" } }
+extension Notification.Name { static let githubAccountChanged = Notification.Name("fixture-account-changed") }
+''' + rules + store.replace('UserDefaults.standard', 'fixtureDefaults') + r'''
+@main struct Run {
+ @MainActor static func wait(_ ready: () -> Bool) async { while !ready() { await Task.yield() } }
+ @MainActor static func cancelled(_ task: Task<Void, Error>) async {
+  do { try await task.value; preconditionFailure("Authorization unexpectedly succeeded") }
+  catch { precondition(error is CancellationError) }
+ }
+ @MainActor static func main() async {
+  defer { fixtureDefaults.removePersistentDomain(forName: domain) }
+  let store = DownloadStore()
+  let dismissed = Task { try await store.requireAuthorization() }
+  await wait { store.picker != nil }
+  store.selected(nil); store.selected(nil)
+  await cancelled(dismissed)
+  precondition(store.picker == nil && store.error.isEmpty)
+  let first = Task { try await store.requireAuthorization() }
+  await wait { store.picker != nil }
+  first.cancel(); await cancelled(first)
+  await wait { store.picker == nil }
+  let changed = Task { try await store.requireAuthorization() }
+  await wait { store.picker != nil }
+  AccountStore.generation = UUID()
+  NotificationCenter.default.post(name: .githubAccountChanged, object: nil)
+  await cancelled(changed)
+  precondition(store.picker == nil)
+  store.begin(); store.choose(); precondition(store.picker == nil)
+  store.selected([URL(fileURLWithPath: "/fixture")])
+  precondition(!store.error.isEmpty && fixtureDefaults.data(forKey: "RepoPocket.download.folder.v1") == nil)
+  store.selected(nil); precondition(!store.error.isEmpty)
+  store.end(); store.clearError(); store.choose()
+  precondition(store.picker != nil && store.error.isEmpty)
+  store.selected(nil)
+  print("PASS production folder authorization: cancellation, dismissal, account changes, active-operation guard and visible selection errors")
+ }
+}
+'''
+  with tempfile.TemporaryDirectory() as folder:
+   path = Path(folder) / 'main.swift'; path.write_text(source, encoding='utf-8')
+   subprocess.run(['swiftc', '-parse-as-library', str(path), '-o', folder + '/test'], check=True)
+   subprocess.run([folder + '/test'], check=True, timeout=30)
  @unittest.skipUnless(shutil.which('swiftc'), 'Production download transport runs on macOS')
  def test_production_download_error_and_temporary_file_lifecycle(self):
   github = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()

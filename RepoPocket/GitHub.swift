@@ -1420,33 +1420,6 @@ final class GitHub: ObservableObject {
         let endpoint = try Self.repoPath(repo) + "/zipball" + (branch.isEmpty ? "" : "/" + Self.component(branch))
         return try await download(request(url(endpoint)), name: repo.replacingOccurrences(of: "/", with: "-") + ".zip")
     }
-    func downloadForCenter(_ source: DownloadSource, progress: @escaping (ReleaseDownloadProgress) -> Void) async throws -> URL {
-        try ensureActiveAccount(); try Task.checkCancellation()
-        let repo = try Self.repoPath(source.repository)
-        let endpoint: String
-        var query: [URLQueryItem] = []
-        var accept: String?
-        let redirect: URLSessionTaskDelegate
-        switch source {
-        case .file(_, let path, let ref, _):
-            endpoint = repo + "/contents/" + (try Self.filePath(path))
-            if !ref.isEmpty { query = [.init(name: "ref", value: ref)] }
-            accept = "application/vnd.github.raw+json"; redirect = ArchiveRedirectPolicy()
-        case .archive(_, let ref):
-            endpoint = repo + "/zipball" + (ref.isEmpty ? "" : "/" + Self.component(ref))
-            redirect = ArchiveRedirectPolicy()
-        case .releaseAsset(_, let id, _):
-            guard id > 0 else { throw AppError(text: "无效附件编号") }
-            endpoint = repo + "/releases/assets/\(id)"; accept = "application/octet-stream"; redirect = ReleaseAssetRedirectPolicy()
-        case .artifact(_, let id, _):
-            guard id > 0 else { throw AppError(text: "无效构建产物编号") }
-            endpoint = repo + "/actions/artifacts/\(id)/zip"; redirect = WorkflowLogRedirectPolicy()
-        case .local: throw AppError(text: "请在应用更新中重新下载。")
-        }
-        var r = try request(url(endpoint, query: query))
-        if let accept { r.setValue(accept, forHTTPHeaderField: "Accept") }
-        return try await download(r, name: source.name, redirect: ReleaseAssetDownloadDelegate(update: progress, policy: redirect))
-    }
     private func download(_ request: URLRequest, name: String, redirect: URLSessionTaskDelegate = ArchiveRedirectPolicy()) async throws -> URL {
         let (tmp, response) = try await session.download(for: request, delegate: redirect)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -1667,6 +1640,7 @@ final class GitHub: ObservableObject {
         return try await download(r, name: asset.name, redirect: ManagedDownloadProgress(update: progress))
     }
     func downloadManagedAssetWithProgress(_ repo: String, asset: Asset, transfer: @escaping (ReleaseDownloadProgress) -> Void) async throws -> URL {
+        guard asset.id > 0 else { throw AppError(text: "无效附件编号") }
         var r = try request(url(Self.repoPath(repo) + "/releases/assets/\(asset.id)"))
         r.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         return try await download(r, name: asset.name, redirect: ReleaseAssetDownloadDelegate(update: transfer))

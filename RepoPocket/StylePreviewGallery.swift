@@ -26,8 +26,6 @@ struct StylePreviewGallery: View {
             UploadEditorStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-commit-file-style-preview") {
             CommitFileStylePreview()
-        } else if ProcessInfo.processInfo.arguments.contains("-download-center-style-preview") {
-            DownloadCenterStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-reading-zoom-style-preview") {
             ReadingZoomStylePreview()
         } else if ProcessInfo.processInfo.arguments.contains("-release-editor-style-preview") {

@@ -25,9 +25,9 @@ class DebRemovalTests(unittest.TestCase):
         api = (ROOT / 'RepoPocket/GitHub.swift').read_text(encoding='utf-8')
         for token in ('preparedItems.append((item, file, size))', 'session.upload(for: r, fromFile: file', 'func downloadFile(', 'func downloadAsset('):
             self.assertIn(token, api)
-        route = (ROOT / 'RepoPocket/ExternalFileActions.swift').read_text(encoding='utf-8')
-        for token in ('UploadView(', 'ReleaseEntryView(', 'ShareSheet(url: file)'):
-            self.assertIn(token, route)
+        self.assertIn('UploadView(api: api, initialRepo: repo', (ROOT / 'RepoPocket/RepoPocketApp.swift').read_text(encoding='utf-8'))
+        self.assertIn('ReleaseEntryView(api: state.api, initialRepo: state.repo)', (ROOT / 'RepoPocket/ReleaseManagementUI.swift').read_text(encoding='utf-8'))
+        self.assertIn('ShareSheet(url: $0.url, bookmark: $0.bookmark)', (ROOT / 'RepoPocket/UpdateFeature.swift').read_text(encoding='utf-8'))
         # Native binary replacement also serves ordinary directory import.
         self.assertIn('LocalGitFileAccess.replaceBinary(', (ROOT / 'RepoPocket/LocalGitImport.swift').read_text(encoding='utf-8'))
 

@@ -22,9 +22,13 @@ struct WorkflowStatusBadge: View {
             Text(value.title).foregroundStyle(value.tone == "yellow" ? Color.primary : color)
         } icon: {
             if status == "in_progress" && !reduceMotion {
-                TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-                    Circle().trim(from: 0.12, to: 0.88).stroke(style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        .rotationEffect(.degrees(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360))
+                TimelineView(.animation) { context in
+                    ZStack {
+                        Circle().stroke(lineWidth: 1.5).opacity(0.35)
+                        Circle().frame(width: 7, height: 7)
+                        Circle().trim(from: 0, to: 0.25).stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                            .rotationEffect(.degrees(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360))
+                    }.padding(0.75)
                 }.frame(width: 14, height: 14).accessibilityHidden(true)
             } else { Image(systemName: value.symbol) }
         }.foregroundStyle(color).accessibilityLabel("运行状态：" + value.title)
@@ -642,7 +646,13 @@ struct WorkflowArtifactsView: View {
     private func download(_ artifact: WorkflowArtifact) async {
         guard !downloading, !artifact.expired else { return }; downloading = true; result = ""; downloadedArtifact = nil; defer { downloading = false }
         do {
-            let saved = try await DownloadStore.shared.download(.artifact(repo: repo, id: artifact.id, name: artifact.name), api: api)
+            let generation = AccountStore.generation
+            try await DownloadStore.shared.requireAuthorization()
+            guard api.isCurrentSession else { throw CancellationError() }
+            DownloadStore.shared.begin(); defer { DownloadStore.shared.end() }
+            let file = try await api.communityArtifact(repo, id: artifact.id, name: artifact.name)
+            defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+            let saved = try await DownloadStore.shared.persist(file, session: generation)
             guard api.isCurrentSession else { throw CancellationError() }; downloadedArtifact = saved
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { result = error.localizedDescription } }
     }

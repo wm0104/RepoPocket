@@ -10,7 +10,9 @@ scope = sys.argv[3] if len(sys.argv) > 3 else 'all'
 group = os.environ.get('RP_STYLE_TEST_GROUP', 'selected')
 editor_extensions = {'source-fila-find-replace', 'settings-compact-native-menu',
                      'workflow-log-highlighted-context', 'workflow-log-raw-original'}
-repository_operations = {'remote-version-history-preview', 'pr-three-merge-methods-native-menu', 'pr-merge-blocked-reason', 'workflow-refresh-preserves-and-updates'}
+repository_workflow_row = {'repository-actions-row-running', 'repository-actions-row-completed'}
+repository_workflow_row.update('repository-actions-running-frame-' + str(index) for index in range(3))
+repository_operations = {'remote-version-history-preview', 'pr-three-merge-methods-native-menu', 'pr-merge-blocked-reason', 'workflow-refresh-preserves-and-updates'} | repository_workflow_row
 repository_collections = {'home-favorites-entry', 'favorites-native-management', 'favorites-persisted-repositories',
                           'star-lists-official-home', 'star-list-member-preserves-other-lists', 'star-list-deleted-still-starred'}
 regression_recheck = {'local-branch-create-confirmation', 'local-folder-selection', 'local-file-sheet-dismissed',
@@ -53,7 +55,10 @@ file_edit.update({'mobile-editor-saved-preview', 'source-native-file-search', 'r
 diagnostics = {'account-switch-failure', 'account-control-failure'}
 diagnostics.update({'mobile-editor-create-menu', 'source-native-find-start'})
 diagnostics.add('workflow-log-long-located')
-diagnostics.update({'download-readiness-timing-and-ax', 'disclosure-stability-timing-and-ax'})
+diagnostics.add('disclosure-stability-timing-and-ax')
+diagnostics.update({'profile-browser-close-missing', 'profile-browser-close-timing-and-ax'})
+diagnostics.update({'settings-state-timeout', 'settings-state-timeout-ax'})
+diagnostics.update({'release-download-failure', 'release-download-failure-ax'})
 maintenance = {'local-project-compact', 'local-project-information', 'local-branch-create-confirmation',
                'local-history-collapsed', 'local-history-expanded', 'local-commit-detail',
                'local-commit-patch', 'local-history-after-folding', 'local-import-destination',
@@ -94,29 +99,33 @@ reading_layout.update('settings-official-releases-' + str(attempt) for attempt i
 reading_layout.update('group-corners-' + name + '-' + str(cycle) for name in ('仓库', '本地 Git', '设置') for cycle in range(4))
 workflow_log_navigation = {'workflow-log-highlighted-context', 'workflow-log-long-located',
     'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'}
-download_features = {'download-center-records', 'download-center-deleted-copy-retained',
-    'download-center-completed-file-actions', 'commit-complete-file-readonly', 'home-issues-native-expanded'}
-download_preview = {'download-preview-native-done', 'download-preview-returned-to-center',
-    'download-preview-share-cancel', 'download-preview-records-retained'}
-transition_phases = {page + '-' + phase for page in ('appearance', 'home-issues', 'repository-more')
+download_features = {'commit-complete-file-readonly', 'home-issues-native-expanded'}
+transition_phases = {page + '-' + phase for page in ('home-issues', 'repository-more')
                      for phase in ('opening', 'closing-and-reopening', 'closing')}
 disclosure_transitions = {name + '-sample-' + str(index) for name in transition_phases for index in range(12)}
 disclosure_transitions.update(name + '-timing-and-ax' for name in transition_phases)
 download_features.update(disclosure_transitions)
-download_features.update(download_preview)
 editor_extensions.update(download_features)
-production_theme = {'settings-production-root-collapsed', 'settings-production-root-expanded-after-folding'}
+production_theme = {'settings-production-root-menu-ready', 'settings-production-root-menu-reopened'}
 production_theme.update('settings-production-root-' + value + '-checked' for value in ('light', 'dark', 'system'))
 readme_first_open = {'readme-first-open-formatted'}
 more_expanded = {'repository-overview-continuous-rows'} | {'repository-more-expanded-' + str(cycle) for cycle in range(3)}
 editor_extensions.update(production_theme)
 expected.update(readme_first_open)
 maintenance.update(more_expanded)
-recovery_regressions = production_theme | readme_first_open | more_expanded | download_preview | disclosure_transitions | {'home-issues-native-expanded'} | {
+recovery_regressions = production_theme | readme_first_open | more_expanded | disclosure_transitions | {'home-issues-native-expanded'} | {
     'settings-compact-native-menu', 'settings-theme-light-checked', 'settings-theme-dark-checked',
     'settings-theme-system-checked', 'repository-more-after-rapid-folding', 'readme-badges',
-    'download-center-records', 'download-center-deleted-copy-retained', 'download-center-completed-file-actions'}
-recovery_recheck = {'download-center-records'}
+    'settings-folder-picker-1', 'settings-folder-picker-2'}
+editor_extensions.update({'settings-folder-picker-1', 'settings-folder-picker-2'})
+settings_folder_modal = {'settings-folder-over-existing-sheet-1', 'settings-folder-over-existing-sheet-2'}
+editor_extensions.update(settings_folder_modal)
+download_settings_workflow = production_theme | disclosure_transitions | repository_workflow_row | settings_folder_modal | {
+    'settings-compact-native-menu', 'settings-folder-picker-1', 'settings-folder-picker-2',
+    'settings-official-releases-1', 'settings-official-releases-2', 'home-issues-native-expanded',
+    'repository-zip-completion', 'release-compact-attachments', 'release-inline-progress',
+    'profile-public-contacts', 'profile-contacts-retry'}
+download_settings_workflow.update('settings-theme-' + value + '-checked' for value in ('dark', 'light', 'system'))
 if scope == 'boundary-feedback-recheck':
     expected = {'local-project-compact', 'local-project-information',
                 'release-compact-attachments', 'release-inline-progress'}
@@ -125,10 +134,17 @@ if scope == 'boundary-feedback-recheck':
 elif scope == 'device-feedback-recheck':
     expected = file_feedback | {'local-deb-ordinary-file', 'settings-compact-native-menu',
                                 'settings-official-releases-1', 'settings-official-releases-2'}
-elif scope == 'recovery-recheck':
-    expected = recovery_recheck
 elif scope == 'recovery-regressions':
     expected = recovery_regressions
+elif scope == 'download-settings-workflow':
+    expected = download_settings_workflow
+elif scope == 'download-settings-recheck':
+    expected = settings_folder_modal | {
+        'settings-compact-native-menu', 'settings-folder-picker-1', 'settings-folder-picker-2',
+        'settings-official-releases-1', 'settings-official-releases-2',
+        'release-compact-attachments', 'release-inline-progress',
+        'profile-public-contacts', 'profile-contacts-retry'}
+    expected.update('settings-theme-' + value + '-checked' for value in ('dark', 'light', 'system'))
 elif scope == 'download-actions-recheck':
     expected = {'settings-compact-native-menu'}
 elif scope == 'download-actions':
@@ -218,7 +234,7 @@ while pending:
             name = item.get('name', {}).get('_value', '')
             payload = item.get('payloadRef', {}).get('id', {}).get('_value')
             if payload and name in expected | diagnostics:
-                extension = '.txt' if name.endswith('-timing-and-ax') else '.png'
+                extension = '.txt' if name.endswith('-ax') else '.png'
                 subprocess.run(['xcrun', 'xcresulttool', 'export', 'object', '--legacy', '--type', 'file', '--path', bundle,
                                 '--id', payload, '--output-path', str(destination / (name + extension))], check=True)
                 if name in expected:

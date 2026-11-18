@@ -187,7 +187,7 @@ extension XCTestCase {
         let headerFrame = header.frame
         guard let image = app.screenshot().image.cgImage else { XCTFail("Missing screenshot"); return 0 }
         let scale = CGFloat(image.width) / app.frame.width
-        guard let crop = image.cropping(to: CGRect(x: header.frame.midX * scale, y: headerFrame.midY * scale, width: 1, height: 1))
+        guard let crop = image.cropping(to: CGRect(x: (headerFrame.maxX - 8) * scale, y: headerFrame.midY * scale, width: 1, height: 1))
         else { XCTFail("Missing header fill"); return 0 }
         var bytes = [UInt8](repeating: 0, count: 4)
         bytes.withUnsafeMutableBytes { buffer in
@@ -237,13 +237,15 @@ extension XCTestCase {
         XCTAssertGreaterThanOrEqual(ink, 8, "Navigation title must visibly paint primary text: \(title)")
     }
 
-    func assertVisibleThemeCheckmark(_ app: XCUIApplication, selectedID: String) {
+    func assertVisibleThemeCheckmark(_ app: XCUIApplication, selectedTitle: String) {
         guard let image = app.screenshot().image.cgImage else { return XCTFail("Missing screenshot") }
         let scale = CGFloat(image.width) / app.frame.width
-        for id in ["theme-system", "theme-light", "theme-dark"] {
-            let frame = app.buttons[id].frame
-            // Only the trailing mark, never the title text or the disclosure arrow.
-            let rect = CGRect(x: frame.maxX - 26, y: frame.midY - 10, width: 26, height: 20)
+        for title in ["跟随系统", "浅色", "深色"] {
+            let item = app.buttons[title]
+            XCTAssertTrue(item.exists && item.isHittable)
+            let frame = item.frame
+            // UIKit paints a neutral checkmark before the menu title, not an accent trailing icon.
+            let rect = CGRect(x: frame.minX + 4, y: frame.midY - 8, width: 24, height: 16)
             guard let crop = image.cropping(to: CGRect(x: rect.minX * scale, y: rect.minY * scale,
                 width: rect.width * scale, height: rect.height * scale)) else { return XCTFail("Missing theme mark crop") }
             var bytes = [UInt8](repeating: 0, count: crop.width * crop.height * 4)
@@ -252,12 +254,13 @@ extension XCTestCase {
                     bytesPerRow: crop.width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
                 context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
             }
-            let colored = stride(from: 0, to: bytes.count, by: 4).filter { index in
+            let background = bytes.prefix(3).map(Int.init).reduce(0, +) / 3
+            let ink = stride(from: 0, to: bytes.count, by: 4).filter { index in
                 let rgb = bytes[index..<(index + 3)].map(Int.init)
-                return (rgb.max()! - rgb.min()!) > 50
+                return abs(rgb.reduce(0, +) / 3 - background) > 70 && rgb.max()! - rgb.min()! < 50
             }.count
-            if id == selectedID { XCTAssertGreaterThan(colored, 8, "The selected row must actually paint its accent checkmark") }
-            else { XCTAssertEqual(colored, 0, "The old row must erase its checkmark: \(id)") }
+            if title == selectedTitle { XCTAssertGreaterThan(ink, 8, "The selected native action must actually paint its leading checkmark") }
+            else { XCTAssertEqual(ink, 0, "The old row must erase its checkmark: \(title)") }
         }
     }
 }

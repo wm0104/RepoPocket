@@ -6,6 +6,7 @@ struct RepositoryOperationsStylePreview: View {
     @State private var api: GitHub?
     @State private var error = ""
     @State private var writes = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Group {
             if let api {
@@ -15,10 +16,23 @@ struct RepositoryOperationsStylePreview: View {
                             .accessibilityIdentifier("fixture-open-history")
                         NavigationLink("PR合并方式") { PullRequestMergeView(api: api, repo: "fixture-owner/sample", number: 7) }
                             .accessibilityIdentifier("fixture-open-pr-merge")
+                        NavigationLink("仓库概览状态") {
+                            QuotaScrollStack {
+                                RepositoryCommunitySection(api: api, repo: "fixture-owner/sample", branch: "main", openTools: {}, openOwner: {}, connected: true)
+                            }.navigationTitle("仓库概览")
+                        }.accessibilityIdentifier("fixture-open-community")
                     }.navigationTitle("仓库操作回归")
                 }.safeAreaInset(edge: .bottom) {
-                    Text("写入请求：\(writes)").font(.caption).frame(maxWidth: .infinity, minHeight: 32)
-                        .background(Color(uiColor: .secondarySystemBackground)).accessibilityIdentifier("fixture-repository-writes")
+                    VStack(spacing: 4) {
+                        if ProcessInfo.processInfo.arguments.contains("-repository-workflow-row-preview") {
+                            Button("模拟最近运行完成") { RepositoryOperationsPreviewProtocol.completeWorkflow() }
+                            Text(reduceMotion ? "动效关闭" : "动效开启").font(.caption)
+                                .accessibilityIdentifier("fixture-workflow-motion")
+                        }
+                        Text("写入请求：\(writes)").font(.caption).frame(maxWidth: .infinity, minHeight: 32)
+                            .accessibilityIdentifier("fixture-repository-writes")
+                    }
+                        .background(Color(uiColor: .secondarySystemBackground))
                 }
             } else if !error.isEmpty { Text(error) }
             else { ProgressView("准备仓库操作预览…") }
@@ -40,6 +54,9 @@ struct RepositoryOperationsStylePreview: View {
 
 private final class RepositoryOperationsPreviewProtocol: URLProtocol {
     static let head = String(repeating: "c", count: 40), base = String(repeating: "a", count: 40)
+    private static let lock = NSLock()
+    private static var workflowCompleted = false
+    static func completeWorkflow() { lock.lock(); workflowCompleted = true; lock.unlock() }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -51,6 +68,20 @@ private final class RepositoryOperationsPreviewProtocol: URLProtocol {
             body = ["node_id": "R_fixture", "full_name": "fixture-owner/sample", "default_branch": "main",
                 "permissions": ["push": true], "allow_merge_commit": true, "allow_squash_merge": true,
                 "allow_rebase_merge": !ProcessInfo.processInfo.arguments.contains("-pr-disable-rebase-preview")]
+        } else if method == "GET", path == "/repos/fixture-owner/sample/actions/runs" {
+            Self.lock.lock(); let completed = Self.workflowCompleted; Self.lock.unlock()
+            if ProcessInfo.processInfo.arguments.contains("-repository-workflow-row-empty-preview") {
+                body = ["workflow_runs": []]
+            } else {
+                let running = ProcessInfo.processInfo.arguments.contains("-repository-workflow-row-preview") && !completed
+                body = ["workflow_runs": [
+                    ["id": 12, "run_number": 12, "head_branch": "another-branch", "head_sha": Self.head,
+                     "name": "最近运行", "status": running ? "in_progress" : "completed", "conclusion": running ? NSNull() as Any : "success",
+                     "created_at": "2026-11-18T00:00:00Z"],
+                    ["id": 99, "run_number": 99, "head_branch": "main", "head_sha": Self.base,
+                     "name": "旧的失败运行", "status": "completed", "conclusion": "failure", "created_at": "2026-11-17T00:00:00Z"]
+                ]]
+            }
         } else if method == "GET", path == "/repos/fixture-owner/sample/git/ref/heads/main" {
             body = ["object": ["sha": Self.head]]
         } else if method == "GET", path == "/repos/fixture-owner/sample/commits" {

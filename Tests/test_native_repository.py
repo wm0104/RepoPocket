@@ -359,13 +359,30 @@ class ActionsEntryStatusTests(unittest.TestCase):
     def test_rotation_reduce_motion_and_accessibility_are_retained(self):
         badge = source('WorkflowViews.swift').split('struct WorkflowRunsView:', 1)[0]
         for required in ('status == "in_progress" && !reduceMotion',
-                         'TimelineView(.animation(minimumInterval: 1 / 30))',
-                         'Circle().trim(from: 0.12, to: 0.88)',
-                         'StrokeStyle(lineWidth: 2, lineCap: .round)',
+                         'TimelineView(.animation)',
+                         'Circle().trim(from: 0, to: 0.25)',
+                         'StrokeStyle(lineWidth: 1.5, lineCap: .round)',
+                         'context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360',
                          '.frame(width: 14, height: 14).accessibilityHidden(true)',
                          'Image(systemName: value.symbol)',
                          '.accessibilityLabel("运行状态：" + value.title)'):
             self.assertIn(required, badge)
+        for removed in ('minimumInterval:', 'repeatForever', '@State', '.onAppear'):
+            self.assertNotIn(removed, badge)
+
+    def test_running_indicator_keeps_the_center_and_track_outside_the_rotating_arc(self):
+        badge = source('WorkflowViews.swift').split('struct WorkflowRunsView:', 1)[0]
+        self.assertIn('TimelineView(.animation)', badge)
+        layers = badge.split('TimelineView(.animation)', 1)[1].split('}.frame(width: 14', 1)[0]
+        self.assertIn('ZStack {', layers)
+        self.assertIn('Circle().stroke(lineWidth: 1.5).opacity(0.35)', layers)
+        self.assertIn('Circle().frame(width: 7, height: 7)', layers)
+        self.assertEqual(layers.count('.rotationEffect('), 1)
+        self.assertRegex(layers, r'Circle\(\)\.trim[^\n]+\n\s+\.rotationEffect\([^\n]+\)\n\s+\}\.padding\(0\.75\)')
+        summary = source('WorkflowSummaryUI.swift')
+        for component in ('WorkflowRunSummary', 'WorkflowRunMetrics', 'WorkflowJobRow', 'WorkflowStepRow'):
+            body = summary.split('struct ' + component + ':', 1)[1].split('\nstruct ', 1)[0]
+            self.assertIn('WorkflowStatusBadge(', body)
 
     def test_primer_attention_contrast_on_reference_backgrounds(self):
         def luminance(hex_color):

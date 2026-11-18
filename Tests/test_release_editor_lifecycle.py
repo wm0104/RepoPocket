@@ -42,7 +42,7 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
         runner = (ROOT / 'Scripts/run_style_preview.sh').read_text()
         initial = 'SIGNING_ARGUMENTS=' + runner.split('SIGNING_ARGUMENTS=', 1)[1].split('\n', 1)[0]
         case = re.findall(r'case "\$\{RP_STYLE_TEST_SCOPE:-all\}" in\n.*?\nesac', runner, re.S)[0]
-        for scope in ['upload-viewer', 'recovery-regressions', 'recovery-recheck', 'maintenance-regressions']:
+        for scope in ['upload-viewer', 'recovery-regressions', 'download-settings-workflow', 'download-settings-recheck', 'maintenance-regressions']:
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory); (root / 'Scripts').mkdir()
                 shutil.copy(ROOT / 'Scripts/Simulator.entitlements', root / 'Scripts/Simulator.entitlements')
@@ -52,7 +52,7 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
                 result = subprocess.run([bash, '-c', script], cwd=root, env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue(result.stdout.strip().startswith('CODE_SIGN_ENTITLEMENTS='), result.stdout)
-                if scope in ['upload-viewer', 'recovery-regressions', 'recovery-recheck']:
+                if scope in ['upload-viewer', 'recovery-regressions', 'download-settings-workflow', 'download-settings-recheck']:
                     import plistlib
                     entitlements = plistlib.loads((root / 'preview-build/style-preview.entitlements').read_bytes())
                     self.assertEqual(entitlements['com.apple.security.application-groups'], ['group.com.wm0104.RepoPocket.shared'])
@@ -70,6 +70,48 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
         self.assertEqual(exported, names)
         with self.assertRaisesRegex(RuntimeError, 'Expected native UI regression screenshots'):
             self.export('upload-viewer', names - {'upload-explicit-replacement'})
+
+    def test_download_settings_recheck_requires_each_failed_case_and_repeat_attempt(self):
+        names = {'settings-compact-native-menu', 'settings-theme-light-checked',
+                 'settings-theme-dark-checked', 'settings-theme-system-checked',
+                 'settings-folder-picker-1', 'settings-folder-picker-2',
+                 'settings-folder-over-existing-sheet-1', 'settings-folder-over-existing-sheet-2',
+                 'settings-official-releases-1', 'settings-official-releases-2',
+                 'release-compact-attachments', 'release-inline-progress',
+                 'profile-public-contacts', 'profile-contacts-retry'}
+        self.assertEqual(len(names), 14)
+        self.assertEqual(self.export('download-settings-recheck', names | {'unselected-case'}), names)
+        optional = {'release-download-failure', 'release-download-failure-ax',
+                    'settings-state-timeout', 'settings-state-timeout-ax'}
+        self.assertEqual(self.export('download-settings-recheck', names | optional), names | optional)
+        for name in names:
+            with self.subTest(missing=name), self.assertRaisesRegex(RuntimeError, 'Expected native UI regression screenshots'):
+                self.export('download-settings-recheck', (names - {name}) | optional)
+
+    def test_download_settings_workflow_exports_only_selected_case_evidence_and_fails_closed(self):
+        names = {'settings-production-root-menu-ready', 'settings-production-root-menu-reopened',
+                 'settings-compact-native-menu', 'settings-folder-picker-1', 'settings-folder-picker-2',
+                 'settings-folder-over-existing-sheet-1', 'settings-folder-over-existing-sheet-2',
+                 'settings-official-releases-1', 'settings-official-releases-2',
+                 'home-issues-native-expanded', 'repository-actions-row-running',
+                 'repository-actions-row-completed', 'repository-zip-completion',
+                 'release-compact-attachments', 'release-inline-progress',
+                 'profile-public-contacts', 'profile-contacts-retry'}
+        names.update('settings-production-root-' + value + '-checked' for value in ('light', 'dark', 'system'))
+        names.update('settings-theme-' + value + '-checked' for value in ('dark', 'light', 'system'))
+        names.update('repository-actions-running-frame-' + str(index) for index in range(3))
+        phases = {page + '-' + phase for page in ('home-issues', 'repository-more')
+                  for phase in ('opening', 'closing-and-reopening', 'closing')}
+        names.update(name + '-sample-' + str(index) for name in phases for index in range(12))
+        names.update(name + '-timing-and-ax' for name in phases)
+        self.assertEqual(len(names), 104)
+        self.assertEqual(self.export('download-settings-workflow', names | {'unselected-case'}), names)
+        optional = {'profile-browser-close-missing', 'profile-browser-close-timing-and-ax'}
+        self.assertEqual(self.export('download-settings-workflow', names | optional), names | optional)
+        for missing in ['settings-folder-over-existing-sheet-1', 'repository-actions-running-frame-1',
+                        'profile-contacts-retry', 'home-issues-opening-sample-0']:
+            with self.subTest(missing=missing), self.assertRaisesRegex(RuntimeError, 'Expected native UI regression screenshots'):
+                self.export('download-settings-workflow', (names - {missing}) | optional)
 
     def export(self, scope, names):
         tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}}
@@ -148,7 +190,7 @@ class ReleaseEditorLifecycleTests(unittest.TestCase):
         expected = plistlib.loads(original)
         expected['com.apple.security.application-groups'] = ['group.com.wm0104.RepoPocket.shared']
         self.assertEqual(result, expected)
-        self.assertIn('all|release-editor|upload-viewer|download-actions|recovery-regressions|recovery-recheck)', runner)
+        self.assertIn('all|release-editor|upload-viewer|download-actions|recovery-regressions|download-settings-workflow|download-settings-recheck)', runner)
         self.assertIn('"${SIGNING_ARGUMENTS[@]}" build-for-testing', runner)
 
     def test_fixture_uses_real_editor_inbox_and_fail_closed_network(self):

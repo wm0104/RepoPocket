@@ -16,7 +16,6 @@ class ActionsFoldingTests(unittest.TestCase):
 
     def test_native_header_identifiers_do_not_override_content_controls(self):
         for name, identifier in [('PersonalIssuesView.swift', 'home-issues-disclosure'),
-                                 ('RepoPocketApp.swift', 'settings-appearance'),
                                  ('WorkflowViews.swift', 'workflow-inputs-disclosure'),
                                  ('CollaborationViews.swift', 'repository-more'),
                                  ('UploadView.swift', 'upload-options')]:
@@ -29,14 +28,17 @@ class ActionsFoldingTests(unittest.TestCase):
         self.assertIn('workflow-filter-summary', row.split('Spacer(minLength: 8)', 1)[0])
         self.assertNotIn('workflow-filter-summary', row.split('Spacer(minLength: 8)', 1)[1])
 
-    def test_appearance_expands_inside_one_scroll_card(self):
+    def test_appearance_uses_a_stable_native_toolbar_menu_host(self):
         settings = source('RepoPocketApp.swift').split('struct SettingsView:', 1)[1]
-        self.assertIn('SettingsAppearanceRow()', settings)
+        self.assertIn('.toolbar { SettingsOptionsMenu() }', settings)
         self.assertIn('QuotaScrollStack {', settings)
-        appearance = source('RepoPocketApp.swift').split('struct SettingsAppearanceRow:', 1)[1]
-        self.assertIn('QuotaCard(accessibilityID: "settings-appearance-card")', appearance)
-        self.assertIn('DisclosureGroup(isExpanded: $appearanceExpanded)', appearance)
-        self.assertIn('}.tint(.secondary).padding(12)', appearance)
+        appearance = source('RepoPocketApp.swift').split('struct SettingsOptionsMenu:', 1)[1]
+        self.assertIn('@AppStorage("appearance.mode")', appearance)
+        self.assertIn('NativeActionMenu(title: "设置选项", accessibilityIdentifier: "settings-options"', appearance)
+        self.assertIn('selectedState: { appearance == mode }', appearance)
+        self.assertIn('.frame(width: 44, height: 44)', appearance)
+        self.assertNotIn('DisclosureGroup(', appearance)
+        self.assertNotIn('AnyView', appearance)
         self.assertNotIn('.softGroupedRow(', appearance)
         self.assertNotIn('SoftGroupRow("appearance")', settings)
 
