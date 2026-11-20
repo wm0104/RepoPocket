@@ -77,7 +77,8 @@ class DownloadTests(unittest.TestCase):
 
  def test_real_callsites_and_lifecycle(self):
   self.assertIn('AccountStore.generation', store)
-  self.assertIn('api.downloadZIP(repo, branch: activeBranch)', app)
+  self.assertIn('api.downloadZIP(repo, branch: activeBranch, progress:', app)
+  self.assertIn('zipRequest == request', app)
   downloader = Path(REPO_ROOT, 'RepoPocket/ReleaseAssetDownload.swift').read_text()
   self.assertIn('api.downloadManagedAssetWithProgress(repo, asset: asset, transfer: update)', downloader)
   management = Path(REPO_ROOT, 'RepoPocket/ReleaseManagementUI.swift').read_text()
@@ -148,7 +149,9 @@ extension Notification.Name { static let githubAccountChanged = Notification.Nam
  def test_production_download_error_and_temporary_file_lifecycle(self):
   github = Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
   download = '    func download(' + github.split('    private func download(', 1)[1].split('    // These bounded endpoints', 1)[0]
-  source = rules + r'''
+  progress_support = 'struct ReleaseDownloadProgress' + Path(REPO_ROOT, 'RepoPocket/ReleaseAssetDownload.swift').read_text().split('struct ReleaseDownloadProgress', 1)[1]
+  redirect_support = Path(REPO_ROOT, 'RepoPocket/ReleaseAssetRedirectPolicy.swift').read_text()
+  source = rules + '\n' + progress_support + '\n' + redirect_support + r'''
 struct DownloadHTTPError: Error { let status: Int }
 final class ArchiveRedirectPolicy: NSObject, URLSessionTaskDelegate {}
 @MainActor final class DownloadTransport {
@@ -159,9 +162,16 @@ final class ArchiveRedirectPolicy: NSObject, URLSessionTaskDelegate {}
         (temporary, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
     }
 }
+extension ReleaseAssetDownloadDelegate {
+    // This fixture isolates GitHub's HTTP/file lifecycle, not URLSession routing.
+    @MainActor func download(using session: DownloadTransport, request: URLRequest) async throws -> (URL, URLResponse) {
+        try await session.download(for: request, delegate: self)
+    }
+}
 @MainActor final class GitHub {
     let session: DownloadTransport
     var active = true
+    var isCurrentSession: Bool { active }
     var checkedBody: Data?
     init(_ temporary: URL) { session = DownloadTransport(temporary) }
     func ensureActiveAccount() throws { if !active { throw CancellationError() } }

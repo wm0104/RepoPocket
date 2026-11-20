@@ -434,8 +434,10 @@ struct UploadView: View {
         do {
             guard try await checkedFingerprint() == authorized else { throw AppError(text: "文件或目标已变化，请重新检查并确认。") }
             try await api.commitQueue(repo: repo, branch: branch, items: queue, message: note)
+            try Task.checkCancellation(); guard api.isCurrentSession else { return }
             for item in queue { if let url = item.local { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) } }
-            queue = []; progress = 1; confirmCommit = false; alertText = "队列已在一次非强制 Git 提交中完成。"
+            queue = []; progress = 1; confirmCommit = false; alertText = ""
+            AppFeedback.show("队列已提交到 GitHub", api: api)
         } catch {
             reviewFingerprint = nil
             if !RefreshFailure.isCancellation(error) { reviewError = error.localizedDescription }

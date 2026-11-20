@@ -79,44 +79,35 @@ struct RepositoryCommunitySection: View {
 private struct RepositoryWorkflowStatus: View {
     @ObservedObject var api: GitHub
     let repo: String
-    @StateObject private var store = CommunityPageStore<WorkflowRun>()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var visible = false
-    private var latest: WorkflowRun? {
-        api.isCurrentSession && store.error.isEmpty ? store.items.first : nil
-    }
-    private var shouldPoll: Bool {
-        guard let run = latest else { return false }
-        return visible && scenePhase == .active && ["queued", "in_progress", "waiting", "pending", "requested"].contains(run.status)
-    }
+    @State private var latest: WorkflowRun?
+
     var body: some View {
         ZStack {
-            if let run = latest {
+            if api.isCurrentSession, let run = latest {
                 WorkflowStatusBadge(status: run.status, conclusion: run.conclusion)
                     .font(.caption).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                     .accessibilityHint("仓库所有分支的最近一次运行")
                     .accessibilityIdentifier("repository-workflow-status")
             }
         }
-        .task { visible = true; load() }
-        .task(id: shouldPoll) {
-            guard shouldPoll else { return }
-            while !Task.isCancelled {
-                do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { return }
-                guard shouldPoll else { return }
-                if !store.busy { load() }
-            }
-        }
-        .onChange(of: scenePhase) { phase in
-            if phase == .active && visible { load() }
-            else { store.cancel() }
-        }
-        .onDisappear { visible = false; store.cancel() }
+        .task(id: scenePhase) { await poll() }
     }
-    private func load() {
-        guard visible, scenePhase == .active, api.isCurrentSession else { return }
-        // Match the default Actions list: all branches, first page, server order.
-        store.load(reset: true, preserveItems: true, api: api) { try await api.workflowRuns(repo, branch: "", page: $0) }
+
+    @MainActor private func poll() async {
+        guard scenePhase == .active else { return }
+        while !Task.isCancelled, api.isCurrentSession {
+            do {
+                let run = try await api.latestRepositoryWorkflowRun(repo)
+                guard !Task.isCancelled, api.isCurrentSession else { return }
+                latest = run
+            } catch {
+                guard !Task.isCancelled, api.isCurrentSession else { return }
+                latest = nil
+            }
+            let active = ["queued", "in_progress", "waiting", "pending", "requested"].contains(latest?.status ?? "")
+            do { try await Task.sleep(nanoseconds: active ? 10_000_000_000 : 30_000_000_000) } catch { return }
+        }
     }
 }
 

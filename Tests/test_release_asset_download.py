@@ -42,7 +42,7 @@ class ReleaseAssetDownloadTests(unittest.TestCase):
         for token in ['@Published private(set) var attempts = 0', 'ReleaseDownloadDiagnostics(state: state, downloader: downloader)', 'release-download-fixture-state', 'busy=\\(state.busy)', 'valid=\\(state.valid)']:
             self.assertIn(token,preview)
         test=(ROOT/'StyleUITests/StyleBoundaryTests.swift').read_text().split('    func testReleaseAttachmentsUseNativeActionsAndInlineDownloadStates()',1)[1].split('    func testSharedProfileFollowStateAndFailureHandling()',1)[0]
-        for token in ['addTeardownBlock', 'failureCount', 'release-download-failure', 'app.debugDescription', 'hierarchy.lifetime = .keepAlways', "label CONTAINS '40%'", "label == '下载已取消'", 'completion.waitForExistence(timeout: 15)']:
+        for token in ['addTeardownBlock', 'failureCount', 'release-download-failure', 'app.debugDescription', 'hierarchy.lifetime = .keepAlways', "value CONTAINS '40%'", "label == '下载已取消'", 'completion.waitForExistence(timeout: 15)']:
             self.assertIn(token,test)
 
     @unittest.skipUnless(shutil.which('swiftc'),'Production Swift regression runs on macOS')
@@ -60,5 +60,59 @@ class ReleaseAssetDownloadTests(unittest.TestCase):
             path=Path(folder)/'main.swift';path.write_text(source)
             subprocess.run(['swiftc','-parse-as-library',str(path),'-o',folder+'/test'],check=True)
             subprocess.run([folder+'/test'],check=True,timeout=30)
+
+class DownloadProgressContractTests(unittest.TestCase):
+ def read(self,name): return (ROOT/'RepoPocket'/name).read_text()
+ def test_progress_ring_and_real_bytes(self):
+  ring=self.read('DownloadProgressRing.swift')
+  for token in ['trim(from:', 'fraction: Double?', 'accessibilityReduceMotion', '1.6', 'TimelineView(.animation', 'paused: startedAt == nil', 'onDisappear', 'Color(uiColor: .systemBlue)', 'Color(uiColor: .systemGray5)', '.frame(width: 18, height: 18)']:
+   self.assertIn(token,ring)
+  self.assertNotIn('Timer',ring)
+  model=self.read('ReleaseAssetDownload.swift')
+  self.assertNotIn('fraction * 100',model.split('var label: String',1)[1].split('struct ReleaseAssetDownload',1)[0])
+  self.assertIn('policy: URLSessionTaskDelegate',model)
+ def test_only_artifacts_offer_transport_controls(self):
+  view=self.read('WorkflowViews.swift').split('struct WorkflowArtifactsView:',1)[1].split('struct WorkflowJobView:',1)[0]
+  for token in ['.frame(width: 44, height: 44)', '.contentShape(Rectangle())', 'setPaused(!paused)', 'active: !paused', 'downloadTask?.cancel()', '.swipeActions(edge: .trailing, allowsFullSwipe: false)', 'Button("取消下载")', '.tint(.red)', 'transfer = $0']:
+   self.assertIn(token,view)
+  self.assertNotIn('role: .destructive',view)
+  self.assertNotIn('DELETE',view)
+  self.assertNotIn('Text("暂停',view)
+  self.assertNotIn('Text("继续',view)
+ def test_generic_download_progress_keeps_policy(self):
+  source=self.read('GitHub.swift')
+  for method in ['communityArtifact','downloadZIP','downloadFile','fetchWorkspace','downloadWorkspace']:
+   signature=source.split('func '+method+'(',1)[1].split('{',1)[0]
+   self.assertIn('progress: ((ReleaseDownloadProgress) -> Void)? = nil',signature)
+  self.assertIn('policy: redirect',source)
+  self.assertIn('onCancel:',source)
+  self.assertIn('GitHubAPIRedirectPolicy()',source.split('private func downloadBlob(',1)[1].split('func commitWorkspace',1)[0])
+ def test_final_save_feedback_not_page_alert(self):
+  for name in ['ReleaseManagementUI.swift','WorkflowViews.swift','UpdateFeature.swift']:
+   source=self.read(name)
+   self.assertNotIn('.downloadCompletionNotice(',source)
+   self.assertIn('AppFeedback.show("下载完成"',source)
+  source=self.read('WorkflowViews.swift').split('private func download(_ artifact:',1)[1].split('struct WorkflowJobView',1)[0]
+  self.assertLess(source.index('DownloadStore.shared.persist'), source.index('AppFeedback.show'))
+  self.assertIn('try Task.checkCancellation()',source)
+ def test_release_final_feedback_keeps_confirmations_and_partial_failure(self):
+  source=self.read('ReleaseManagementUI.swift')
+  self.assertNotIn('completedDownload', source)
+  self.assertNotIn('@State private var copied', source)
+  self.assertNotIn('.alert("下载链接已复制"', source)
+  for token in ['"发行版已删除" : "附件已删除"', '"发行版已发布" : "发行版已保存"', 'plan.fail()', 'plan.cancel()', 'guard verifiedAll, attachments.allSatisfy', '.confirmationDialog(deleteTitle']:
+   self.assertIn(token, source)
+  operation=source.split('private func performConfirmedRelease()',1)[1].split('@SoftGroupRowsBuilder',1)[0]
+  self.assertLess(operation.index('try await publishAttachments(captured)'), operation.index('AppFeedback.show'))
+  api=self.read('GitHub.swift')
+  for token in ['statusCode == (method == "POST" ? 201 : 200)', 'saved.draft == form.draft', 'statusCode == 201', 'asset.name == file.lastPathComponent']:
+   self.assertIn(token,api)
+ def test_update_unknown_and_stages(self):
+  source=self.read('UpdateFeature.swift')
+  self.assertIn('var progress: ReleaseDownloadProgress?',source)
+  self.assertIn('正在校验 IPA',source)
+  self.assertIn('正在保存',source)
+  self.assertNotIn('ProgressView(value: checker.progress)',source)
+  self.assertNotIn('self.message = "下载完成，请选择应用安装"',source)
 
 if __name__ == '__main__': unittest.main()

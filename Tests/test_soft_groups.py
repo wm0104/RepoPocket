@@ -203,7 +203,8 @@ assert 'Divider()' not in asset_ui and 'Rectangle().fill' not in asset_ui
 asset_actions = detail_ui.split('@ViewBuilder private func assetActions(', 1)[1].split('private var deleteDescription:', 1)[0]
 assert 'Button("下载并保存") { state.download(asset) }.disabled(state.busy || !state.valid)' in asset_actions
 assert 'if let link = ReleaseManagementRules.browserDownloadURL(asset.browser_download_url, repo: state.repo)' in asset_actions
-assert 'Button("复制下载链接") { UIPasteboard.general.url = link; copied = true }' in asset_actions
+assert 'Button("复制下载链接") { UIPasteboard.general.url = link; AppFeedback.show("下载链接已复制", api: state.api) }' in asset_actions
+assert 'copied = true' not in asset_actions
 attachment_ui = release.split('@SoftGroupRowsBuilder private var attachmentSection:', 1)[1].split('private func cleanupAttachments()', 1)[0]
 for token in ['SoftGroupRow("attachments-heading")', 'SoftGroupRow("attachment-" + item.id.uuidString)',
               'if attachments.isEmpty', 'if staging', '.disabled(state.busy || staging || plan.draftID != nil)']:
@@ -432,7 +433,7 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         current = current[:deletion_start] + current[deletion_end:]
         transfer_start = current.index('    func downloadManagedAssetWithProgress(')
         transfer_end = current.index('\n    }', transfer_start) + len('\n    }') + 1
-        assert 'ReleaseAssetDownloadDelegate(update: transfer)' in current[transfer_start:transfer_end]
+        assert 'redirect: ReleaseAssetRedirectPolicy(), progress: transfer' in current[transfer_start:transfer_end]
         current = current[:transfer_start] + current[transfer_end:]
         # The authorized metadata editor has separate permission/race tests.
         description_start = current.index('    func descriptionContext(')
@@ -568,6 +569,23 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
             '    init(configuration: URLSessionConfiguration = .ephemeral) {\n'
             '        let config = configuration.copy() as! URLSessionConfiguration\n',
             '    init() {\n        let config = URLSessionConfiguration.ephemeral\n')
+        # Keep historic APIs byte-exact; preview read/range guards have their own regression.
+        preview_start = current.index('    func repositoryFilePreview(')
+        preview_end = current.index('    func commit(_ repo:', preview_start)
+        current = current[:preview_start] + current[preview_end:]
+        # Approved real-byte transfer/final-ack changes are exercised by
+        # test_release_asset_download.py (including the production Swift delegate).
+        # This file compares text only; it does not compile a full GitHub fixture.
+        for prefix in ['    func fetchWorkspace(', '    func downloadWorkspace(',
+                       '    private func downloadBlob(', '    func downloadFile(',
+                       '    func downloadZIP(', '    private func download(',
+                       '    private func managedJSON<', '    func saveManagedRelease(',
+                       '    func uploadManagedAsset(']:
+            begin = current.index(prefix)
+            end = current.index('\n    }', begin) + len('\n    }')
+            old_begin = old_github.index(prefix)
+            old_end = old_github.index('\n    }', old_begin) + len('\n    }')
+            current = current[:begin] + old_github[old_begin:old_end] + current[end:]
     if file == 'WorkspaceSelectionUI.swift':
         # Only the approved card radius changes; the remaining shape/layout stay exact.
         expected = baseline(file).replace('let radius: CGFloat = 22', 'let radius: CGFloat = 10')
@@ -637,9 +655,14 @@ workspace_operations = (
     'static func metadata(', 'static func snapshot(',
     'static func removeWorkspace(', 'static func renameWorkspace(',
     '@MainActor private func importItems(', '@MainActor private func scan()',
+    '@MainActor private func downloadRemote(', '@MainActor private func applyPendingPull(',
+    '@MainActor private func applyResolvedPull(', '@MainActor private func commit(',
 )
 
 def restore_workspace_operations(current, old):
+    # scan now returns success so manual-scan feedback cannot fire after failure.
+    current = current.replace('@discardableResult @MainActor private func scan() async -> Bool',
+                              '@MainActor private func scan() async')
     current_blocks, old_blocks = function_blocks(current), function_blocks(old)
     for signature, body in old_blocks.items():
         if any(signature.startswith(prefix) for prefix in workspace_operations):
@@ -688,7 +711,26 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
              'AccountManagement.swift', 'TargetPickerView.swift',
              'WorkspaceView.swift']:
     current_source = source(file)
+    if file == 'WorkspaceView.swift':
+        current_source = current_source.replace('@discardableResult @MainActor private func scan() async -> Bool', '@MainActor private func scan() async')
     old, current = function_blocks(baseline(file)), function_blocks(current_source)
+    # Normalize only the explicitly approved success-presentation substitutions.
+    # Mutating API calls, parameters and error paths remain byte-exact.
+    feedback_pairs = {
+        ('RepoPocketApp.swift', 'private func fork() async'): [(r'do { _ = try await api.fork(input); guard api.isCurrentSession else { return }; AppFeedback.show("复刻请求已接受", api: api) }', r'do { let repo = try await api.fork(input); guard api.isCurrentSession else { return }; api.message = "复刻请求已接受：\(repo.full_name)，正在准备，请稍后刷新。" }')],
+        ('RepoPocketApp.swift', 'private func create() async'): [('; guard api.isCurrentSession else { return }; input = r.full_name', '; input = r.full_name'), ('AppFeedback.show("仓库已创建", api: api)', r'api.message = "已创建 \(r.full_name)"')],
+        ('RepoPocketApp.swift', 'private func deleteRemote(_ entry: Entry, account: String, generation: UUID, branch: String) async'): [('            guard api.isCurrentSession, AccountStore.generation == generation, activeBranch == branch else { return }\n', ''), ('AppFeedback.show("文件删除已提交", session: generation)', r'api.message = "已删除并提交：\(entry.name)"')],
+        ('DesktopViews.swift', 'private func create() async'): [('            try Task.checkCancellation(); guard api.isCurrentSession else { return }\n', ''), ('select(name); dismiss(); api.message = ""\n            AppFeedback.show("远端分支已创建", api: api)', 'select(name); dismiss(); api.message = "已创建远端分支：" + name')],
+        ('RepositoryDeletionView.swift', 'private func confirmDeletion()'): [('_ = try await api.deleteRepository', 'let message = try await api.deleteRepository'), ('                try Task.checkCancellation(); guard api.isCurrentSession else { return }\n', ''), ('onDeleted(); dismiss(); api.message = ""\n                AppFeedback.show("远端仓库已删除，本地工作区未删除", api: api)', 'onDeleted(); dismiss(); api.message = message')],
+        ('RepositorySections.swift', 'private func fork(_ repository: Repository) async'): [('_ = try await api.fork(repository.full_name)', 'let result = try await api.fork(repository.full_name)'), ('api.message = ""\n            AppFeedback.show("复刻请求已接受", api: api)', r'api.message = "已复刻：\(result.full_name)。GitHub 可能需要片刻准备内容。"')],
+    }
+    for (target_file, signature), pairs in feedback_pairs.items():
+        if file != target_file: continue
+        changed = current[signature]
+        for approved, original in pairs:
+            assert changed.count(approved) == 1, (file, signature, approved)
+            changed = changed.replace(approved, original, 1)
+        current[signature] = changed
     # Pure rendering helpers may move; business operations remain byte-frozen.
     rendering = ['workspaceManagement(', 'bindingSection(', 'outputSection(']
     for signature, body in old.items():
@@ -705,17 +747,27 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             assert 'token = ""' in current.get(signature, ''), signature
             continue
         if file == 'RepoPocketApp.swift' and signature in ('private func zip() async', 'private func download() async'):
-            # Downloads now save directly to the chosen folder and report the
-            # result with the approved native ZIP completion alert; focused
-            # download tests protect this changed path and the file fallback.
+            # Preserve folder authorization/persist/session guards while replacing
+            # the former acknowledgement alert with an explicit final success event.
             body = current.get(signature, '')
             assert 'try await downloads.requireAuthorization()' in body, signature
             assert 'try await downloads.persist(file, session: session)' in body, signature
-            if signature == 'private func zip() async':
-                assert 'downloadedZIP = saved' in body, signature
-            else:
-                assert 'downloadedFile = saved' in body, signature
+            assert 'AppFeedback.show("下载完成", session: session)' in body, signature
+            assert body.index('try await downloads.persist(file, session: session)') < body.index('AppFeedback.show'), signature
+            assert 'session == AccountStore.generation' in body, signature
+            assert ('zipRequest == request' if signature == 'private func zip() async' else 'downloadRequest == request') in body, signature
             assert 'ShareSheet' not in body and 'share = ' not in body, signature
+            continue
+        if file == 'ReleaseManagementUI.swift' and signature == 'private func publishAttachments(_ captured: ReleaseForm) async throws':
+            changed = current[signature]
+            start = changed.index('            var verified: [Asset] = []; var verifiedAll = false')
+            end = changed.index('            current = try await state.api.managedRelease', start)
+            verification = changed[start:end]
+            for token in ['ReleaseManagementRules.pageLimit', 'state.api.managedAssets', 'try state.check()', 'verifiedAll = true', 'guard verifiedAll, attachments.allSatisfy', '$0.id == acknowledged.id', '$0.name == item.name', 'Int64($0.size) == item.size', '未发布。']:
+                assert token in verification, token
+            # Only this new read-only batch verification is allowed; all original
+            # upload/finalize/cancel/failure operation bytes remain frozen.
+            assert changed[:start] + changed[end:] == body, (file, signature)
             continue
         if file == 'ReleaseManagementUI.swift' and signature == 'func run(_ work: @escaping () async throws -> Void)':
             # The shared operation runner now clears the inline download notice
@@ -741,7 +793,9 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             body = current.get(signature, '')
             assert 'self.downloader.download(' in body
             assert 'try await self.downloader.persist(' in body
-            assert 'self.completedDownload = saved' in body
+            assert 'AppFeedback.show("下载完成", api: self.api)' in body
+            assert body.index('try await self.downloader.persist(') < body.index('AppFeedback.show')
+            assert 'try self.check()' in body
             assert 'SharedFile' not in body and 'self.saved' not in body
             continue
         if file == 'ReleaseManagementUI.swift' and signature == 'private func performDelete()':
@@ -827,6 +881,14 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             # Approved file-reader redesign: automatic bounded reading and a
             # dedicated editor replace the old manual Form actions. Production
             # text/lexer and page-request regressions cover the replacement.
+            continue
+        if file == 'RepoPocketApp.swift' and signature == 'private func remove() async':
+            # Clearing a deleted file's preview must not change the deletion request.
+            changed = current[signature].replace('            preview = nil; originalText = ""; text = ""; currentSHA = ""\n', '')
+            assert changed.count('AppFeedback.show("文件删除已提交", api: api)') == 1
+            changed = changed.replace('            guard api.isCurrentSession else { return }\n', '', 1)
+            changed = changed.replace('AppFeedback.show("文件删除已提交", api: api)', 'api.message = "删除已提交。"', 1)
+            assert changed == body, (file, signature)
             continue
         if file == 'RepositorySections.swift' and signature == 'private func load() async':
             changed = current.get(signature, '')

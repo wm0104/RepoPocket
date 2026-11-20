@@ -8,6 +8,124 @@ from unittest.mock import patch
 
 
 class StyleFailureDiagnosticsTests(unittest.TestCase):
+    def test_feedback_lifecycle_recheck_runs_two_real_cases_and_requires_every_screenshot(self):
+        import json, runpy, subprocess
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(self.selection('feedback-lifecycle-recheck', 'selected'), [
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testSuccessFeedbackDoesNotReplayAfterBackground',
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testRepositoryZIPCompletionIsNativeDismissibleAndReusable'])
+        workflow = (root / '.github/workflows/ui-check.yml').read_text()
+        self.assertEqual(workflow.count("&& inputs.test_scope != 'feedback-lifecycle-recheck'"), 2)
+        contracts = workflow.split('      - name: Check success feedback lifecycle regression contracts', 1)[1].split('      - name:', 1)[0]
+        self.assertIn("if: inputs.test_scope == 'feedback-lifecycle-recheck'", contracts)
+        for test in ('test_feedback.py', 'test_repository_copy_link.py', 'test_style_failure_diagnostics.py'):
+            self.assertIn('python3 Tests/' + test, contracts)
+        self.assertIn('bash Scripts/build_native_git.sh iphonesimulator', workflow)
+        source = (root / 'StyleUITests/StyleBoundaryTests.swift').read_text()
+        method = source.split('    func testSuccessFeedbackDoesNotReplayAfterBackground()', 1)[1].split('    func test', 1)[0]
+        for text in ('-download-completion-style-preview', 'XCUIDevice.shared.press(.home)',
+                     'app.activate()', 'app.wait(for: .runningForeground, timeout: 10)',
+                     'app.state == .runningBackground', 'guard feedback().exists else',
+                     'replayed.isInverted = true', 'timeout: 3.5), .completed',
+                     'for activation in 0..<2', '("download", "下载完成")',
+                     '("copy", "仓库链接已复制")', '("upload", "附件上传成功")'):
+            self.assertIn(text, method)
+        for forbidden in ('sleep(', 'app.terminate(', 'NotificationCenter', 'post(name:'):
+            self.assertNotIn(forbidden, method)
+        self.assertEqual(method.count('app.launch()'), 1)
+        self.assertLess(method.index('XCTAssertFalse(feedback().exists, "Foreground must not replay'),
+                        method.index('let updated = XCTNSPredicateExpectation'))
+        self.assertLess(method.index('XCTWaiter.wait(for: [replayed], timeout: 3.5)'),
+                        method.index('XCTWaiter.wait(for: [updated], timeout: 5)'))
+        for token in ('-feedback-lifecycle-style-preview', 'UUID(uuidString: shownID)',
+                      'XCTAssertEqual(fields[1], shownID)', 'XCTAssertEqual(fields[2], title)',
+                      'age.isFinite', 'XCTAssertGreaterThanOrEqual(age, 0)', 'XCTAssertLessThan(age, 2.9',
+                      'XCTAssertEqual(witness, String(expectedActivation) + "|none"',
+                      'activationCount += 1', 'let expectedActivation = activationCount',
+                      'Each real activation must publish a fresh sequence',
+                      'FEEDBACK_ACTIVATION ', 'FEEDBACK_DEACTIVATION '):
+            self.assertIn(token, method)
+        presenter = (root / 'RepoPocket/AppFeedback.swift').read_text()
+        record = presenter.split('publisher(for: UIScene.willDeactivateNotification)', 1)[1].split('publisher(for: UIScene.didDisconnectNotification)', 1)[0]
+        self.assertIn('#if DEBUG', record)
+        self.assertIn('AppFeedback.lifecycleTestEnabled', record)
+        self.assertIn('start.id == item.id', record)
+        self.assertIn('indicator.window === self.window', record)
+        self.assertLess(record.index('AppFeedback.deactivationEvidence = nil'), record.index('if let item = self.queue.current'))
+        self.assertLess(record.index('AppFeedback.deactivationEvidence = (item.id, item.title'), record.index('self.queue.suspend()'))
+        self.assertIn('indicator.present(duration: 3, haptic: .none)', presenter)
+        self.assertIn('indicator.accessibilityValue = item.id.uuidString', presenter)
+        self.assertLess(presenter.index('presentation = (item.id, ProcessInfo.processInfo.systemUptime)'), presenter.index('indicator.present(duration: 3'))
+        for flag in ('-style-preview', '-download-completion-style-preview', '-feedback-lifecycle-style-preview'):
+            self.assertIn('args.contains("' + flag + '")', presenter)
+        activation = presenter.split('publisher(for: UIScene.didActivateNotification)', 1)[1].split('publisher(for: UIScene.willDeactivateNotification)', 1)[0]
+        self.assertIn('AppFeedback.lifecycleObservation.activate(scene)', activation)
+        self.assertIn('#if DEBUG', activation)
+        observe = presenter.split('final class AppFeedbackLifecycleObservation', 1)[1].split('// MARK: - Queue', 1)[0]
+        for token in ('@Published private(set) var value', 'activationCount += 1',
+                      'guard scene.session.persistentIdentifier == sceneID',
+                      'let evidence = AppFeedback.deactivationEvidence', 'AppFeedback.deactivationEvidence = nil',
+                      'value = prefix + "none"'):
+            self.assertIn(token, observe)
+        self.assertLess(observe.index('AppFeedback.deactivationEvidence = nil', observe.index('func activate(')),
+                        observe.index('activationCount += 1'))
+        preview = (root / 'RepoPocket/DownloadCompletionNotice.swift').read_text()
+        self.assertNotIn('.onReceive(', preview)
+        self.assertIn('@ObservedObject private var lifecycleObservation = AppFeedback.lifecycleObservation', preview)
+        self.assertIn('Text(lifecycleObservation.value)', preview)
+        self.assertIn('lifecycleObservation.reset()', preview)
+        for operation in ('AppFeedback.show("下载完成")', 'copyFeedback.copy("wm0104/RepoPocket")', 'AppFeedback.show("附件上传成功")'):
+            self.assertIn('resetLifecycleEvidence(); ' + operation, preview)
+        script = root / 'Scripts/export_style_attachments.py'
+        expected = {'feedback-lifecycle-' + operation + '-' + phase
+                    for operation in ('download', 'copy', 'upload')
+                    for phase in ('before-background', 'after-foreground-0', 'after-foreground-1', 'new-auto-dismissed')}
+        expected.add('repository-zip-completion')
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'feedback-lifecycle-recheck']):
+            config = {}
+            exec(compile(script.read_text().split('\nwhile pending:', 1)[0], str(script), 'exec'), config)
+            self.assertEqual(config['expected'], expected)
+            for missing in [None, *sorted(expected)]:
+                names = expected if missing is None else expected - {missing}
+                tree = [{'name': {'_value': name}, 'payloadRef': {'id': {'_value': name}}} for name in names]
+                with self.subTest(missing=missing), \
+                        patch.object(subprocess, 'check_output', return_value=json.dumps(tree).encode()), \
+                        patch.object(subprocess, 'run') as exported, redirect_stdout(io.StringIO()):
+                    if missing is not None:
+                        with self.assertRaisesRegex(RuntimeError, 'Expected native UI regression screenshots'):
+                            runpy.run_path(str(script), run_name='__main__')
+                    else:
+                        runpy.run_path(str(script), run_name='__main__')
+                        self.assertEqual(exported.call_count, len(expected))
+
+    def test_download_lifecycle_recheck_runs_only_deb_and_requires_its_screenshot(self):
+        import json, runpy, subprocess
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(self.selection('download-lifecycle-recheck', 'selected'), [
+            '-only-testing:RepoPocketStyleUITests/StyleBoundaryTests/testLocalDEBHasNoPackageEditingAction'])
+        self.assertEqual(len(self.selection('download-lifecycle', 'selected')), 5)
+        workflow = (root / '.github/workflows/ui-check.yml').read_text()
+        self.assertEqual(workflow.count("&& inputs.test_scope != 'download-lifecycle-recheck'"), 2)
+        self.assertIn("inputs.test_scope == 'download-lifecycle-recheck'", workflow)
+        self.assertIn('python3 Tests/test_file_feedback.py', workflow)
+        export = root / 'Scripts/export_style_attachments.py'
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(sys, 'argv', ['export', 'fixture.xcresult', directory, 'download-lifecycle-recheck']):
+            config = {}
+            exec(compile(export.read_text().split('\nwhile pending:', 1)[0], str(export), 'exec'), config)
+            self.assertEqual(config['expected'], {'local-deb-ordinary-file'})
+            for names in [set(), {'local-deb-ordinary-file'}]:
+                tree = [{'name': {'_value': n}, 'payloadRef': {'id': {'_value': n}}} for n in names]
+                with patch.object(subprocess, 'check_output', return_value=json.dumps(tree).encode()), \
+                        patch.object(subprocess, 'run') as exported, redirect_stdout(io.StringIO()):
+                    if not names:
+                        with self.assertRaisesRegex(RuntimeError, 'Expected native UI regression screenshots'):
+                            runpy.run_path(str(export), run_name='__main__')
+                    else:
+                        runpy.run_path(str(export), run_name='__main__')
+                        self.assertEqual(exported.call_count, 1)
+
     def test_download_settings_recheck_keeps_failed_cases_and_picker_sibling_regression(self):
         expected = [
             'SettingsTests/testFolderAuthorizationPresentsAboveExistingSheet',
@@ -213,7 +331,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         scopes = {name.strip() for name in re.search(r'options: \[([^\]]+)\]', workflow).group(1).split(',')}
         self.assertIn('download-settings-workflow', scopes)
         self.assertIn("inputs.test_scope == 'download-settings-workflow' && '下载·设置·工作流回归'", workflow)
-        self.assertEqual(workflow.count("if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck')"), 2)
+        self.assertEqual(workflow.count("if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck' && inputs.test_scope != 'download-lifecycle-recheck' && inputs.test_scope != 'feedback-lifecycle-recheck')"), 2)
         selectors = self.selection('download-settings-workflow', 'selected')
         self.assertEqual(selectors, [
             '-only-testing:RepoPocketStyleUITests/SettingsTests',
@@ -261,7 +379,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                  for name in re.findall(r'final class (\w+): XCTestCase', text)
                  for method in re.findall(r'(?m)^    func (test\w+)\(', text)}
         baseline = {case for case in cases if '/RepositoryOperationsTests/' not in case and '/RepositoryCollectionsTests/' not in case}
-        self.assertEqual(len(baseline), 86, 'Retain unrelated UI coverage and include folder-picker and commit-theme regressions')
+        self.assertEqual(len(baseline), 91, 'Retain unrelated UI coverage and include repository history preview regressions')
         commit_theme = 'RepoPocketStyleUITests/CommitFileTests/testCommitDiffAndCompleteFileOpenInLightAndDarkWithoutCrashing'
         self.assertIn(commit_theme, baseline)
         self.assertEqual(len({case for case in cases if '/RepositoryOperationsTests/' in case}), 6)
@@ -272,7 +390,7 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         self.assertIn('-only-testing:' + accepted_device_check, self.selection('device-feedback-recheck', 'selected'))
         folder_picker = 'RepoPocketStyleUITests/SettingsTests/testFolderPickerCancelsAndSettingsRemainResponsive'
         self.assertIn(folder_picker, baseline)
-        for group, count in [('boundaries-a', 25), ('boundaries-b', 25), ('editors', 47)]:
+        for group, count in [('boundaries-a', 25), ('boundaries-b', 26), ('editors', 51)]:
             arguments = self.selection('all', group)
             self.assertEqual(len(arguments), len(set(arguments)), group)
             only = [item.split(':', 1)[1] for item in arguments if item.startswith('-only-testing:')]
@@ -295,7 +413,8 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         import re
         script = (Path(__file__).resolve().parents[1] / 'Scripts/run_style_preview.sh').read_text(encoding='utf-8')
         focused = re.findall(r'(?m)^  ([a-z-]+)\)', script)
-        self.assertEqual(len(focused), 27)
+        self.assertEqual(len(focused), 29)
+        self.assertIn('download-lifecycle-recheck', focused)
         self.assertNotIn('recovery-recheck', focused)
         self.assertEqual(self.selection('workflow-log-navigation', 'selected'), [
             '-only-testing:RepoPocketStyleUITests/WorkflowLogTests/testExplicitLineHighlightsKeepTheCompleteReadOnlyContext',
@@ -358,8 +477,8 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
                             <= config['regression_recheck'])
             self.assertEqual(len(config['repository_operations']), 9)
             self.assertEqual(len(config['repository_collections']), 6)
-            self.assertEqual((len(all_names - additions), len(first), len(second), len(editors - additions)), (202, 54, 37, 111))
-            self.assertEqual((len(all_names), len(editors)), (217, 126))
+            self.assertEqual((len(all_names - additions), len(first), len(second), len(editors - additions)), (214, 54, 49, 111))
+            self.assertEqual((len(all_names), len(editors)), (229, 126))
             self.assertEqual(len(config['disclosure_transitions']), 78)
             self.assertEqual(config['transition_phases'], {
                 page + '-' + phase for page in ('home-issues', 'repository-more')

@@ -2,6 +2,13 @@ import Foundation
 import Combine
 struct Asset:Identifiable { let id:Int; let name:String }
 struct AppError:LocalizedError { let text:String; var errorDescription:String? {text} }
+final class FixtureRedirectPolicy: NSObject, URLSessionTaskDelegate {
+ var calls = 0
+ func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                 newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+  calls += 1; completionHandler(nil)
+ }
+}
 // PRODUCTION_RELEASE_MODELS
 extension ReleaseSummary {
  init(id:Int) {self.init(id:id,tag_name:"v\(id)",name:nil,draft:false,prerelease:false,created_at:"2026-10-20T00:00:00Z",published_at:nil)}
@@ -12,6 +19,10 @@ extension ManagedRelease {
 struct Permissions { var push:Bool? }
 struct Repository { let permissions:Permissions? }
 enum AccountStore { static var generation=UUID() }
+@MainActor enum AppFeedback {
+ static var titles:[String]=[]
+ static func show(_ title:String, api:GitHub) {if api.isCurrentSession {titles.append(title)}}
+}
 extension Notification.Name { static let githubAccountChanged=Notification.Name("fixture-account-changed") }
 extension Notification.Name { static let releaseManagementChanged=Notification.Name("fixture-release-changed") }
 enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is CancellationError || (error as NSError).code == NSURLErrorCancelled } }
@@ -126,6 +137,21 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
   delegate.receive(.init(received:2,total:10));precondition(updates.count==2)
   clock=0.22;delegate.receive(.init(received:5,total:10));precondition(updates.count==3)
   delegate.receive(.init(received:10,total:10));delegate.receive(.init(received:10,total:10));precondition(updates.count==4)
+  let rejected = FixtureRedirectPolicy()
+  let forwarding = ReleaseAssetDownloadDelegate(update: { _ in }, policy: rejected)
+  let transport = URLSession(configuration: .ephemeral)
+  let request = URLRequest(url: URL(string: "https://api.github.com/repos/o/r/zipball/main")!)
+  let task = transport.dataTask(with: request)
+  let response = HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: nil, headerFields: nil)!
+  var denied = false
+  forwarding.urlSession(transport, task: task, willPerformHTTPRedirection: response, newRequest: request) { denied = $0 == nil }
+  precondition(rejected.calls == 1 && denied) // Must not override a caller policy's denial.
+  transport.invalidateAndCancel()
+  var lateUpdates = 0
+  let stopped = ReleaseAssetDownloadDelegate(update: { _ in lateUpdates += 1 }, deliverOnMainActor: true)
+  stopped.receive(.init(received: 1, total: 10)); stopped.stop()
+  for _ in 0..<20 { await Task.yield() }
+  precondition(lateUpdates == 0)
   let api=GitHub(), state=ReleaseScreenState(api:api,repo:"owner/repo",downloader:FixtureReleaseDownloader()), asset=Asset(id:1,name:"asset.ipa")
   let store=DownloadStore.shared
   state.download(asset);precondition(state.busy && state.assetDownload?.stage == .authorizing)
@@ -136,11 +162,12 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
   precondition(state.assetDownload?.stage == .downloading && api.callbacks.count==1)
   store.holdSave=true
   let file=try temporary();api.pending.removeFirst().resume(returning:file)
-  await wait{store.save != nil};precondition(state.assetDownload?.stage == .saving && state.busy)
+  await wait{store.save != nil};precondition(state.assetDownload?.stage == .saving && state.busy && AppFeedback.titles.isEmpty)
   api.callbacks[0](.init(received:1,total:-1));for _ in 0..<20 {await Task.yield()}
   precondition(state.assetDownload?.stage == .saving)
   store.save!.resume(returning:file);store.save=nil;store.holdSave=false
   await wait{!state.busy};precondition(state.assetDownload?.stage == .completed && store.operations==0)
+  precondition(AppFeedback.titles == ["下载完成"])
   state.cancel();precondition(state.assetDownload?.stage == .completed)
   state.prepareImport();state.error="fixture picker failure"
   precondition(state.assetDownload==nil && !state.error.isEmpty)
@@ -156,7 +183,7 @@ enum RefreshFailure { static func isCancellation(_ error:Error)->Bool { error is
   let last=api.callbacks.last!;AccountStore.generation=UUID();api.isCurrentSession=false
   NotificationCenter.default.post(name:.githubAccountChanged,object:nil)
   api.pending.removeFirst().resume(throwing:CancellationError());last(.init(received:99,total:100))
-  await wait{store.operations==0};precondition(!state.busy && state.assetDownload?.stage == .cancelled && state.assets.isEmpty)
+  await wait{store.operations==0};precondition(AppFeedback.titles == ["下载完成"]);precondition(!state.busy && state.assetDownload?.stage == .cancelled && state.assets.isEmpty)
   let authorized=GitHub(), cancelled=ReleaseScreenState(api:authorized,repo:"owner/repo",downloader:FixtureReleaseDownloader())
   store.cancelAuthorization=true;cancelled.download(asset);await wait{!cancelled.busy}
   precondition(cancelled.assetDownload?.stage == .cancelled && cancelled.error.isEmpty && authorized.callbacks.isEmpty)

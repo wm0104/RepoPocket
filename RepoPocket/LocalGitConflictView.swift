@@ -107,6 +107,7 @@ struct LocalGitConflictView: View {
             try Task.checkCancellation(); guard valid else { return }
             result = operation == "conflictAbort" ? "已安全中止；无关新增文件未删除。" : "合并提交已保存在本地：\(reply.head ?? "")\n尚未推送。"
             self.session = nil; changed()
+            AppFeedback.show(operation == "conflictAbort" ? "本地合并已安全中止" : "本地合并完成", session: generation)
         } catch { if valid { self.error = RefreshFailure.isCancellation(error) ? "操作取消；会话与恢复证据保留，请重新核对。" : error.localizedDescription } }
     }
 }

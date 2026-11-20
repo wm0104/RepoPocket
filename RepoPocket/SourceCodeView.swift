@@ -6,8 +6,20 @@ import RepoPocketThemeSupport
 enum SourceHighlighter {
     // Parse the complete document, or stay plain; never parse a truncated prefix.
     static let byteLimit = 512 * 1024
+
+    // The pinned Runestone initializes DefaultTheme even when a custom theme is supplied.
+    // Check its packaged colors first: DefaultTheme force-unwraps them on initialization.
+    private static let runestoneThemeAvailable: Bool = {
+        guard let bundle = Bundle(url: Bundle.main.bundleURL.appendingPathComponent("Runestone_Runestone.bundle")) else { return false }
+        return [
+            "foreground", "gutter_background", "gutter_hairline", "line_number",
+            "current_line", "line_number_current_line", "invisible_characters",
+            "page_guide_hairline", "page_guide_background", "marked_text", "selection"
+        ].allSatisfy { UIColor(named: "theme_" + $0, in: bundle, compatibleWith: nil) != nil }
+    }()
+
     static func highlight(_ text: String, filename: String, dark: Bool) -> NSAttributedString {
-        guard !text.isEmpty, !Task.isCancelled, text.utf8.count <= byteLimit,
+        guard !text.isEmpty, !Task.isCancelled, text.utf8.count <= byteLimit, runestoneThemeAvailable,
               let language = SourceTextSyntax.language(for: filename, text: text) else {
             return NSAttributedString(string: text, attributes: [.foregroundColor: UIColor.label])
         }

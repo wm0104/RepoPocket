@@ -1,38 +1,54 @@
 import SwiftUI
 
-private struct DownloadCompletionNotice: ViewModifier {
-    @Binding var file: URL?
-    func body(content: Content) -> some View {
-        content.background {
-            // Keep this presenter separate from the page's copy/upload/error alerts.
-            Color.clear.alert("下载完成", isPresented: Binding(get: { file != nil }, set: { if !$0 { file = nil } }), presenting: file) { _ in
-                Button("好", role: .cancel) { file = nil }
-            } message: { saved in
-                Text(saved.lastPathComponent + "\n已保存到：" + saved.deletingLastPathComponent().path)
-            }
-        }
-    }
-}
-
-extension View {
-    func downloadCompletionNotice(_ file: Binding<URL?>) -> some View {
-        modifier(DownloadCompletionNotice(file: file))
-    }
-}
-
 #if DEBUG
-/// Exercises the production completion presenter without networking or writing user files.
+import UIKit
+
+/// Exercises the production feedback and ring without network or user-file writes.
 struct DownloadCompletionStylePreview: View {
-    @State private var saved: URL?
+    @StateObject private var copyFeedback = RepositoryCopyFeedback()
+    @State private var fraction = 0.35
+    @State private var taps = 0
+    @ObservedObject private var lifecycleObservation = AppFeedback.lifecycleObservation
     var body: some View {
         AppNavigationStack {
             List {
-                Button("模拟 ZIP 保存完成") {
-                    saved = URL(fileURLWithPath: "/Downloads/RepoPocket/my-python.zip")
-                }.softGroupedRow(top: true, bottom: true)
-            }.navigationTitle("下载提示预览")
-                .downloadCompletionNotice($saved)
+                Section {
+                    HStack {
+                        Text("RepoPocket.zip")
+                        Spacer()
+                        DownloadProgressRing(fraction: fraction, active: fraction < 1)
+                            .accessibilityIdentifier("feedback-preview-ring")
+                    }.frame(minHeight: 44).softGroupedRow(top: true)
+                    Button("推进模拟下载") { fraction = fraction < 0.75 ? 0.75 : 1 }
+                        .accessibilityIdentifier("feedback-preview-advance").softGroupedRow(bottom: true)
+                }
+                Section {
+                    Button("模拟 ZIP 保存完成") { resetLifecycleEvidence(); AppFeedback.show("下载完成") }
+                        .accessibilityIdentifier("feedback-preview-download").softGroupedRow(top: true)
+                    Button("模拟仓库链接复制") { resetLifecycleEvidence(); copyFeedback.copy("wm0104/RepoPocket") }
+                        .accessibilityIdentifier("feedback-preview-copy").softGroupedRow()
+                    Button("模拟附件上传完成") { resetLifecycleEvidence(); AppFeedback.show("附件上传成功") }
+                        .accessibilityIdentifier("feedback-preview-upload").softGroupedRow(bottom: true)
+                }
+                Section {
+                    Button("点击计数：\(taps)") { taps += 1 }
+                        .accessibilityIdentifier("feedback-through-button").softGroupedRow(top: true)
+                    Button("模拟旧账号结果") { AppFeedback.show("不应显示的旧账号提示", session: UUID()) }
+                        .accessibilityIdentifier("feedback-stale-button").softGroupedRow(bottom: true)
+                }
+            }.navigationTitle("成功轻提示预览")
         }
+        .overlay(alignment: .bottom) {
+            if AppFeedback.lifecycleTestEnabled {
+                Text(lifecycleObservation.value).font(.caption2)
+                    .accessibilityIdentifier("feedback-lifecycle-deactivation")
+            }
+        }
+    }
+
+    private func resetLifecycleEvidence() {
+        guard AppFeedback.lifecycleTestEnabled else { return }
+        lifecycleObservation.reset()
     }
 }
 #endif

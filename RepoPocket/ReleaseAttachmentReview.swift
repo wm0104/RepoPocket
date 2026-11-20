@@ -89,7 +89,9 @@ struct ReleaseAttachmentReview: View {
             _ = try await api.uploadManagedAsset(repo, original: original, file: attachment.file) { value in
                 Task { @MainActor in if valid { progress = value } }
             }
+            try Task.checkCancellation()
             guard valid else { throw CancellationError() }
+            AppFeedback.show("附件上传成功", api: api)
             completed(); dismiss()
         } catch {
             self.authorizedHash = nil

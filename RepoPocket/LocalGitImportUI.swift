@@ -35,8 +35,9 @@ import SwiftUI
             do {
                 let result = try await LocalGitEngine.shared.importFiles(sources, project: project,
                     internalRoot: internalRoot, directory: directory, replaceExisting: replaceExisting, generation: generation)
-                guard generation == AccountStore.generation else { return }
+                guard !Task.isCancelled, generation == AccountStore.generation else { return }
                 importedPaths = result.paths
+                if !result.paths.isEmpty { AppFeedback.show("已导入 \(result.paths.count) 个文件", session: generation) }
                 message = "已导入 \(result.paths.count) 个文件，保留原目录结构。" + (result.skipped.isEmpty ? "" : "已跳过 \(result.skipped.count) 个同名文件。") + "变化文件已选中，可一次创建本地提交后推送；相同内容不产生新提交。"
             } catch {
                 guard generation == AccountStore.generation else { return }

@@ -4,6 +4,7 @@ import Combine
 @MainActor final class AccountPresentation: ObservableObject {
     @Published var showing = false
     @Published var authorizationNotice: String? = nil
+    @Published var authorizationDetails: String? = nil
     private var pendingAuthorizationNotice: (accountID: String, message: String)?
     private var authorizationObserver: AnyCancellable?
     init() {
@@ -81,7 +82,8 @@ import Combine
                             if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.red).softGroupedRow(bottom: true) }
                         }.navigationTitle("添加 / 更新账号").onDisappear { token = "" }
                     }.softGroupedRow()
-                    Text("仅移除本机凭据，不会删除 GitHub 账号、远端仓库或本地工作区。").font(.caption).softGroupedRow(bottom: error.isEmpty)
+                    Text("仅移除本机凭据，不会删除 GitHub 账号、远端仓库或本地工作区。").font(.caption).softGroupedRow(bottom: error.isEmpty && presentation.authorizationDetails == nil)
+                    if let details = presentation.authorizationDetails { Text(details).font(.caption).foregroundStyle(.secondary).softGroupedRow(bottom: error.isEmpty) }
                     if !error.isEmpty { Text(error).font(.caption).softGroupedRow(bottom: true) }
                 }
             }.navigationTitle("账号管理")

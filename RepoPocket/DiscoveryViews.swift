@@ -20,7 +20,7 @@ struct CommunityProfileSection: View {
             else { Section("用户资料") { content } }
         }
         .alert("无法打开此链接", isPresented: Binding(get: { unsupportedLink != nil }, set: { if !$0 { unsupportedLink = nil } }), presenting: unsupportedLink) { value in
-            Button("复制链接") { UIPasteboard.general.string = value }
+            Button("复制链接") { UIPasteboard.general.string = value; AppFeedback.show("链接已复制", api: api) }
             Button("取消", role: .cancel) {}
         } message: { _ in Text("此链接没有可用的网页地址，可以复制后在对应应用中使用。") }
         .onDisappear { contacts.cancel(); linkRequest = nil; unsupportedLink = nil }

@@ -16,7 +16,8 @@ class CompactAccountGroupsTests(unittest.TestCase):
         self.assertIn('.softGroupedRow(top: account.id == accounts.first?.id)', page)
         self.assertIn('DeviceOAuthView(api: api) }.softGroupedRow()', page)
         self.assertNotIn('bottom: account.id == accounts.last?.id', page)
-        self.assertIn('Text("仅移除本机凭据，不会删除 GitHub 账号、远端仓库或本地工作区。").font(.caption).softGroupedRow(bottom: error.isEmpty)', page)
+        self.assertIn('Text("仅移除本机凭据，不会删除 GitHub 账号、远端仓库或本地工作区。").font(.caption).softGroupedRow(bottom: error.isEmpty && presentation.authorizationDetails == nil)', page)
+        self.assertIn('if let details = presentation.authorizationDetails', page)
         self.assertIn('if !error.isEmpty { Text(error).font(.caption).softGroupedRow(bottom: true) }', page)
 
     def test_oauth_setup_is_inside_the_same_native_rows(self):

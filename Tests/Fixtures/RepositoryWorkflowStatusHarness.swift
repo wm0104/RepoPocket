@@ -17,8 +17,55 @@ enum Failure: Error { case offline }
 // PRODUCTION_STORE
 // PRODUCTION_PRESENTATION
 
+@MainActor private final class RowProbe {
+    enum Phase { case active, background }
+    var scenePhase = Phase.active
+    let api = MockAPI(), repo = "owner/name"
+    var latest: Run?
+    var samples: [(Int?, UInt64)] = []
+    @MainActor final class MockAPI {
+        var isCurrentSession = true, requests = 0
+        var replies: [Result<Run?, Error>] = []
+        var beforeReturn: (() -> Void)?
+        func latestRepositoryWorkflowRun(_ repo: String) async throws -> Run? {
+            precondition(repo == "owner/name" && !replies.isEmpty)
+            requests += 1
+            beforeReturn?()
+            return try replies.removeFirst().get()
+        }
+    }
+    func recordSleep(nanoseconds: UInt64) async throws {
+        samples.append((latest?.id, nanoseconds))
+        if api.replies.isEmpty { throw CancellationError() }
+    }
+    // PRODUCTION_POLL
+    func verify() async {
+        latest = Run(id: 1, status: "completed")
+        scenePhase = .background
+        await poll()
+        precondition(api.requests == 0)
+        scenePhase = .active
+        api.replies = [.success(nil), .success(latest), .success(Run(id: 2, status: "queued")),
+                       .success(Run(id: 2, status: "in_progress")), .success(Run(id: 2, status: "completed")),
+                       .failure(Failure.offline), .success(Run(id: 3, status: "requested"))]
+        await poll()
+        precondition(samples.map { $0.0 } == [nil, 1, 2, 2, 2, nil, 3])
+        precondition(samples.map { $0.1 } == [30, 30, 10, 10, 30, 30, 10].map { UInt64($0) * 1_000_000_000 })
+        api.replies = [.success(Run(id: 99, status: "completed"))]
+        api.beforeReturn = { withUnsafeCurrentTask { $0?.cancel() } }
+        await Task { await self.poll() }.value
+        precondition(latest?.id == 3 && samples.count == 7, "A cancelled view cannot publish stale results")
+        api.replies = [.success(nil)]
+        api.beforeReturn = { self.api.isCurrentSession = false }
+        await poll()
+        precondition(latest?.id == 3 && samples.count == 7, "An old account cannot publish or poll again")
+        api.beforeReturn = nil
+    }
+}
+
 @main struct RepositoryWorkflowStatusHarness {
     @MainActor static func main() async throws {
+        await RowProbe().verify()
         let api = GitHub(), store = CommunityPageStore<Run>()
         store.load(reset: true, api: api) { page in
             precondition(page == 1)

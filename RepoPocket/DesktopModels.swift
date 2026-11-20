@@ -12,7 +12,16 @@ struct DesktopCommit: Decodable, Identifiable {
     let commit: Info
     let files: [File]?
     let stats: Stats?
+    let parents: [Parent]?
     var id: String { sha }
+    init(sha: String, commit: Info, files: [File]?, stats: Stats?, parents: [Parent]? = nil) {
+        self.sha = sha
+        self.commit = commit
+        self.files = files
+        self.stats = stats
+        self.parents = parents
+    }
+    struct Parent: Decodable { let sha: String }
     struct Info: Decodable {
         let message: String
         let author: Author?
@@ -36,6 +45,13 @@ struct DesktopCommit: Decodable, Identifiable {
         }
     }
 }
+
+struct CommitMediaComparison: Decodable {
+    let base_commit: DesktopCommit.Parent
+    let merge_base_commit: DesktopCommit.Parent
+    let files: [DesktopCommit.File]?
+}
+
 enum DesktopRules {
     static func validBranch(_ name: String) -> Bool {
         guard !name.isEmpty, name != "@", name != "HEAD", !name.hasPrefix("-"),

@@ -44,8 +44,10 @@ struct RepositoryDeletionView: View {
         Task {
             defer { busy = false }
             do {
-                let message = try await api.deleteRepository(repository, context: context, confirmation: confirmedName)
-                onDeleted(); dismiss(); api.message = message
+                _ = try await api.deleteRepository(repository, context: context, confirmation: confirmedName)
+                try Task.checkCancellation(); guard api.isCurrentSession else { return }
+                onDeleted(); dismiss(); api.message = ""
+                AppFeedback.show("远端仓库已删除，本地工作区未删除", api: api)
             } catch {
                 errorMessage = error.localizedDescription
             }

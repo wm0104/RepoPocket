@@ -147,5 +147,51 @@ class GlobalWorkspaceUI(unittest.TestCase):
         self.assertIn('if !state.failure.isEmpty', m)
         self.assertIn('确认合并到当前分支？', m)
 
+class OperationFeedbackTests(unittest.TestCase):
+    def test_workspace_completion_and_partial_failures(self):
+        w = source('WorkspaceView')
+        for title in ('工作区已建立', '工作区已导入', '路径已复制', '拉取完成', '冲突处理完成'):
+            self.assertIn('AppFeedback.show("' + title + '"', w)
+        self.assertIn('DownloadProgressRing(fraction:', w)
+        self.assertIn('progress: {', w)
+        self.assertIn('private func scan() async -> Bool', w)
+        self.assertIn('let scanned = await scan()', w)
+        self.assertIn('failures.isEmpty, scanned', w)
+        self.assertIn('session: generation', w)
+        self.assertIn('成功项目已保留', w)
+        self.assertIn('不要重复提交', w)
+        commit = w.split('private func commit() async', 1)[1].split('private func scan()', 1)[0]
+        self.assertLess(commit.index('LocalStore.finish('), commit.index('AppFeedback.show('))
+        self.assertNotIn('message = "已原子提交', commit)
+        self.assertIn('result = "已原子提交', commit)
+
+    def test_local_git_details_and_pending_are_not_success(self):
+        for file in ('LocalGitImportUI', 'LocalGitStageView', 'LocalGitBranchManagement',
+                     'LocalGitConflictView', 'LocalGitHistoryActions', 'LocalGitMerge', 'LocalProjectView'):
+            text = source(file)
+            self.assertIn('AppFeedback.show(', text, file)
+            self.assertIn('session: ', text, file)
+        self.assertIn('尚未推送', source('LocalGitStageView'))
+        self.assertIn('恢复引用', source('LocalGitHistoryActions'))
+        merge = source('LocalGitMerge').split('private func apply(', 1)[1]
+        self.assertLess(merge.index('if mergePending'), merge.index('AppFeedback.show('))
+        self.assertLess(merge.index('return\n'), merge.index('AppFeedback.show('))
+        project = source('LocalProjectView').split('private func sync(', 1)[1]
+        self.assertLess(project.index('state.fresh, state.error.isEmpty'), project.index('AppFeedback.show('))
+        self.assertIn('if completed', project)
+
+    def test_remote_and_copy_feedback_is_explicit(self):
+        for file, title in (('RepositorySections', '复刻请求已接受'), ('RepositoryForkMenu', '复刻请求已接受'),
+                            ('DesktopViews', '远端分支已创建'), ('UploadView', '队列已提交到 GitHub'),
+                            ('DiscoveryViews', '链接已复制')):
+            self.assertIn('AppFeedback.show("' + title + '", api: api)', source(file))
+        deletion = source('RepositoryDeletionView')
+        self.assertIn('AppFeedback.show("远端仓库已删除，本地工作区未删除", api: api)', deletion)
+        self.assertNotIn('api.message = message', deletion)
+        self.assertIn('最后确认：永久删除远端仓库', deletion)
+        self.assertIn('此链接没有可用的网页地址', source('DiscoveryViews'))
+        self.assertIn('if error.isEmpty { AppFeedback.show(', source('SocialAccountsView'))
+        self.assertEqual(source('RepositoryCollectionViews').count('if verified, succeeded == pending.count, error.isEmpty {'), 2)
+
 if __name__ == '__main__':
     unittest.main()

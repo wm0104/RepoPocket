@@ -39,7 +39,8 @@ class UpdateGroupTests(unittest.TestCase):
         self.assertNotIn('bottom:', group)
         self.assertNotIn('.listRowBackground', body)
         self.assertNotIn('.background(', body)
-        self.assertIn('.downloadCompletionNotice($checker.downloadCompletion)', body)
+        self.assertNotIn('.downloadCompletionNotice(', body)
+        self.assertIn('DownloadProgressRow(name:', body)
         self.assertIn('.sheet(item: $share, onDismiss: { checker.sharing = false })', body)
         block = settings.split('AppUpdateSection(api: api, checker: updateChecker, connected: true)', 1)[1].split('}.appGroupedFormStyle', 1)[0]
         self.assertIn('.softGroupedRow(bottom: true)', block)

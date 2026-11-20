@@ -29,26 +29,20 @@ class RepositoryWorkflowStatusTests(unittest.TestCase):
 
     def test_latest_is_the_first_all_branch_result_and_unavailable_never_means_success(self):
         row = source('CollaborationViews.swift').split('struct RepositoryWorkflowStatus:', 1)[1].split('struct CollaborationListView:', 1)[0]
-        for token in ['CommunityPageStore<WorkflowRun>()', 'store.items.first',
-                      'api.isCurrentSession && store.error.isEmpty',
-                      'api.workflowRuns(repo, branch: "", page: $0)',
+        for token in ['if api.isCurrentSession, let run = latest', 'latest = run', 'latest = nil',
+                      'api.latestRepositoryWorkflowRun(repo)',
                       'WorkflowStatusBadge(status: run.status, conclusion: run.conclusion)']:
             self.assertIn(token, row)
         for forbidden in ['.sorted', '?? "success"', 'TimelineView', 'rotationEffect', 'currentBranchOnly']:
             self.assertNotIn(forbidden, row)
         self.assertIn('.frame(width: 14, height: 14)', source('WorkflowViews.swift').split('struct WorkflowRunsView:', 1)[0])
 
-    def test_requests_stop_when_hidden_or_inactive_and_only_pending_runs_poll(self):
+    def test_foreground_task_owns_each_request_and_sleep(self):
         row = source('CollaborationViews.swift').split('struct RepositoryWorkflowStatus:', 1)[1].split('struct CollaborationListView:', 1)[0]
-        for token in ['@Environment(\\.scenePhase)', 'visible && scenePhase == .active',
-                      '.task(id: shouldPoll)', '10_000_000_000', 'guard shouldPoll else { return }',
-                      '.onDisappear { visible = false; store.cancel() }',
-                      'else { store.cancel() }', 'api.isCurrentSession']:
+        for token in ['@Environment(\\.scenePhase)', '.task(id: scenePhase)', 'guard scenePhase == .active',
+                      'while !Task.isCancelled, api.isCurrentSession', 'Task.sleep(nanoseconds:']:
             self.assertIn(token, row)
-        self.assertIn('["queued", "in_progress", "waiting", "pending", "requested"]', row)
-        store = source('CommunityPaging.swift')
-        self.assertIn('generation = UUID(); task?.cancel()', store)
-        self.assertIn('self.generation == request, api.isCurrentSession', store)
+        self.assertNotIn('Task {', row, 'Requests must cancel with the SwiftUI task on disappearance or background')
 
     def test_native_fixture_uses_the_shipping_row_and_checks_animated_then_completed_state(self):
         preview = source('RepositoryOperationsStylePreview.swift')
@@ -70,7 +64,11 @@ class RepositoryWorkflowStatusTests(unittest.TestCase):
         models = source('NativeRepositoryModels.swift')
         presentation = models.split('struct WorkflowStatusPresentation {', 1)[1].split('enum WorkflowRunStatusFilter:', 1)[0]
         fixture = (ROOT / 'Tests/Fixtures/RepositoryWorkflowStatusHarness.swift').read_text(encoding='utf-8')
-        program = fixture.replace('// PRODUCTION_STORE', store).replace('// PRODUCTION_PRESENTATION', 'struct WorkflowStatusPresentation {' + presentation)
+        row = source('CollaborationViews.swift').split('struct RepositoryWorkflowStatus:', 1)[1].split('struct CollaborationListView:', 1)[0]
+        poll = '@MainActor private func poll()' + row.split('@MainActor private func poll()', 1)[1].rsplit('}', 1)[0]
+        # Exercise the shipping loop with a recorded sleep rather than real 10/30-second delays.
+        program = fixture.replace('// PRODUCTION_POLL', poll.replace('Task.sleep(', 'recordSleep('))
+        program = program.replace('// PRODUCTION_STORE', store).replace('// PRODUCTION_PRESENTATION', 'struct WorkflowStatusPresentation {' + presentation)
         with tempfile.TemporaryDirectory(prefix='repository-workflow-status-', dir=os.environ.get('REPOPOCKET_TEST_TMP')) as tmp:
             swift = Path(tmp) / 'RepositoryWorkflowStatus.swift'
             executable = Path(tmp) / ('status.exe' if os.name == 'nt' else 'status')

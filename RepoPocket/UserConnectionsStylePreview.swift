@@ -62,7 +62,7 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
     private static var socialURLs = ["https://t.me/fixture_owner"]
     static let editorSource = (1...79).map { "# Fixture line \($0)" }.joined(separator: "\n") + "\nEND_MARKER"
     static var editorEntry: Entry {
-        Entry(name: "editor.py", path: "editor.py", type: "file", sha: "fixture-editor-sha", size: editorSource.utf8.count,
+        Entry(name: "editor.py", path: "editor.py", type: "file", sha: String(repeating: "e", count: 40), size: editorSource.utf8.count,
               download_url: nil, content: Data(editorSource.utf8).base64EncodedString(), encoding: "base64")
     }
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -106,7 +106,7 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
             let pathCommits = ["Sources": String(repeating: "b", count: 40),
                                "Sources/Feature": String(repeating: "c", count: 40),
                                "Sources/Feature/editor.py": String(repeating: "d", count: 40)]
-            let file: [String: Any] = ["name": "editor.py", "path": "Sources/Feature/editor.py", "type": "file", "sha": "file-sha",
+            let file: [String: Any] = ["name": "editor.py", "path": "Sources/Feature/editor.py", "type": "file", "sha": String(repeating: "f", count: 40),
                                       "size": Self.editorSource.utf8.count, "content": Data(Self.editorSource.utf8).base64EncodedString(), "encoding": "base64"]
             var code = 403, payload: Any = ["message": "Unexpected branch search fixture request"]
             if authenticated, request.httpMethod == "POST", path == "/graphql", query.isEmpty,
@@ -132,7 +132,7 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
                     code = 200; payload = ["truncated": false, "tree": [
                         ["path": "Sources", "mode": "040000", "type": "tree", "sha": "sources-sha"],
                         ["path": "Sources/Feature", "mode": "040000", "type": "tree", "sha": "feature-sha"],
-                        ["path": "Sources/Feature/editor.py", "mode": "100644", "type": "blob", "sha": "file-sha", "size": Self.editorSource.utf8.count]
+                        ["path": "Sources/Feature/editor.py", "mode": "100644", "type": "blob", "sha": String(repeating: "f", count: 40), "size": Self.editorSource.utf8.count]
                     ]]
                 } else if path.hasPrefix("/repos/fixture-owner/sample/commits/"),
                         query.count == 2, query.contains(URLQueryItem(name: "per_page", value: "100")), query.contains(URLQueryItem(name: "page", value: "1")),
@@ -157,7 +157,7 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
             var code = 403, payload: [String: Any] = ["message": "Unexpected editor fixture request"]
             if allowed, path == "/repos/fixture-owner/sample/contents/editor.py",
                query.count == 1, query.first?.name == "ref", query.first?.value == "main" {
-                payload = ["name": "editor.py", "path": "editor.py", "type": "file", "sha": "fixture-editor-sha",
+                payload = ["name": "editor.py", "path": "editor.py", "type": "file", "sha": String(repeating: "e", count: 40),
                            "size": Self.editorSource.utf8.count, "content": Data(Self.editorSource.utf8).base64EncodedString(), "encoding": "base64"]
                 code = 200
             } else if allowed, path == "/repos/fixture-owner/sample", query.isEmpty {

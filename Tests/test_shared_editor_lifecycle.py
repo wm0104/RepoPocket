@@ -22,7 +22,10 @@ class SharedEditorLifecycleTests(unittest.TestCase):
     def test_remote_save_keeps_permissions_and_original_sha(self):
         app = (ROOT/'RepoPocket/RepoPocketApp.swift').read_text()
         save = app.split('    private func save() async {', 1)[1].split('    private func remove()', 1)[0]
-        self.assertIn('guard writable, !busy, !currentSHA.isEmpty', save)
+        self.assertIn('guard writable, !busy, editable', save)
+        self.assertIn('if case .text(_, _, .some)? = preview', app)
+        self.assertIn('if case let .text(content, _, sha?) = loaded', app)
+        self.assertIn('currentSHA = sha', app)
         self.assertIn('try await api.requireWriteAccess(repo)', save)
         self.assertIn('sha: currentSHA', save)
         self.assertIn('text.utf8.count <= SourceTextRules.byteLimit', save)

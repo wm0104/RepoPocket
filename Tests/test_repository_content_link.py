@@ -30,7 +30,7 @@ class ContentLinkMenuTests(unittest.TestCase):
         self.assertNotIn('canWrite', menu.split('if canWrite', 1)[0])
         self.assertIn('if canWrite { Button("删除", role: .destructive)', menu)
         self.assertEqual(browser.count('.contextMenu {'), 2)
-        self.assertIn('.repositoryCopyNotice(copyFeedback)', browser)
+        self.assertNotIn('.repositoryCopyNotice(copyFeedback)', browser)
         self.assertNotIn('raw.githubusercontent.com', browser)
         self.assertNotIn('github.com/', browser)
         self.assertIn('title: "复制仓库链接"', browser)
@@ -43,7 +43,9 @@ class ContentLinkMenuTests(unittest.TestCase):
     def test_copy_feedback_accepts_only_rule_urls_on_trusted_hosts(self):
         ui = (ROOT/'RepoPocket/RepositoryCopyUI.swift').read_text()
         self.assertEqual(ui.count('UIPasteboard.general.string ='), 1)
-        self.assertIn('func copy(url: URL?)', ui)
+        self.assertIn('func copy(url: URL?, title: String = "链接已复制")', ui)
+        self.assertIn('guard session == AccountStore.generation', ui)
+        self.assertIn('AppFeedback.show(title, session: session)', ui)
         self.assertIn('host == "github.com" || host == "raw.githubusercontent.com"', ui)
         self.assertIn('url.scheme == "https"', ui)
         for forbidden in ['api.message', 'URLSession', 'GitHub()', 'canWrite']:

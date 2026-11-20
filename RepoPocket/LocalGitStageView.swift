@@ -137,6 +137,9 @@ struct LocalGitStageView: View {
                 result = operation == "commitStaged" ? "本地提交已保存：\(reply.commit ?? "")\n尚未推送。" : "暂存区已更新，工作文件未更改。"
                 self.snapshot = nil; stagedSelection.removeAll(); unstagedSelection.removeAll()
                 busy = false; await load()
+                if valid, !Task.isCancelled, error.isEmpty, self.snapshot != nil {
+                    AppFeedback.show(operation == "commitStaged" ? "本地提交已保存" : "暂存区已更新", session: generation)
+                }
             } catch {
                 changed(); self.snapshot = nil; stagedSelection.removeAll(); unstagedSelection.removeAll()
                 if valid { self.error = "\(error.localizedDescription)\n请重新核对真实状态；不会自动撤销或清理文件。" }

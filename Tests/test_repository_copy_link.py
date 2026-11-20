@@ -30,21 +30,22 @@ class CopyLinkTests(unittest.TestCase):
         self.assertIn('title: "复制仓库链接"', browser)
         self.assertIn('perform: { copyFeedback.copy(repo) }', browser)
         self.assertNotIn('CopyRepositoryLinkButton(repository: path', browser)
-        self.assertIn('.repositoryCopyNotice(copyFeedback)', browser)
+        self.assertNotIn('.repositoryCopyNotice(copyFeedback)', browser)
         self.assertEqual(sections.count('.swipeActions(edge: .trailing, allowsFullSwipe: false)'), 1)
         self.assertIn('NavigationLink', sections)
         self.assertNotIn('.onLongPressGesture', ui)
 
-    def test_local_notice_and_user_authorized_write_only(self):
+    def test_shared_feedback_and_user_authorized_write_only(self):
         ui = (ROOT/'RepoPocket/RepositoryCopyUI.swift').read_text()
         self.assertEqual(ui.count('UIPasteboard.general.string ='), 1)
         self.assertIn('Button { feedback.copy(repository) }', ui)
         self.assertIn('guard let url = RepositoryLinkRules.canonicalURL(input)', ui)
-        for text in ['timeout?.cancel()', '1_500_000_000', 'guard !Task.isCancelled',
-                     'notice.expire(token)', '.onDisappear { feedback.cancel() }',
-                     '.allowsHitTesting(false)', 'Text("已复制")']:
-            self.assertIn(text, ui)
-        for forbidden in ['api.message', 'canWrite', 'permissions', 'URLSession', 'GitHub()']:
+        self.assertIn('private let session = AccountStore.generation', ui)
+        self.assertIn('guard session == AccountStore.generation', ui)
+        self.assertIn('AppFeedback.show(title, session: session)', ui)
+        self.assertLess(ui.index('UIPasteboard.general.string ='), ui.index('AppFeedback.show'))
+        for forbidden in ['api.message', 'canWrite', 'permissions', 'URLSession', 'GitHub()',
+                          'timeout', 'RepositoryCopyNotice', 'overlay(', 'onDisappear']:
             self.assertNotIn(forbidden, ui)
 
     def test_fork_menu_guards_and_coverage(self):
@@ -74,6 +75,13 @@ protocol ObservableObject {}
 enum AccountStore { static var generation = UUID() }
 enum CredentialStore { static func read(account: String) -> String { "mock" } }
 enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { false } }
+@MainActor enum AppFeedback {
+    static var titles: [String] = []
+    static func show(_ title: String, api: GitHub) {
+        precondition(api.isCurrentSession)
+        titles.append(title)
+    }
+}
 struct Repository { let full_name: String; var fork: Bool?; var parent: RepositoryReference?; var source: RepositoryReference? }
 struct RepositoryReference { let full_name: String }
 @MainActor final class GitHub {
@@ -151,6 +159,7 @@ struct RepositoryReference { let full_name: String }
             await Task.yield()
         }
         precondition(api.pendingCheck != nil && state.busy && api.calls.isEmpty)
+        precondition(AppFeedback.titles.isEmpty)
         // Keep the first request suspended while the second confirmation arrives.
         // Task.yield alone does not guarantee that two async-let calls overlap.
         api.suspendCheck = false
@@ -160,6 +169,7 @@ struct RepositoryReference { let full_name: String }
         api.pendingCheck = nil
         await first.value
         precondition(api.calls == ["other/repo"] && !state.busy)
+        precondition(AppFeedback.titles == ["复刻请求已接受"])
         // The dialog may outlive a successful lookup; a failed revalidation cannot write.
         api.failCheck = true
         await state.confirm(current, api: api)
@@ -180,6 +190,7 @@ struct RepositoryReference { let full_name: String }
         state.target = nil
         state.prepare("other/repo", api: api)
         precondition(state.target == nil)
+        precondition(AppFeedback.titles == ["复刻请求已接受"])
         print("PASS production fixed fork target, cancellation, self/no-login, account-generation and duplicate guards; mock only")
     }
 }
@@ -191,9 +202,10 @@ struct RepositoryReference { let full_name: String }
             subprocess.run([folder+'/test'], check=True)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Production Swift rules run on macOS CI')
-    def test_production_canonical_and_notice_generation(self):
+    def test_production_canonical_and_queue_generation(self):
         source = (ROOT/'RepoPocket/RepositoryInput.swift').read_text()
         source += (ROOT/'RepoPocket/RepositoryLinkRules.swift').read_text()
+        source += (ROOT/'RepoPocket/AppFeedback.swift').read_text().split('// MARK: - Queue', 1)[1].split('// MARK: - Presenter', 1)[0]
         source += r'''
 let valid = [(" owner/repo ", "https://github.com/owner/repo"),
              ("https://GITHUB.COM/Owner/Repo.git/", "https://github.com/Owner/Repo"),
@@ -204,21 +216,29 @@ for (input, expected) in valid {
 for bad in ["", "owner/..", "owner/.git", "owner/repo/tree/main", "owner/repo/blob/main/file", "owner/repo%2Ftree", "owner/repo?x", "owner/repo#x", "https://evil.test/a/b", "https://github.com.evil.test/a/b", "https://github.com@evil.test/a/b", "https://user@github.com/a/b", "https://github.com:443/a/b", "http://github.com/a/b", "https://github.com/a/b?", "https://github.com/a/b#", "owner/repo\\name", "owner/re\npo"] {
     precondition(RepositoryLinkRules.canonicalURL(bad) == nil)
 }
-var notice = RepositoryCopyNoticeState()
-let first = notice.show()
-let second = notice.show()
-notice.expire(first)
-precondition(notice.visible)
-notice.expire(second)
-precondition(!notice.visible)
-let third = notice.show()
-notice.cancel()
-let fourth = notice.show()
-notice.expire(third)
-precondition(notice.visible)
-notice.expire(fourth)
-precondition(!notice.visible)
-print("PASS production canonical root URL and repeated-copy/disappear lifecycle; zero HTTP/pasteboard writes")
+var queue = AppFeedbackQueue()
+let session = UUID(), nextSession = UUID()
+queue.append("first", session: session)
+queue.append("second", session: session)
+let first = queue.take(session: session, sceneID: "A")!
+queue.finish(UUID())
+precondition(queue.current?.id == first.id)
+queue.suspend()
+let second = queue.take(session: session, sceneID: "A")!
+precondition(second.title == "second" && second.id != first.id)
+queue.finish(first.id)
+precondition(queue.current?.id == second.id)
+queue.finish(second.id)
+precondition(queue.take(session: session, sceneID: "A") == nil)
+queue.clear()
+queue.append("stale", session: session)
+queue.append("fresh", session: nextSession)
+precondition(queue.take(session: nextSession, sceneID: "A")?.title == "fresh")
+queue.finish(first.id)
+precondition(queue.current?.title == "fresh")
+queue.clear()
+precondition(queue.pending.isEmpty && queue.current == nil)
+print("PASS production canonical URL and queued copy/account-generation lifecycle; zero HTTP/pasteboard writes")
 '''
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/'main.swift'

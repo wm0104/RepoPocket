@@ -34,7 +34,11 @@ import SwiftUI
                     SoftGroupRow("busy") { ProgressView("等待 GitHub 授权…") }
                     if !controller.userCode.isEmpty {
                         SoftGroupRow("code") { Text(controller.userCode).font(.title.monospaced()).textSelection(.enabled).accessibilityLabel("授权码 " + controller.userCode) }
-                        SoftGroupRow("copy") { Button("复制授权码") { UIPasteboard.general.string = controller.userCode } }
+                        SoftGroupRow("copy") { Button("复制授权码") {
+                            guard api.isCurrentSession, !controller.userCode.isEmpty else { return }
+                            UIPasteboard.general.string = controller.userCode
+                            AppFeedback.show("授权码已复制", api: api)
+                        } }
                     }
                     if let url = controller.verificationURL { SoftGroupRow("open") { Button("打开 GitHub 输入授权码") { openURL(url) } } }
                     SoftGroupRow("cancel") { Button("取消授权", role: .cancel) { controller.cancel() } }

@@ -107,7 +107,7 @@ struct CommitDetailView: View {
                         for f in files {
                             SoftGroupRow("file-" + f.id) {
                                 NavigationLink {
-                                    CommitPatchDestination(file: f, api: api, repo: repo, commitSHA: d.sha)
+                                    CommitPatchDestination(file: f, api: api, repo: repo, commitSHA: d.sha, parents: d.parents)
                                 } label: {
                                     VStack(alignment: .leading) {
                                         Text(f.filename)
@@ -117,7 +117,7 @@ struct CommitDetailView: View {
                                 }
                             }
                         }
-                        SoftGroupRow("patch-note") { Text("Patch 由 GitHub 提供；二进制及部分大文件不可预览，不代表无变化。GitHub 最多返回 3,000 个文件。").font(.caption).foregroundColor(.secondary) }
+                        SoftGroupRow("patch-note") { Text("Patch 由 GitHub 提供；二进制及部分大文件没有文本 patch，不代表无变化。GitHub 最多返回 3,000 个文件。").font(.caption).foregroundColor(.secondary) }
                     }
                     if busy { SoftGroupRow("loading") { ProgressView() } }
                     if more { SoftGroupRow("more") { Button(detail == nil ? "加载详情" : "加载更多文件") { Task { await load() } }.disabled(busy) } }
@@ -259,7 +259,9 @@ struct BranchPickerView: View {
         busy = true; defer { busy = false }
         do {
             try await api.createBranch(repo, name: name, from: current, expectedHead: head)
-            select(name); dismiss(); api.message = "已创建远端分支：" + name
+            try Task.checkCancellation(); guard api.isCurrentSession else { return }
+            select(name); dismiss(); api.message = ""
+            AppFeedback.show("远端分支已创建", api: api)
         } catch { if !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription }; await captureHead() }
     }
     private func canDelete(_ b: DesktopBranch) -> Bool {

@@ -406,6 +406,10 @@ struct StarListDetailView: View {
             succeeded = pending.filter { !remaining.contains($0.id) }.count
         }
         notice = "已从分类移出\(succeeded)/\(pending.count)个仓库" + (verified ? "" : "；部分结果待核对")
+        if verified, succeeded == pending.count, error.isEmpty {
+            notice = ""
+            AppFeedback.show("已从分类移出", api: api)
+        }
     }
 }
 
@@ -547,6 +551,10 @@ private struct StarListRepositoryPicker: View {
         if pending.count == 1 && succeeded == 1 { notice = "添加成功" }
         else { notice = "已添加\(succeeded)/\(pending.count)个仓库" }
         if !verified { notice += "；部分结果待核对" }
+        if verified, succeeded == pending.count, error.isEmpty {
+            notice = ""
+            AppFeedback.show("已添加到分类", api: api)
+        }
         // Remain on this page in both single and multiple selection modes.
     }
 }

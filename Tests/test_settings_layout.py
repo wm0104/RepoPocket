@@ -40,7 +40,8 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertIn(value, page)
         update = self.source('UpdateFeature.swift')
         self.assertIn('softGroupedRow(top: !connected, cardVerticalPadding: 0)', update)
-        self.assertIn('downloadCompletionNotice', update)
+        self.assertNotIn('downloadCompletionNotice', update)
+        self.assertIn('AppFeedback.show("下载完成"', update)
         self.assertIn('confirmTrollStore', update)
 
 if __name__ == '__main__':

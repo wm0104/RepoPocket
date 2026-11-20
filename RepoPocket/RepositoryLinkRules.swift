@@ -39,22 +39,3 @@ enum RepositoryLinkRules {
         return pieces.isEmpty ? nil : pieces.joined(separator: "/")
     }
 }
-
-/// Generation checks prevent an old timeout from clearing a newer copy notice.
-struct RepositoryCopyNoticeState {
-    private(set) var generation = UUID()
-    private(set) var visible = false
-    mutating func show() -> UUID {
-        generation = UUID()
-        visible = true
-        return generation
-    }
-    mutating func expire(_ token: UUID) {
-        guard token == generation else { return }
-        visible = false
-    }
-    mutating func cancel() {
-        generation = UUID()
-        visible = false
-    }
-}

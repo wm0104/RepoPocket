@@ -84,9 +84,11 @@ final class RepositoryForkMenuState: ObservableObject {
             let existing = try await api.existingFork(fixed.fullName, forceRefresh: true)
             guard api.isCurrentSession, fixed.accountID == api.accountID,
                   fixed.generation == AccountStore.generation, existing == nil else { return }
-            let result = try await api.fork(fixed.fullName)
+            _ = try await api.fork(fixed.fullName)
+            try Task.checkCancellation()
             guard api.isCurrentSession, fixed.generation == AccountStore.generation else { return }
-            api.message = "复刻请求已接受：\(result.full_name)，正在准备，请稍后刷新。"
+            api.message = ""
+            AppFeedback.show("复刻请求已接受", api: api)
         } catch {
             guard api.isCurrentSession, fixed.generation == AccountStore.generation,
                   !RefreshFailure.isCancellation(error) else { return }

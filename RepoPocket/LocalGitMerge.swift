@@ -255,6 +255,7 @@ struct LocalGitMergeView: View {
                 state.result = "已开始本地合并会话，冲突暂存区与恢复引用已保存。请进入冲突解决页逐文件标记，再明确继续或中止。工作文件尚未修改。"
                 return
             }
+            if !preview.alreadyContained { AppFeedback.show("本地合并完成", session: generation) }
             state.result = preview.alreadyContained ? "当前分支已包含来源，无需合并。" :
                 "已在本地完成\(method == "ordinary" ? "普通合并" : "压缩合并")：\(preview.sourceName) → \(preview.targetName)\n\(result.head ?? result.commit ?? "")\n尚未推送，来源分支保持不变。"
         } catch {

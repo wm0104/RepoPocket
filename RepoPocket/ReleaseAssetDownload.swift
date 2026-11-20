@@ -33,8 +33,8 @@ struct ReleaseDownloadProgress: Equatable {
     var fraction: Double? { total.map { min(1, Double(received) / Double($0)) } }
     var label: String {
         let size = ByteCountFormatter.string(fromByteCount: received, countStyle: .file)
-        guard let total, let fraction else { return "已下载 " + size }
-        return "\(Int((fraction * 100).rounded(.down)))% · " + size + " / " + ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+        guard let total else { return "已下载 " + size }
+        return size + " / " + ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
     }
 }
 
@@ -69,11 +69,96 @@ final class ReleaseAssetDownloadDelegate: NSObject, URLSessionDownloadDelegate {
     private var lastTime: TimeInterval?
     private var lastTotal: Int64?
     private var lastBytes: Int64 = -1
-    private let policy = ReleaseAssetRedirectPolicy()
-    init(update: @escaping (ReleaseDownloadProgress) -> Void, clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
-        self.update = update; self.clock = clock
+    private let policy: URLSessionTaskDelegate
+    private let deliverOnMainActor: Bool
+    private var stopped = false
+    private var started = false
+    private var paused = false
+    private var cancelled = false
+    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+    private var downloadTask: URLSessionDownloadTask?
+    private var fileResult: Result<(URL, URLResponse), Error>?
+    init(update: @escaping (ReleaseDownloadProgress) -> Void, policy: URLSessionTaskDelegate = ReleaseAssetRedirectPolicy(),
+         deliverOnMainActor: Bool = false, clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.update = update; self.policy = policy; self.deliverOnMainActor = deliverOnMainActor; self.clock = clock
     }
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
+    // Keep the account-owned session: completion-handler download tasks can
+    // bypass download progress callbacks even with a task-specific delegate.
+    func download(using session: URLSession, request: URLRequest) async throws -> (URL, URLResponse) {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                guard !started, !cancelled else {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                started = true
+                let task = session.downloadTask(with: request)
+                task.delegate = self
+                self.continuation = continuation
+                downloadTask = task
+                if !paused { task.resume() }
+                lock.unlock()
+            }
+        } onCancel: { self.cancel() }
+    }
+    @discardableResult func setPaused(_ value: Bool) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !stopped, !cancelled, !started || downloadTask != nil else { return false }
+        if paused != value {
+            paused = value
+            if value { downloadTask?.suspend() } else { downloadTask?.resume() }
+        }
+        return true
+    }
+    func cancel() {
+        lock.lock()
+        cancelled = true; stopped = true
+        let task = downloadTask
+        lock.unlock()
+        task?.cancel()
+        finish(error: CancellationError())
+    }
+    func stop() { lock.lock(); stopped = true; lock.unlock() }
+    private var active: Bool { lock.lock(); defer { lock.unlock() }; return !stopped && !paused }
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        lock.lock(); let pending = continuation != nil; lock.unlock()
+        guard pending else { return }
+        // URLSession deletes location after this callback: take ownership now,
+        // but do not resume until didComplete confirms the transfer succeeded.
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("RepoPocket-transfer-" + UUID().uuidString)
+        let result: Result<(URL, URLResponse), Error>
+        do {
+            guard let response = downloadTask.response else { throw URLError(.badServerResponse) }
+            try FileManager.default.moveItem(at: location, to: file)
+            result = .success((file, response))
+        } catch {
+            try? FileManager.default.removeItem(at: file)
+            result = .failure(error)
+        }
+        lock.lock()
+        let abandoned = continuation == nil || cancelled
+        if !abandoned { fileResult = result }
+        lock.unlock()
+        if abandoned, case .success(let pair) = result { try? FileManager.default.removeItem(at: pair.0) }
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        finish(error: error)
+    }
+    private func finish(error: Error?) {
+        lock.lock()
+        guard let continuation else { lock.unlock(); return }
+        self.continuation = nil; downloadTask = nil
+        let saved = fileResult
+        fileResult = nil
+        let failure: Error? = cancelled ? CancellationError() : error
+        let result = failure.map { Result<(URL, URLResponse), Error>.failure($0) }
+            ?? saved ?? .failure(URLError(.badServerResponse))
+        lock.unlock()
+        if failure != nil, case .success(let pair)? = saved { try? FileManager.default.removeItem(at: pair.0) }
+        continuation.resume(with: result)
+    }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
         didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         receive(ReleaseDownloadProgress(received: totalBytesWritten, total: totalBytesExpectedToWrite))
@@ -85,11 +170,18 @@ final class ReleaseAssetDownloadDelegate: NSObject, URLSessionDownloadDelegate {
         let emit = changed && (lastTime == nil || value.total != lastTotal || value.fraction == 1 || now - (lastTime ?? now) >= 0.2)
         if emit { lastTime = now; lastTotal = value.total; lastBytes = value.received }
         lock.unlock()
-        if emit { update(value) }
+        if emit, active {
+            if deliverOnMainActor {
+                Task { @MainActor [weak self] in
+                    guard let self, self.active else { return }
+                    self.update(value)
+                }
+            } else { update(value) }
+        }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask,
         willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void) {
-        policy.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler)
+        policy.urlSession?(session, task: task, willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler) ?? completionHandler(request)
     }
 }

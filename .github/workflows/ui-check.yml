@@ -6,7 +6,7 @@ on:
       test_scope:
         description: Run all UI checks, profile navigation, or attachment/follow actions
         type: choice
-        options: [all, download-settings-workflow, download-settings-recheck, device-feedback-recheck, boundary-feedback-recheck, recovery-regressions, download-actions, download-actions-recheck, profiles, actions, workflow-selection, file-feedback, download-lifecycle, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck, ui-fixes, ui-fixes-failed, path-time, reading-layout, workflow-log-navigation]
+        options: [all, download-settings-workflow, download-settings-recheck, device-feedback-recheck, boundary-feedback-recheck, recovery-regressions, download-actions, download-actions-recheck, profiles, actions, workflow-selection, file-feedback, download-lifecycle, download-lifecycle-recheck, feedback-lifecycle-recheck, file-edit, review-regressions, maintenance-regressions, branch-merge, release-editor, upload-viewer, repository-operations, repository-collections, regression-recheck, ui-fixes, ui-fixes-failed, path-time, reading-layout, workflow-log-navigation]
         default: all
       test_group:
         description: For all scope, rerun only one existing UI group when needed
@@ -66,6 +66,19 @@ jobs:
           python3 Tests/test_update_groups.py
           python3 Tests/test_file_feedback.py
           python3 Tests/test_style_failure_diagnostics.py
+      - name: Check success feedback lifecycle regression contracts
+        if: inputs.test_scope == 'feedback-lifecycle-recheck'
+        run: |
+          python3 Tests/test_feedback.py
+          python3 Tests/test_repository_copy_link.py
+          python3 Tests/test_style_failure_diagnostics.py
+      - name: Check DEB menu single-case regression contracts
+        if: inputs.test_scope == 'download-lifecycle-recheck'
+        run: |
+          python3 Tests/test_file_feedback.py
+          python3 Tests/test_local_git_ui.py
+          python3 Tests/test_local_file_presentation.py
+          python3 Tests/test_style_failure_diagnostics.py
       - name: Test reading layout, code search and complete log rules
         if: inputs.test_scope == 'reading-layout'
         run: |
@@ -84,12 +97,12 @@ jobs:
           path: NativeBuild
           key: nativegit-1.9.7-${{ runner.arch }}-${{ hashFiles('Scripts/build_native_git.sh', 'Scripts/patch_native_git.py') }}
       - name: Prepare native host regression fixtures
-        if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck')
+        if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck' && inputs.test_scope != 'download-lifecycle-recheck' && inputs.test_scope != 'feedback-lifecycle-recheck')
         run: |
           command -v dpkg-deb >/dev/null || brew install dpkg
           bash Scripts/build_native_git.sh macosx
       - name: Run complete host regression checks
-        if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck')
+        if: matrix.group == 'boundaries-a' || (matrix.group == 'selected' && inputs.test_scope != 'device-feedback-recheck' && inputs.test_scope != 'boundary-feedback-recheck' && inputs.test_scope != 'download-lifecycle-recheck' && inputs.test_scope != 'feedback-lifecycle-recheck')
         run: python3 -B -m unittest discover -s Tests -p 'test_*.py' -v
       - name: Build real simulator application
         run: |

@@ -6,7 +6,7 @@ struct WorkflowLogReader: View {
     let rawText: String
     var failed = false
     @State private var showingRaw = false
-    @State private var copied = false
+    private let session = AccountStore.generation
     @State private var presentation: WorkflowLogPresentation?
     @State private var didAutoLocate = false
     @State private var selectedError: Int?
@@ -26,9 +26,11 @@ struct WorkflowLogReader: View {
                             .accessibilityValue(showingRaw ? "原始" : "标注")
                             .accessibilityIdentifier("workflow-log-toggle-raw")
                         Button {
-                            UIPasteboard.general.string = presentation.rawText; copied = true
+                            guard session == AccountStore.generation else { return }
+                            UIPasteboard.general.string = presentation.rawText
+                            AppFeedback.show("日志原文已复制", session: session)
                         } label: {
-                            Text(copied ? "已复制" : "复制原文").frame(minHeight: 44).contentShape(Rectangle())
+                            Text("复制原文").frame(minHeight: 44).contentShape(Rectangle())
                         }.accessibilityIdentifier("workflow-log-copy-raw")
                     }.font(.caption).buttonStyle(.borderless).frame(minHeight: 44).padding(.horizontal)
                     if !presentation.errorLocations.isEmpty {
@@ -58,7 +60,6 @@ struct WorkflowLogReader: View {
                 }
             } else { ProgressView("准备日志显示…") }
         }.task(id: rawText) {
-            copied = false
             let raw = rawText
             let worker = Task.detached(priority: .utility) { try WorkflowLogPresentation(rawText: raw) }
             do {

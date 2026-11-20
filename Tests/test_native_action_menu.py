@@ -82,7 +82,8 @@ class NativeMenuTests(unittest.TestCase):
         self.assertIn('enabled: repositoryInfo?.permissions?.admin == true && !deleting', app)
         self.assertIn('context: api.deletionContext(repositoryInfo)', app)
         self.assertIn('copyFeedback.copy(repo)', app)
-        self.assertIn('.downloadCompletionNotice($downloadedZIP)', app)
+        self.assertNotIn('.downloadCompletionNotice(', app)
+        self.assertIn('AppFeedback.show("下载完成", session: session)', app)
         self.assertIn('.appNavigationDestination(isPresented: $showingHistory)', app)
         self.assertNotIn('NavigationStack', app)
         for token in ['RepositoryStarActionHost(', 'RepositoryForkActionHost(', '.submenu("分支与历史"', 'perform: showHistory']:

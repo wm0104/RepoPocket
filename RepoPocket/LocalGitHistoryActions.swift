@@ -111,10 +111,11 @@ struct LocalGitHistoryActions: View {
             defer { busy = false; task = nil }
             do {
                 let reply: LocalGitHistoryPreview = try await LocalGitEngine.shared.run(apply ? "historyApply" : "historyPreview", project: project, metadata: metadata, internalRoot: internalRoot, arguments: arguments, generation: context.generation)
-                guard valid else { if apply { context.changed() }; return }
+                guard valid, !Task.isCancelled else { if apply { context.changed() }; return }
                 if apply {
                     preview = nil
                     result = "本地历史已更新，未推送。\n原 HEAD 恢复引用：" + (reply.recoveryRef ?? "请检查仓库记录")
+                    AppFeedback.show("本地历史已更新", session: context.generation)
                     context.changed()
                 } else { preview = reply }
             } catch {

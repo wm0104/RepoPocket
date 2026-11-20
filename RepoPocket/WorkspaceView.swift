@@ -351,6 +351,9 @@ struct WorkspaceView: View {
     @State private var importRequest: WorkspaceImportRequest?
     @State private var busy = false
     @State private var message = ""
+    @State private var result = ""
+    @State private var downloadProgress: ReleaseDownloadProgress?
+    @State private var downloading = false
     @State private var folder: URL?
     @State private var binding: WorkspaceBinding?
     @State private var repo = ""
@@ -404,6 +407,7 @@ struct WorkspaceView: View {
     private var workspaceContent: some View {
         List {
             localSection
+            if !result.isEmpty { Section("操作结果") { Text(result).font(.caption).textSelection(.enabled) } }
             associationManagementSection
             if let folder = folder {
                 workspaceManagement(folder)
@@ -523,6 +527,16 @@ struct WorkspaceView: View {
 Section("从远端建立工作区") {
                     TextField("仓库链接", text: $repo).focused($focusedField, equals: .remoteRepo).submitLabel(.done).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow(top: true)
                     TextField("分支（空白为默认分支）", text: $branch).focused($focusedField, equals: .remoteBranch).submitLabel(.done).textInputAutocapitalization(.never).autocorrectionDisabled().softGroupedRow()
+                    if downloading {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("正在下载并建立工作区…").font(.caption)
+                                if let downloadProgress { Text(downloadProgress.label).font(.caption2).foregroundStyle(.secondary).monospacedDigit() }
+                            }
+                            Spacer(minLength: 8)
+                            DownloadProgressRing(fraction: downloadProgress?.fraction, active: downloading)
+                        }.softGroupedRow()
+                    }
                     Button("下载远端并建立可靠基线") { Task { await downloadRemote() } }.disabled(busy).softGroupedRow(bottom: true)
                 }
     }
@@ -614,7 +628,7 @@ Section("本地工作目录") {
                 }
                 if technicalDetailsExpanded {
                     SoftGroupRow("path") { Text("实际工作目录：" + folder.path).font(.caption).textSelection(.enabled) }
-                    SoftGroupRow("copy-path") { Button("复制实际工作目录路径") { UIPasteboard.general.string = folder.path } }
+                    SoftGroupRow("copy-path") { Button("复制实际工作目录路径") { UIPasteboard.general.string = folder.path; AppFeedback.show("路径已复制", api: api) } }
                     SoftGroupRow("scan-rules") { Text("包含隐藏文件，仅扫描时忽略 .git；拒绝符号链接。ZIP：最多 20,000 项、单文件 512 MiB、总计 1 GiB。").font(.caption2) }
                     if let binding {
                         SoftGroupRow("baseline") { Text("基线 " + String(binding.head.prefix(12))).font(.caption) }
@@ -713,9 +727,11 @@ Section("本地变更预览 / 勾选提交") {
     }
     @MainActor private func importItems(_ urls: [URL], zip: Bool) async {
         guard !busy else { return }
-        busy = true
+        let generation = AccountStore.generation
+        busy = true; message = ""; result = ""
         var failures: [String] = []
         for source in urls {
+            guard !Task.isCancelled, generation == AccountStore.generation, api.isCurrentSession else { busy = false; return }
             do {
                 let imported = try await Task.detached(priority: .userInitiated) { () throws -> URL in
                     if !zip { return try LinkedWorkspaces.register(source) }
@@ -746,11 +762,17 @@ Section("本地变更预览 / 勾选提交") {
                     guard let destination = destination else { throw AppError(text: "文件提供器没有返回可读取内容；请先下载到‘我的 iPhone’，或改用 ZIP 导入") }
                     return destination
                 }.value
+                try Task.checkCancellation()
+                guard generation == AccountStore.generation, api.isCurrentSession else { busy = false; return }
                 folder = imported
             } catch { failures.append(source.lastPathComponent + "：" + error.localizedDescription) }
         }
         busy = false
-        await scan()
+        let scanned = await scan()
+        guard generation == AccountStore.generation, api.isCurrentSession, !Task.isCancelled else { return }
+        if !urls.isEmpty, failures.isEmpty, scanned {
+            AppFeedback.show("工作区已导入", session: generation)
+        }
         if !failures.isEmpty {
             let advice = zip ? "请确认 ZIP 完整且未超过限制；无需再次压缩 ZIP。" : "请先将目录下载到本机；文件提供器无法读取时可尝试 ZIP 导入。"
             message = "以下项目导入失败（成功项目已保留）：\n" + failures.joined(separator: "\n") + "\n" + advice
@@ -793,11 +815,26 @@ Section("本地变更预览 / 勾选提交") {
     }
     @MainActor private func downloadRemote() async {
         guard !busy else { return }
-        busy = true
-        do { folder = try await api.downloadWorkspace(repo: repo.trimmingCharacters(in: .whitespacesAndNewlines), branch: branch.trimmingCharacters(in: .whitespacesAndNewlines)) }
-        catch { if !RefreshFailure.isCancellation(error) { message = error.localizedDescription } }
+        let generation = AccountStore.generation
+        busy = true; downloading = true; downloadProgress = nil; message = ""; result = ""
+        var downloaded: URL?
+        do {
+            let saved = try await api.downloadWorkspace(repo: repo.trimmingCharacters(in: .whitespacesAndNewlines), branch: branch.trimmingCharacters(in: .whitespacesAndNewlines), progress: { value in
+                guard generation == AccountStore.generation, api.isCurrentSession, downloading else { return }
+                downloadProgress = value
+            })
+            try Task.checkCancellation()
+            guard generation == AccountStore.generation, api.isCurrentSession else { busy = false; downloading = false; return }
+            folder = saved; downloaded = saved
+        } catch { if !RefreshFailure.isCancellation(error), generation == AccountStore.generation, api.isCurrentSession { message = error.localizedDescription } }
         busy = false
-        await scan()
+        let scanned = await scan()
+        downloading = false
+        if let downloaded, scanned, folder == downloaded, binding != nil,
+           generation == AccountStore.generation, api.isCurrentSession, !Task.isCancelled {
+            result = "工作区已建立，可靠基线已保存。\n实际工作目录：" + downloaded.path
+            AppFeedback.show("工作区已建立", api: api)
+        }
     }
     @MainActor private func pullChecked() async {
         guard let pending = checkPending, let folder, let binding, !busy else { return }
@@ -805,7 +842,8 @@ Section("本地变更预览 / 勾选提交") {
         await applyPendingPull(pending, folder: folder, binding: binding)
     }
     @MainActor private func applyPendingPull(_ pending: WorkspacePull, folder: URL, binding: WorkspaceBinding) async {
-        busy = true
+        busy = true; message = ""; result = ""
+        var completed = false
         do {
             guard try await api.workspaceHead(binding.repo, branch: binding.branch) == pending.binding.head else {
                 throw AppError(text: "预览后远端分支已变化，请重新检查")
@@ -813,27 +851,38 @@ Section("本地变更预览 / 勾选提交") {
             pullChoices = [:]
             if pending.conflicts.isEmpty {
                 defer { try? FileManager.default.removeItem(at: pending.remoteFolder) }
+                try Task.checkCancellation(); guard api.isCurrentSession else { throw CancellationError() }
                 try LocalStore.applyPull(pending, folder: folder, original: binding, choices: [:])
-                message = "拉取完成；远端基线已更新，未提交本地变更已保留。"
+                result = "拉取完成；远端基线已更新，未提交本地变更已保留。"
+                completed = true
             } else { pull = pending; resolvingPull = true }
         } catch { try? FileManager.default.removeItem(at: pending.remoteFolder); if !RefreshFailure.isCancellation(error) { message = error.localizedDescription } }
         busy = false
-        if pull == nil { await scan() }
+        if pull == nil {
+            let scanned = await scan()
+            if completed, scanned, !Task.isCancelled { AppFeedback.show("拉取完成", api: api) }
+        }
     }
     @MainActor private func applyResolvedPull() async {
         guard let pull = pull, let folder = folder, let binding = binding, !busy else { return }
-        busy = true
+        busy = true; message = ""; result = ""
+        var completed = false
         do {
             guard try await api.workspaceHead(binding.repo, branch: binding.branch) == pull.binding.head else {
                 throw AppError(text: "冲突选择期间远端分支已变化，请重新检查")
             }
+            try Task.checkCancellation(); guard api.isCurrentSession else { throw CancellationError() }
             try LocalStore.applyPull(pull, folder: folder, original: binding, choices: pullChoices)
             resolvingPull = false
             discardPull()
-            message = "冲突处理完成；采用最新远端作为基线，保留本地的内容仍显示为待提交。"
+            result = "冲突处理完成；采用最新远端作为基线，保留本地的内容仍显示为待提交。"
+            completed = true
         } catch { if !RefreshFailure.isCancellation(error) { message = error.localizedDescription } }
         busy = false
-        if self.pull == nil { await scan() }
+        if self.pull == nil {
+            let scanned = await scan()
+            if completed, scanned, !Task.isCancelled { AppFeedback.show("冲突处理完成", api: api) }
+        }
     }
     private func discardPull() {
         if let pull = pull { try? FileManager.default.removeItem(at: pull.remoteFolder) }
@@ -891,13 +940,15 @@ Section("本地变更预览 / 勾选提交") {
             guard generation == AccountStore.generation, selectionScope == scope else { busy = false; return }
             selectionStore.session.commitSucceeded(committing, in: scope)
             succeeded = true
-            self.binding = updated; commitMessage = ""; message = "已原子提交 \(writes.count) 项变更：" + updated.head
+            self.binding = updated; commitMessage = ""; message = ""
+            result = "已原子提交 \(writes.count) 项变更：" + updated.head
+            AppFeedback.show("\(writes.count)项变更已提交", api: api)
         } catch { if !RefreshFailure.isCancellation(error) { message = error.localizedDescription } }
         busy = false
         if succeeded { await scan() }
     }
-    @MainActor private func scan() async {
-        guard !busy else { return }
+    @discardableResult @MainActor private func scan() async -> Bool {
+        guard !busy else { return false }
         let generation = AccountStore.generation
         let requestedFolder = folder
         busy = true; defer { busy = false }
@@ -921,13 +972,14 @@ Section("本地变更预览 / 勾选提交") {
                 return (roots, target, binding, changes, after)
             }.value
             try Task.checkCancellation()
-            guard generation == AccountStore.generation, api.accountID == AccountStore.activeID, folder == requestedFolder else { return }
+            guard generation == AccountStore.generation, api.accountID == AccountStore.activeID, folder == requestedFolder else { return false }
             roots = result.0; folder = result.1; binding = result.2
             changes = result.3; scannedSnapshot = result.4; scannedFolder = result.1; hasScanned = true
             selectionStore.session.reconcileWorkspaces(Set(roots.map { $0.resolvingSymlinksInPath().standardizedFileURL.path }), accountID: api.accountID)
             selectionStore.session.remember(folder, accountID: api.accountID)
             if let selectionScope { selectionStore.session.scanSucceeded(Set(changes.map { $0.path }), in: selectionScope) }
-        } catch { if !RefreshFailure.isCancellation(error) { message = error.localizedDescription } }
+            return true
+        } catch { if !RefreshFailure.isCancellation(error) { message = error.localizedDescription }; return false }
     }
 }
 

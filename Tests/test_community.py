@@ -490,6 +490,17 @@ final class OAuthFixtureProtocol: URLProtocol {
         social_state = (ROOT/'RepoPocket/SocialAccountsView.swift').read_text(encoding='utf-8')
         social_state = '@MainActor' + social_state.split('@MainActor', 1)[1].split('struct SocialAccountsView:', 1)[0]
         program = (ROOT/'Tests/Fixtures/SocialAccountsHarness.swift').read_text(encoding='utf-8')
+        program = program.replace('// PRODUCTION_SOCIAL_STATE', '''
+@MainActor enum AppFeedback {
+    static var titles: [String] = []
+    static func show(_ title: String, api: GitHub) {
+        guard api.isCurrentSession, !Task.isCancelled else { return }
+        titles.append(title)
+    }
+}
+// PRODUCTION_SOCIAL_STATE''')
+        program = program.replace('replacement.message.contains("已更新")',
+                                  'replacement.message.isEmpty && AppFeedback.titles.last == "社交链接已更新"')
         sources = {
             '// PRODUCTION_MODELS': models,
             '// PRODUCTION_REPOSITORY_INPUT': (ROOT/'RepoPocket/RepositoryInput.swift').read_text(encoding='utf-8'),

@@ -91,7 +91,7 @@ final class SocialAccountsState: ObservableObject {
                 }
             }
             editingURL = nil; draft = ""
-            if error.isEmpty { message = previous == nil ? "已添加社交链接。" : "已更新社交链接。" }
+            if error.isEmpty { AppFeedback.show(previous == nil ? "社交链接已添加" : "社交链接已更新", api: api) }
         } catch {
             guard !Task.isCancelled, api.isCurrentSession else { return }
             self.error = error.localizedDescription
@@ -112,7 +112,7 @@ final class SocialAccountsState: ObservableObject {
             guard !Task.isCancelled, api.isCurrentSession else { return }
             accounts.removeAll { $0.url == target }
             if editingURL == target { editingURL = nil; draft = "" }
-            message = "已删除社交链接。"
+            AppFeedback.show("社交链接已删除", api: api)
         } catch {
             guard !Task.isCancelled, api.isCurrentSession else { return }
             self.error = error.localizedDescription

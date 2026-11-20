@@ -26,10 +26,11 @@ class ReleaseManagementTests(unittest.TestCase):
         upload = (ROOT/'RepoPocket/UploadView.swift').read_text()
         for screen in [app, fileView, ui, upload]:
             self.assertNotIn('ShareSheet(url:', screen)
-        self.assertIn('.downloadCompletionNotice($downloadedZIP)', app)
-        self.assertIn('downloadedZIP = saved', app)
+        self.assertNotIn('.downloadCompletionNotice(', app)
+        self.assertIn('AppFeedback.show("下载完成"', app)
         self.assertNotIn('downloadedAsset', upload)
-        self.assertIn('self.completedDownload = saved', ui)
+        self.assertIn('AppFeedback.show("下载完成", api: self.api)', ui)
+        self.assertNotIn('completedDownload', ui)
         update = (ROOT/'RepoPocket/UpdateFeature.swift').read_text()
         self.assertIn('Button("分享 IPA 安装")', update)
         highlights = (ROOT/'RepoPocket/RepositoryHomeHighlights.swift').read_text()
@@ -144,7 +145,7 @@ class ReleaseManagementTests(unittest.TestCase):
     def test_commit_patch_scope_and_ui(self):
         view=(ROOT/'RepoPocket/CommitPatchView.swift').read_text()
         desktop=(ROOT/'RepoPocket/DesktopViews.swift').read_text()
-        self.assertIn('CommitPatchDestination(file: f, api: api, repo: repo, commitSHA: d.sha)',desktop)
+        self.assertIn('CommitPatchDestination(file: f, api: api, repo: repo, commitSHA: d.sha, parents: d.parents)',desktop)
         self.assertNotIn('Text(f.preview)',desktop)
         for token in ['LazyVStack(alignment: .leading', '.topLeading', 'row.old', 'row.new', 'row.marker', 'Color.green.opacity(0.12)', 'Color.red.opacity(0.12)', 'whitespace = true', '原始 patch', '仅显示本次提交的变化', 'if result.limited', '不代表没有改动', 'Task.detached', 'withTaskCancellationHandler', 'worker.cancel()', 'try Task.checkCancellation()']:
             self.assertIn(token,view)

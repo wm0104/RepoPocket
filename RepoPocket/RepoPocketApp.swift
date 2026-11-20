@@ -26,12 +26,17 @@ struct RepoPocketApp: App {
                 .environmentObject(selectionStore)
                 .environmentObject(accountPresentation)
                 .sheet(isPresented: $accountPresentation.showing, onDismiss: { accountPresentation.accountSheetDismissed() }) { accountManager.id(accountID).environmentObject(accountPresentation).appSheetCornerRadius() }
-                .alert("GitHub 授权成功", isPresented: Binding(get: { accountPresentation.authorizationNotice != nil }, set: { if !$0 { accountPresentation.authorizationNotice = nil } })) {
-                    Button("好", role: .cancel) { accountPresentation.authorizationNotice = nil }
-                } message: { Text(accountPresentation.authorizationNotice ?? "") }
+                .onChange(of: accountPresentation.authorizationNotice) { message in
+                    guard let message else { return }
+                    accountPresentation.authorizationDetails = message
+                    accountPresentation.authorizationNotice = nil
+                    AppFeedback.show("GitHub 授权成功")
+                }
                 .background(DownloadFolderPresentation(downloads: downloads))
                 .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in
                     accountID = AccountStore.generation
+                    accountPresentation.authorizationNotice = nil
+                    accountPresentation.authorizationDetails = nil
                 }
         }
     }
@@ -367,12 +372,12 @@ struct RepositoriesView: View {
     private func fork() async {
         guard !busy, api.isCurrentSession else { return }
         busy = true; defer { busy = false }
-        do { let repo = try await api.fork(input); guard api.isCurrentSession else { return }; api.message = "复刻请求已接受：\(repo.full_name)，正在准备，请稍后刷新。" }
+        do { _ = try await api.fork(input); guard api.isCurrentSession else { return }; AppFeedback.show("复刻请求已接受", api: api) }
         catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
     private func create() async {
         busy = true; defer { busy = false }
-        do { let r = try await api.createRepository(name: newName, isPrivate: isPrivate); input = r.full_name; showCreate = false; api.message = "已创建 \(r.full_name)"; repos = try await api.repositories().filter { RepositoryGroupRules.isOwned($0.full_name, login: api.login) } }
+        do { let r = try await api.createRepository(name: newName, isPrivate: isPrivate); guard api.isCurrentSession else { return }; input = r.full_name; showCreate = false; AppFeedback.show("仓库已创建", api: api); repos = try await api.repositories().filter { RepositoryGroupRules.isOwned($0.full_name, login: api.login) } }
         catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
 }
@@ -410,7 +415,9 @@ struct BrowserView: View {
     @State private var revalidationID = UUID()
     @StateObject private var homeRelease = RepositoryPageLoadState<ManagedRelease>()
     @State private var busy = false
-    @State private var downloadedZIP: URL?
+    @State private var zipRequest: UUID?
+    @State private var zipProgress: ReleaseDownloadProgress?
+    @State private var zipStatus: String?
     @State private var showUpload = false
     @State private var deleteEntry: Entry?
     @State private var deleting = false
@@ -456,6 +463,17 @@ struct BrowserView: View {
                         ForkRepositoryMenuButton(repository: repo, api: api, state: forkMenu)
                     }.buttonStyle(.borderless).softGroupedRow(bottom: true)
                 }
+    }
+    private var zipDownloadStatus: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("仓库 ZIP").lineLimit(1)
+                Text(zipStatus ?? zipProgress?.label ?? "正在连接…")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            DownloadProgressRing(fraction: zipStatus == "正在保存…" ? 1 : zipProgress?.fraction, active: zipStatus == nil)
+        }.padding(.vertical, 4).accessibilityIdentifier("repository-zip-progress")
     }
     @ViewBuilder private var repositoryOverview: some View {
                 RepositoryCommunitySection(api: api, repo: repo, branch: activeBranch, openTools: { showingRepositoryTools = true }, openOwner: { showingRepositoryOwner = true }, connected: true)
@@ -511,7 +529,7 @@ struct BrowserView: View {
                                 .accessibilityIdentifier("repository-entry-" + e.path)
                         }
                         .contextMenu {
-                            Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path, folder: true)) } label: { Label("复制文件夹链接", systemImage: "doc.on.doc") }
+                            Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path, folder: true), title: "文件夹链接已复制") } label: { Label("复制文件夹链接", systemImage: "doc.on.doc") }
                         }
                         PathCommitMetadataLink(path: e.path, commit: metadata.commits[e.path]) { openedPathCommit = $0 }
                     }
@@ -535,8 +553,8 @@ struct BrowserView: View {
                         PathCommitMetadataLink(path: e.path, commit: metadata.commits[e.path]) { openedPathCommit = $0 }
                     }
                     .contextMenu {
-                        Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path)) } label: { Label("复制文件链接", systemImage: "doc.on.doc") }
-                        Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path, raw: true)) } label: { Label("复制 raw 链接", systemImage: "link") }
+                        Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path), title: "文件链接已复制") } label: { Label("复制文件链接", systemImage: "doc.on.doc") }
+                        Button { copyFeedback.copy(url: RepositoryLinkRules.contentURL(repo, branch: activeBranch, path: e.path, raw: true), title: "原始文件链接已复制") } label: { Label("复制 raw 链接", systemImage: "link") }
                         if canWrite { Button("删除", role: .destructive) {
                             deleteAccount = api.accountID; deleteGeneration = AccountStore.generation
                             deleteBranch = activeBranch; deleteEntry = e
@@ -557,6 +575,7 @@ struct BrowserView: View {
                     QuotaCard {
                         Group { repositoryHeader }.environment(\.softGroupPresentation, .rows)
                     }
+                    if zipRequest != nil { QuotaCard { zipDownloadStatus } }
                     repositoryOverview
                 }
             } else {
@@ -566,6 +585,7 @@ struct BrowserView: View {
                             SoftGroupRow("repository-summary") {
                                 repositorySummary.textSelection(.enabled).accessibilityIdentifier("repository-code-summary")
                             }
+                            if zipRequest != nil { SoftGroupRow("zip-progress") { zipDownloadStatus } }
                             directoryRows
                         }
                     }
@@ -614,8 +634,6 @@ struct BrowserView: View {
                     })
                 ], showHistory: { guard !busy, api.isCurrentSession else { return }; showingHistory = true })
         }
-        .repositoryCopyNotice(copyFeedback)
-        .downloadCompletionNotice($downloadedZIP)
         .repositoryForkConfirmation(forkMenu, api: api)
         .appNavigationDestination(isPresented: Binding(get: { openedPathCommit != nil }, set: { if !$0 { openedPathCommit = nil } })) {
             if let commit = openedPathCommit {
@@ -725,24 +743,32 @@ struct BrowserView: View {
             try Task.checkCancellation()
             // GitHub DELETE uses the originally confirmed SHA, never the refreshed one.
             try await api.delete(repo, entry: entry, message: "Delete \(entry.name) via RepoPocket", branch: branch)
+            guard api.isCurrentSession, AccountStore.generation == generation, activeBranch == branch else { return }
             entries.removeAll { $0.path == entry.path && $0.sha == entry.sha }
-            api.message = "已删除并提交：\(entry.name)"
+            AppFeedback.show("文件删除已提交", session: generation)
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
     private func zip() async {
-        busy = true; defer { busy = false }
+        guard !busy, zipRequest == nil, api.isCurrentSession else { return }
+        let request = UUID(), session = AccountStore.generation
+        zipRequest = request; zipProgress = nil; zipStatus = "正在确认保存位置…"
+        busy = true
+        defer { if zipRequest == request { zipRequest = nil; zipProgress = nil; zipStatus = nil; busy = false } }
         do {
-            downloadedZIP = nil
-            let session = AccountStore.generation
             let downloads = DownloadStore.shared
             try await downloads.requireAuthorization()
             guard api.isCurrentSession, session == AccountStore.generation else { throw CancellationError() }
             downloads.begin(); defer { downloads.end() }
-            let file = try await api.downloadZIP(repo, branch: activeBranch)
+            zipStatus = nil
+            let file = try await api.downloadZIP(repo, branch: activeBranch, progress: { value in
+                guard api.isCurrentSession, session == AccountStore.generation, zipRequest == request else { return }
+                zipProgress = value
+            })
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            let saved = try await downloads.persist(file, session: session)
-            guard api.isCurrentSession else { throw CancellationError() }
-            downloadedZIP = saved
+            zipStatus = "正在保存…"
+            _ = try await downloads.persist(file, session: session)
+            guard api.isCurrentSession, session == AccountStore.generation else { throw CancellationError() }
+            AppFeedback.show("下载完成", session: session)
         }
         catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
@@ -757,21 +783,28 @@ struct FileView: View {
     private var writable: Bool { canWrite && api.isCurrentSession }
     @State private var text = ""
     @State private var currentSHA = ""
-    @State private var editable = false
     @State private var busy = false
-    @State private var downloadedFile: URL?
+    @State private var downloadRequest: UUID?
+    @State private var downloadProgress: ReleaseDownloadProgress?
+    @State private var downloadStatus: String?
     @State private var commitMessage = "Update file via RepoPocket"
     @State private var confirmSave = false
     @State private var confirmDelete = false
     @State private var deleted = false
-    private struct LoadedText { let text: String; let sha: String }
-    @StateObject private var sourceRequest = RepositoryPageLoadState<LoadedText>()
+    @State private var preview: RepositoryFilePreview?
+    @State private var previewReload = 0
+    @State private var loadedPreviewReload: Int?
+    @State private var accountChanged = false
+    private var editable: Bool {
+        if case .text(_, _, .some)? = preview { return true }
+        return false
+    }
     @State private var readingError = ""
     @State private var editing = false
     @State private var originalText = ""
     @State private var showFileInfo = false
     @State private var showingHistory = false
-    private var showsDownloadInBody: Bool { !deleted && !editable && !busy }
+    private var showsDownloadInBody: Bool { !deleted && preview == nil && !busy }
     private var fileMenuItems: [NativeMenuItem] {
         var items = [NativeMenuItem(id: "info", title: "文件信息", symbol: "info.circle", perform: { showFileInfo = true })]
         // Loading and deleted states have no fallback body; keep the disabled menu action visible.
@@ -781,9 +814,9 @@ struct FileView: View {
             }))
         }
         items.append(NativeMenuItem(id: "history", title: "此文件的历史记录", symbol: "clock.arrow.circlepath", perform: { showingHistory = true }))
-        if editable {
+        if preview != nil {
             items.append(NativeMenuItem(id: "reload", title: "重新加载", symbol: "arrow.clockwise", enabled: !busy && !deleted, perform: {
-                guard !busy, !deleted, api.isCurrentSession else { return }; Task { await read() }
+                guard !busy, !deleted, api.isCurrentSession else { return }; previewReload += 1
             }))
         }
         if writable {
@@ -795,28 +828,51 @@ struct FileView: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            if deleted { Text("文件已删除，请返回目录刷新。").padding(); Spacer() }
+            if downloadRequest != nil {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.name).lineLimit(1)
+                        Text(downloadStatus ?? downloadProgress?.label ?? "正在连接…").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    DownloadProgressRing(fraction: downloadStatus == "正在保存…" ? 1 : downloadProgress?.fraction, active: downloadStatus == nil)
+                }.padding(.horizontal, 20).padding(.vertical, 8).accessibilityIdentifier("repository-file-download-progress")
+            }
+            if accountChanged || !api.isCurrentSession { Text("账号已切换，请返回重新打开。").padding(); Spacer() }
+            else if deleted { Text("文件已删除，请返回目录刷新。").padding(); Spacer() }
             else if editable { FileReadingView(text: originalText, path: entry.path, repo: repo, branch: branch, api: api) }
-            else if busy { ProgressView("正在加载文件…").frame(maxWidth: .infinity, maxHeight: .infinity) }
+            else if let preview { RepositoryFilePreviewBody(preview: preview, path: entry.path) }
+            else if busy {
+                if downloadRequest == nil { ProgressView("正在加载文件…").frame(maxWidth: .infinity, maxHeight: .infinity) }
+                else { Spacer() }
+            }
             else {
                 VStack(spacing: 16) {
                     Image(systemName: "doc").font(.largeTitle).foregroundStyle(.secondary)
                     Text(readingError.isEmpty ? "此文件需下载后使用对应应用打开。" : readingError).foregroundStyle(.secondary)
-                    if !readingError.isEmpty { Button("重试读取") { Task { await read() } } }
+                    if !readingError.isEmpty { Button("重试读取") { previewReload += 1 } }
                     Button("下载 / 存到文件") { Task { await download() } }.disabled(busy)
                 }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            if !readingError.isEmpty && editable { Text(readingError).font(.caption).foregroundStyle(.secondary).padding() }
+            if !readingError.isEmpty && preview != nil { Text(readingError).font(.caption).foregroundStyle(.secondary).padding() }
         }.background(Color(uiColor: .systemBackground))
         .navigationTitle(entry.name)
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            if SourceTextRules.automaticallyLoads(filename: entry.name, size: entry.size) { await read(refresh: false) }
+        .task(id: previewReload) {
+            if RepositoryFilePreviewRules.canPreview(path: entry.path) && loadedPreviewReload != previewReload {
+                await read(revision: previewReload)
+            }
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 if writable && editable && !deleted { Button("编辑") { text = originalText; editing = true }.disabled(busy || currentSHA.isEmpty) }
-                NativeActionMenu(title: "文件操作", items: fileMenuItems)
+                if api.isCurrentSession { NativeActionMenu(title: "文件操作", items: fileMenuItems) }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in
+            if !api.isCurrentSession {
+                accountChanged = true; preview = nil; originalText = ""; text = ""; currentSHA = ""; readingError = ""
+                editing = false; showFileInfo = false; showingHistory = false; confirmSave = false; confirmDelete = false
             }
         }
         .appNavigationDestination(isPresented: $showingHistory) {
@@ -824,7 +880,6 @@ struct FileView: View {
         }
         .sheet(isPresented: $showFileInfo) { fileInformation }
         .sheet(isPresented: $editing, onDismiss: { text = originalText }) { editor }
-        .downloadCompletionNotice($downloadedFile)
         .confirmationDialog("永久删除仓库中的 \(entry.name)？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("确认删除", role: .destructive) { Task { await remove() } }
         }
@@ -865,40 +920,39 @@ struct FileView: View {
             .interactiveDismissDisabled(busy)
         }
     }
-    private func read(refresh: Bool = true) async {
-        guard !busy, !deleted, api.isCurrentSession else { return }
-        if editable && !refresh { return }
+    private func read(revision: Int) async {
+        guard !busy, !deleted, api.isCurrentSession, !Task.isCancelled else { return }
         readingError = ""
         busy = true; defer { busy = false }
-        await sourceRequest.load(key: api.accountID + ":" + repo + ":" + branch + ":" + entry.path, refresh: refresh, operation: {
-            guard entry.size == nil || (entry.size ?? 0) <= SourceTextRules.byteLimit else { throw AppError(text: "编辑器只加载 1 MiB 内文本；其他文件可下载或替换上传。") }
-            let f = try await api.file(repo, path: entry.path, branch: branch)
-            guard f.encoding == "base64", let s = f.content,
-                  let bytes = Data(base64Encoded: s, options: .ignoreUnknownCharacters) else { throw AppError(text: "此文件未提供可读取的文本内容，请下载后打开。") }
-            let t = try SourceTextRules.decode(bytes)
-            return LoadedText(text: t, sha: f.sha)
-        }, isValid: { api.isCurrentSession })
-        guard api.isCurrentSession else { return }
-        if sourceRequest.error.isEmpty, let document = sourceRequest.value {
-            text = document.text; originalText = document.text; currentSHA = document.sha; editable = true
+        do {
+            let loaded = try await api.repositoryFilePreview(repo, path: entry.path, ref: branch, allowEditing: true)
+            guard api.isCurrentSession, !Task.isCancelled, previewReload == revision else { return }
+            preview = loaded; loadedPreviewReload = revision
+            if case let .text(content, _, sha?) = loaded {
+                text = content; originalText = content; currentSHA = sha
+            } else {
+                text = ""; originalText = ""; currentSHA = ""
+            }
+        } catch {
+            guard api.isCurrentSession, !Task.isCancelled, !RefreshFailure.isCancellation(error) else { return }
+            currentSHA = ""; readingError = error.localizedDescription
         }
-        readingError = sourceRequest.error
     }
     private func save() async {
-        guard writable, !busy, !currentSHA.isEmpty, text.utf8.count <= SourceTextRules.byteLimit else { return }
+        guard writable, !busy, editable, !currentSHA.isEmpty, text.utf8.count <= SourceTextRules.byteLimit else { return }
         busy = true; defer { busy = false }
         do {
             try await api.requireWriteAccess(repo)
             try await api.commit(repo, path: entry.path, bytes: Data(text.utf8), sha: currentSHA, message: commitMessage, branch: branch)
+            guard api.isCurrentSession else { return }
             originalText = text; editing = false; currentSHA = ""
-            api.message = "修改已提交到 GitHub。"
+            AppFeedback.show("修改已提交", api: api)
             // A failed post-save read must not permit another PUT with an old SHA.
             do {
-                let fresh = try await api.file(repo, path: entry.path, branch: branch)
-                guard let content = fresh.content, let bytes = Data(base64Encoded: content, options: .ignoreUnknownCharacters) else { throw AppError(text: "无法重新读取文本") }
-                let confirmed = try SourceTextRules.decode(bytes)
+                let fresh = try await api.repositoryFilePreview(repo, path: entry.path, ref: branch, allowEditing: true)
+                guard case let .text(confirmed, _, sha?) = fresh else { throw AppError(text: "无法重新读取可编辑文本") }
                 if confirmed != originalText { originalText = confirmed; text = confirmed; api.message = "提交成功；远端随后有新修改，已重新载入，请确认后编辑。" }
-                currentSHA = fresh.sha
+                preview = fresh; currentSHA = sha
             } catch { if api.isCurrentSession { readingError = "提交已成功，但无法重新读取当前文件；请从菜单重新加载后再编辑。" } }
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
@@ -907,23 +961,32 @@ struct FileView: View {
         do {
             let fresh = try await api.file(repo, path: entry.path, branch: branch)
             try await api.delete(repo, entry: fresh, message: "Delete \(entry.name) via RepoPocket", branch: branch)
-            deleted = true; api.message = "删除已提交。"
+            guard api.isCurrentSession else { return }
+            preview = nil; originalText = ""; text = ""; currentSHA = ""
+            deleted = true; AppFeedback.show("文件删除已提交", api: api)
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
     private func download() async {
-        busy = true; defer { busy = false }
+        guard !busy, !deleted, downloadRequest == nil, api.isCurrentSession else { return }
+        let request = UUID(), session = AccountStore.generation
+        downloadRequest = request; downloadProgress = nil; downloadStatus = "正在确认保存位置…"
+        busy = true
+        defer { if downloadRequest == request { downloadRequest = nil; downloadProgress = nil; downloadStatus = nil; busy = false } }
         do {
-            downloadedFile = nil
-            let session = AccountStore.generation
             let downloads = DownloadStore.shared
             try await downloads.requireAuthorization()
             guard api.isCurrentSession, session == AccountStore.generation else { throw CancellationError() }
             downloads.begin(); defer { downloads.end() }
-            let file = try await api.downloadFile(repo, entry: entry, branch: branch)
+            downloadStatus = nil
+            let file = try await api.downloadFile(repo, entry: entry, branch: branch, progress: { value in
+                guard api.isCurrentSession, session == AccountStore.generation, downloadRequest == request else { return }
+                downloadProgress = value
+            })
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            let saved = try await downloads.persist(file, session: session)
-            guard api.isCurrentSession else { throw CancellationError() }
-            downloadedFile = saved
+            downloadStatus = "正在保存…"
+            _ = try await downloads.persist(file, session: session)
+            guard api.isCurrentSession, session == AccountStore.generation else { throw CancellationError() }
+            AppFeedback.show("下载完成", session: session)
         }
         catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }

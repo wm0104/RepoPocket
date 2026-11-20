@@ -4,13 +4,20 @@ import UIKit
 struct CommitPatchDestination: View {
     private let build: () -> AnyView
     init(file: DesktopCommit.File, pullRequest: Bool = false) { build = { AnyView(CommitPatchView(file: file, pullRequest: pullRequest)) } }
-    init(file: DesktopCommit.File, api: GitHub, repo: String, commitSHA: String) {
+    init(file: DesktopCommit.File, api: GitHub, repo: String, commitSHA: String, parents: [DesktopCommit.Parent]?) {
         build = {
-            AnyView(CommitPatchView(file: file).toolbar {
-                NavigationLink("完整文件") {
-                    CommitFileView(api: api, repo: repo, commitSHA: commitSHA, file: file)
-                }.accessibilityIdentifier("commit-full-file")
-            })
+            let fullFile = NavigationLink("完整文件") {
+                CommitFileView(api: api, repo: repo, commitSHA: commitSHA, file: file)
+            }.accessibilityIdentifier("commit-full-file")
+            let patch = CommitPatchView(file: file).toolbar { fullFile }
+            guard RepositoryFilePreviewRules.media(for: file.filename) != nil else { return AnyView(patch) }
+            return AnyView(CommitMediaDiffView(api: api, repo: repo, commitSHA: commitSHA, parents: parents, file: file)
+                .toolbar {
+                    ToolbarItemGroup(placement: .navigationBarTrailing) {
+                        NavigationLink("源码差异") { patch }.accessibilityIdentifier("commit-media-source-patch")
+                        fullFile
+                    }
+                })
         }
     }
     var body: AnyView { build() }

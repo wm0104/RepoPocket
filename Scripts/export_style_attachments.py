@@ -49,6 +49,9 @@ profiles.update({'social-accounts-managed', 'social-accounts-permission', 'socia
 actions = {'release-compact-attachments', 'release-inline-progress', 'profile-following-action', 'profile-follow-status-error', 'repository-owner-profile'}
 actions.update({'workflow-runs-normal', 'workflow-runs-selection', 'workflow-runs-partial-failure'})
 file_feedback = {'repository-zip-completion', 'local-project-files-long-press', 'local-deb-ordinary-file'}
+feedback_lifecycle = {'feedback-lifecycle-' + operation + '-' + phase
+                      for operation in ('download', 'copy', 'upload')
+                      for phase in ('before-background', 'after-foreground-0', 'after-foreground-1', 'new-auto-dismissed')}
 download_lifecycle = file_feedback | {'local-file-sheet-dismissed', 'release-compact-attachments', 'release-inline-progress'}
 file_edit = {'remote-file-editor-cancelled', 'source-preview-left', 'source-preview-right', 'source-editor-left', 'source-editor-right'}
 file_edit.update({'mobile-editor-saved-preview', 'source-native-file-search', 'repository-file-folder-search', 'repository-search-opened-code'})
@@ -181,6 +184,10 @@ elif scope == 'actions':
     expected = actions
 elif scope == 'file-feedback':
     expected = file_feedback
+elif scope == 'feedback-lifecycle-recheck':
+    expected = feedback_lifecycle | {'repository-zip-completion'}
+elif scope == 'download-lifecycle-recheck':
+    expected = {'local-deb-ordinary-file'}
 elif scope == 'download-lifecycle':
     expected = download_lifecycle
 elif scope == 'file-edit':
@@ -197,6 +204,7 @@ elif scope == 'all':
     expected.update(profiles)
     expected.update(actions)
     expected.update(file_feedback)
+    expected.update(feedback_lifecycle)
     expected.update(download_lifecycle)
     expected.update(file_edit)
     expected.update(maintenance)

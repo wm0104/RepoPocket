@@ -12,7 +12,7 @@ PROJECTS = (ROOT / 'RepoPocket/LocalProjectsView.swift').read_text()
 
 class GlobalBrowsingUI(unittest.TestCase):
     def test_file_download_single_visible_location_for_each_preview_state(self):
-        self.assertIn('private var showsDownloadInBody: Bool { !deleted && !editable && !busy }', FILE)
+        self.assertIn('private var showsDownloadInBody: Bool { !deleted && preview == nil && !busy }', FILE)
         self.assertIn('if !showsDownloadInBody {', FILE)
         self.assertIn('NativeMenuItem(id: "download"', FILE)
         self.assertIn('enabled: !busy && !deleted', FILE)
@@ -21,9 +21,9 @@ class GlobalBrowsingUI(unittest.TestCase):
         self.assertIn('Button("下载 / 存到文件")', body)
         self.assertIn('Button("重试读取")', body)
         for deleted in (False, True):
-            for editable in (False, True):
+            for has_preview in (False, True):
                 for busy in (False, True):
-                    body_visible = not deleted and not editable and not busy
+                    body_visible = not deleted and not has_preview and not busy
                     menu_visible = not body_visible
                     self.assertEqual(int(body_visible) + int(menu_visible and not deleted and not busy), int(not deleted and not busy))
 
@@ -33,7 +33,7 @@ class GlobalBrowsingUI(unittest.TestCase):
         self.assertIn('@State private var showingHistory = false', FILE)
         self.assertIn('.appNavigationDestination(isPresented: $showingHistory)', FILE)
         self.assertIn('NativeFileHistoryView(api: api, repo: repo, path: entry.path, branch: branch)', FILE)
-        for token in ('"文件信息"', '"此文件的历史记录"', '"重新加载"', 'destructive: true', '.confirmationDialog(', '.downloadCompletionNotice($downloadedFile)', 'api.downloadFile(repo, entry: entry, branch: branch)', 'downloads.persist(file, session: session)', 'guard api.isCurrentSession else { throw CancellationError() }'):
+        for token in ('"文件信息"', '"此文件的历史记录"', '"重新加载"', 'destructive: true', '.confirmationDialog(', 'AppFeedback.show("下载完成", session: session)', 'api.downloadFile(repo, entry: entry, branch: branch, progress:', 'downloads.persist(file, session: session)', 'guard api.isCurrentSession, session == AccountStore.generation else { throw CancellationError() }'):
             self.assertIn(token, FILE)
         self.assertNotIn('编辑包信息', FILE)
         self.assertIn('if writable && editable && !deleted', FILE)

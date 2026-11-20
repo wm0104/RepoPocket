@@ -158,6 +158,13 @@ struct LocalGitBranchManagement: View {
                 let updated = try await readBranches()
                 try Task.checkCancellation(); guard valid else { return }
                 branches = updated; result = success
+                switch action {
+                case "createBranch": AppFeedback.show("本地分支已创建并切换", session: generation)
+                case "switchBranch": AppFeedback.show("已切换本地分支", session: generation)
+                case "deleteBranch": AppFeedback.show("本地分支已删除", session: generation)
+                case "renameBranch": AppFeedback.show("本地分支已重命名", session: generation)
+                default: break
+                }
             } catch {
                 if valid, !RefreshFailure.isCancellation(error) { failure = error.localizedDescription }
                 branches = nil

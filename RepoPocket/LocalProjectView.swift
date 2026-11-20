@@ -630,17 +630,25 @@ struct LocalProjectView: View {
     private func finishCommit() {
         guard pendingCommit,valid,let current=state.snapshot else{return};pendingCommit=false
         let files=selected.map { ["path":$0.path,"fingerprint":$0.fingerprint] }
-        Task { await state.check(force:true,valid:{valid}) {
+        Task {
+            var completed = false
+            await state.check(force:true,valid:{valid}) {
             let _:LocalGitReply = try await LocalGitEngine.shared.run("commit",project:project,metadata:store.metadata(project),internalRoot:store.internalRoot,
                 arguments:["expectedHead":current.status.head,"expectedRef":current.status.reference,"files":files,"message":commitMessage,"authorName":authorName,"authorEmail":authorEmail],generation:generation)
+            try Task.checkCancellation(); guard valid else { throw CancellationError() }
+            completed = true
             note="本地提交已创建，可单独推送。"; return try await snapshot()
-        } }
+        }
+            guard completed, valid, !Task.isCancelled, state.fresh, state.error.isEmpty, !state.busy else { return }
+            AppFeedback.show("本地提交已保存", session: generation)
+        }
     }
     private func sync(_ action:String, runWorkflow: Bool = false) {
         guard valid,!busy,let current=state.snapshot else{return}
         let token=CredentialStore.read(account:accountID)
         Task {
             var workflow: LocalProjectSheet?
+            var completed = false
             await state.check(force:true,valid:{valid}) {
             note = ""
             if action == "push" { build = nil }
@@ -654,10 +662,15 @@ struct LocalProjectView: View {
                 build = (repo: repository, branch: current.status.branch, sha: current.status.head)
                 if runWorkflow { workflow = .workflow(repo: repository, branch: current.status.branch) }
             }
+            completed = reply.mergePending != true
             note = reply.mergePending == true ? "拉取发现分叉冲突；真实合并会话已保存，请从冲突入口逐文件解决，再明确继续或安全中止。工作文件尚未修改，没有推送。" : (action == "recover" ? "恢复完成，文件和历史已重新检查。" : (action == "push" ? "推送完成。" : (action == "fetch" ? "获取完成，未修改工作文件或自动拉取/推送。" : "拉取完成。")));return try await snapshot()
             }
             guard valid, !Task.isCancelled, state.fresh, state.error.isEmpty, !state.busy else { return }
             if let workflow { sheet = workflow }
+            if completed {
+                let title = action == "push" ? "推送完成" : (action == "fetch" ? "远端信息已获取" : (action == "recover" ? "本地恢复完成" : "拉取完成"))
+                AppFeedback.show(title, session: generation)
+            }
         }
     }
 }

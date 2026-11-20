@@ -144,10 +144,11 @@ struct RepositoryCollectionView: View {
         let generation = AccountStore.generation
         busy = true; defer { busy = false }
         do {
-            let result = try await api.fork(repository.full_name)
+            _ = try await api.fork(repository.full_name)
             try Task.checkCancellation()
             guard generation == AccountStore.generation else { return }
-            api.message = "已复刻：\(result.full_name)。GitHub 可能需要片刻准备内容。"
+            api.message = ""
+            AppFeedback.show("复刻请求已接受", api: api)
         } catch { if !RefreshFailure.isCancellation(error) { api.message = error.localizedDescription } }
     }
 }

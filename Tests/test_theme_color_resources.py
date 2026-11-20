@@ -8,6 +8,23 @@ ROOT = Path(__file__).resolve().parents[1] / 'Packages/RepoPocketSyntax/Sources'
 
 
 class ThemeColorResourceTests(unittest.TestCase):
+    def test_source_and_patch_highlighting_can_bypass_runestone_default_theme(self):
+        app = Path(__file__).resolve().parents[1] / 'RepoPocket'
+        source = (app / 'SourceCodeView.swift').read_text(encoding='utf-8')
+        guard = source.split('static func highlight(', 1)[1].split('let theme:', 1)[0]
+        self.assertIn('runestoneThemeAvailable,', guard)
+        self.assertIn('return NSAttributedString(string: text, attributes: [.foregroundColor: UIColor.label])', guard)
+        check = source.split('private static let runestoneThemeAvailable', 1)[1].split('}()', 1)[0]
+        self.assertIn('Bundle.main.bundleURL.appendingPathComponent("Runestone_Runestone.bundle")', check)
+        self.assertIn('UIColor(named: "theme_" + $0, in: bundle, compatibleWith: nil) != nil', check)
+        self.assertEqual(set(re.findall(r'"([a-z_]+)"', check)), {
+            'foreground', 'gutter_background', 'gutter_hairline', 'line_number',
+            'current_line', 'line_number_current_line', 'invisible_characters',
+            'page_guide_hairline', 'page_guide_background', 'marked_text', 'selection', 'theme_',
+        })
+        for caller in ('SourceTextSurface.swift', 'CommitPatchView.swift'):
+            self.assertIn('SourceHighlighter.highlight(', (app / caller).read_text(encoding='utf-8'))
+
     def test_both_theme_loaders_do_not_force_unwrap_missing_colors(self):
         for name in ('Tomorrow', 'OneDark'):
             with self.subTest(theme=name):

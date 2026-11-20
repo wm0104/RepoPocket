@@ -611,31 +611,71 @@ struct WorkflowArtifactsView: View {
     let repo: String
     let run: Int
     @StateObject private var store = CommunityPageStore<WorkflowArtifact>()
-    @State private var downloading = false
+    @State private var downloadTask: Task<Void, Never>?
+    @State private var transfer: ReleaseAssetDownloadDelegate?
+    @State private var paused = false
     @State private var result = ""
-    @State private var downloadedArtifact: URL?
+    @State private var downloadingArtifactID: Int?
+    @State private var downloadProgress: ReleaseDownloadProgress?
+    @State private var downloadStatus: String?
+    @State private var downloadRequest = UUID()
     var body: some View {
         List {
             Section {
                 SoftGroupRows {
                     for artifact in store.items {
                         SoftGroupRow(String(artifact.id)) {
-                            Button { Task { await download(artifact) } } label: {
-                                VStack(alignment: .leading) {
-                                    Text(artifact.name)
-                                    Text(artifact.expired ? "已过期" : ByteCountFormatter.string(fromByteCount: Int64(artifact.size_in_bytes), countStyle: .file)).font(.caption).foregroundStyle(.secondary)
+                            if downloadingArtifactID == artifact.id {
+                                HStack(spacing: 12) {
+                                    artifactLabel(artifact)
+                                    if let transfer {
+                                        Button {
+                                            if transfer.setPaused(!paused) { paused.toggle() }
+                                        } label: {
+                                            DownloadProgressRing(fraction: downloadProgress?.fraction, active: !paused)
+                                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                                        }.buttonStyle(.plain)
+                                            .accessibilityLabel(paused ? "继续下载" : "暂停下载")
+                                            .accessibilityValue(downloadProgress?.label ?? "正在连接…")
+                                            .accessibilityIdentifier("artifact-download-ring-\(artifact.id)")
+                                    } else {
+                                        DownloadProgressRing(fraction: downloadStatus == nil ? nil : 1, active: downloadStatus == nil)
+                                            .frame(width: 44, height: 44)
+                                    }
+                                }.swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if downloadStatus == nil {
+                                        Button("取消下载") { if downloadingArtifactID == artifact.id { cancelDownload() } }.tint(.red)
+                                    }
                                 }
-                            }.disabled(artifact.expired || downloading)
+                            } else {
+                                Button {
+                                    guard downloadTask == nil, !artifact.expired else { return }
+                                    downloadTask = Task { await download(artifact) }
+                                } label: { artifactLabel(artifact) }
+                                    .disabled(artifact.expired || downloadTask != nil)
+                            }
                         }
                     }
                     if store.loaded && store.items.isEmpty { SoftGroupRow("empty") { Text("暂无构建产物") } }
-                    if downloading { SoftGroupRow("busy") { ProgressView("下载中，请保持前台…") } }
                     if !result.isEmpty { SoftGroupRow("result") { Text(result).font(.caption) } }
                     CommunityPageFooter(store: store, next: { load() }).rows
                 }
             }
-        }.navigationTitle("构建产物").downloadCompletionNotice($downloadedArtifact)
-            .task { if !store.loaded { load() } }.onDisappear { store.cancel() }
+        }.navigationTitle("构建产物")
+            .task { if !store.loaded { load() } }.onDisappear { store.cancel(); cancelDownload() }
+    }
+    private func artifactLabel(_ artifact: WorkflowArtifact) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(artifact.name)
+            Text(artifact.expired ? "已过期" : ByteCountFormatter.string(fromByteCount: Int64(artifact.size_in_bytes), countStyle: .file)).font(.caption).foregroundStyle(.secondary)
+            if downloadingArtifactID == artifact.id {
+                Text(downloadStatus ?? downloadProgress?.label ?? "正在连接…").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func cancelDownload() {
+        guard downloadStatus == nil else { return } // 已进入保存，不中断写入。
+        downloadTask?.cancel()
     }
     private func load() {
         store.load(api: api) { page in
@@ -644,16 +684,27 @@ struct WorkflowArtifactsView: View {
         }
     }
     private func download(_ artifact: WorkflowArtifact) async {
-        guard !downloading, !artifact.expired else { return }; downloading = true; result = ""; downloadedArtifact = nil; defer { downloading = false }
+        let request = UUID(); downloadRequest = request
+        downloadingArtifactID = artifact.id; downloadProgress = nil; downloadStatus = nil; result = ""
+        defer { transfer = nil; paused = false; downloadStatus = nil; downloadingArtifactID = nil; downloadTask = nil; downloadRequest = UUID() }
         do {
             let generation = AccountStore.generation
             try await DownloadStore.shared.requireAuthorization()
             guard api.isCurrentSession else { throw CancellationError() }
             DownloadStore.shared.begin(); defer { DownloadStore.shared.end() }
-            let file = try await api.communityArtifact(repo, id: artifact.id, name: artifact.name)
+            let file = try await api.communityArtifact(repo, id: artifact.id, name: artifact.name, onTransfer: { transfer = $0 }) { value in
+                guard api.isCurrentSession, generation == AccountStore.generation, !paused,
+                      downloadTask?.isCancelled == false, downloadRequest == request, downloadStatus == nil else { return }
+                downloadProgress = value
+            }
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
-            let saved = try await DownloadStore.shared.persist(file, session: generation)
-            guard api.isCurrentSession else { throw CancellationError() }; downloadedArtifact = saved
+            try Task.checkCancellation()
+            guard api.isCurrentSession, generation == AccountStore.generation else { throw CancellationError() }
+            transfer = nil; downloadStatus = "正在保存…"
+            _ = try await DownloadStore.shared.persist(file, session: generation)
+            try Task.checkCancellation()
+            guard api.isCurrentSession, generation == AccountStore.generation else { throw CancellationError() }
+            AppFeedback.show("下载完成", api: api)
         } catch { if api.isCurrentSession, !RefreshFailure.isCancellation(error) { result = error.localizedDescription } }
     }
 }

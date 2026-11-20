@@ -224,7 +224,6 @@ struct RepositoryCard: View {
                 RepositoryStarMenuButton(name: repository.full_name, repository: repository, api: api)
             }
         }
-        .repositoryCopyNotice(copyFeedback)
         .repositoryForkConfirmation(forkMenu, api: api)
         .sheet(isPresented: $showOwnerProfile) {
             AppNavigationStack {

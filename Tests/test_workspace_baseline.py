@@ -15,7 +15,12 @@ assert 'session.bytes' not in f and '/contents/' not in f
 assert '/git/blobs/' in f and 'application/vnd.github.raw+json' in f
 assert 'finish(expectedGit: item.sha)' in f and 'snapshotFileSHA256(target)' in f
 assert 'redirect: URLSessionTaskDelegate = ArchiveRedirectPolicy()' in g
-assert 'session.download(for: request, delegate: redirect)' in g
+assert g.count('transfer.download(using: session, request: request)') == 2
+transport = Path(REPO_ROOT, 'RepoPocket/ReleaseAssetDownload.swift').read_text()
+assert 'session.downloadTask(with: request)' in transport
+assert 'task.delegate = self' in transport
+assert 'policy: redirect, deliverOnMainActor: true' in g
+assert 'defer { transfer.stop() }' in g
 assert 'for attempt in 0..<3' in a
 assert 'top: change.id == changes.first?.id && binding != nil && !busy' in w
 assert 'softGroupedRow(top: !changes.isEmpty && !busy)' in w

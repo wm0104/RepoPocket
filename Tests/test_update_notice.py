@@ -105,6 +105,7 @@ class NoticeTests(unittest.TestCase):
 @propertyWrapper struct Published<Value> { var wrappedValue: Value }
 protocol ObservableObject {}
 final class UpdateDownloadDelegate: NSObject {}
+struct ReleaseDownloadProgress {}
 struct AppError: Error, LocalizedError { let text: String; var errorDescription: String? { text } }
 @MainActor final class GitHub {
     let delay: UInt64

@@ -720,19 +720,118 @@ final class StyleBoundaryTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-style-preview", "-download-completion-style-preview"]; app.launch()
-        let completed = app.buttons["模拟 ZIP 保存完成"]
+        let completed = app.buttons["feedback-preview-download"]
         XCTAssertTrue(completed.waitForExistence(timeout: 20))
-        for attempt in 0..<2 {
-            completed.tap()
-            let alert = app.alerts["下载完成"]
-            XCTAssertTrue(alert.waitForExistence(timeout: 5))
-            XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'my-python.zip' AND label CONTAINS '已保存到：/Downloads/RepoPocket'")).firstMatch.exists)
-            XCTAssertFalse(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS '/private/'")).firstMatch.exists)
-            if attempt == 0 { keepScreenshot(app, name: "repository-zip-completion") }
-            alert.buttons["好"].tap()
-            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: alert)], timeout: 5), .completed)
+        let ring = app.descendants(matching: .any).matching(identifier: "feedback-preview-ring").firstMatch
+        XCTAssertTrue(ring.exists)
+        XCTAssertEqual(ring.value as? String, "已接收 35%")
+        XCTAssertLessThanOrEqual(ring.frame.width, 26)
+        app.buttons["feedback-preview-advance"].tap()
+        XCTAssertEqual(ring.value as? String, "已接收 75%")
+        let examples = [("feedback-preview-download", "下载完成"),
+                        ("feedback-preview-copy", "仓库链接已复制"),
+                        ("feedback-preview-upload", "附件上传成功"),
+                        ("feedback-preview-download", "下载完成")]
+        for (attempt, example) in examples.enumerated() {
+            app.buttons[example.0].tap()
+            let feedback = app.descendants(matching: .any).matching(identifier: "app-success-feedback").firstMatch
+            XCTAssertTrue(feedback.waitForExistence(timeout: 5))
+            XCTAssertEqual(feedback.label, example.1)
+            XCTAssertFalse(app.alerts["下载完成"].exists)
+            XCTAssertFalse(app.alerts["提示"].exists)
+            if attempt == 0 {
+                keepScreenshot(app, name: "repository-zip-completion")
+                let through = app.buttons["feedback-through-button"]
+                XCTAssertTrue(through.isHittable)
+                through.tap()
+                XCTAssertEqual(through.label, "点击计数：1")
+            }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: feedback)], timeout: 10), .completed)
+        }
+        app.buttons["feedback-stale-button"].tap()
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "app-success-feedback").firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["不应显示的旧账号提示"].exists)
+    }
+    func testSuccessFeedbackDoesNotReplayAfterBackground() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-style-preview", "-download-completion-style-preview", "-feedback-lifecycle-style-preview"]; app.launch()
+        XCTAssertTrue(app.buttons["feedback-preview-download"].waitForExistence(timeout: 20))
+        // Resolve a fresh AX query on every poll, including after each activation.
+        func feedback() -> XCUIElement {
+            app.descendants(matching: .any).matching(identifier: "app-success-feedback").firstMatch
+        }
+        let initialEvidence = app.staticTexts["feedback-lifecycle-deactivation"].label.components(separatedBy: "|")
+        guard initialEvidence.count == 2, let initialActivation = Int(initialEvidence[0]), initialEvidence[1] == "none" else {
+            XCTFail("Missing initial activation observer"); return
+        }
+        var activationCount = initialActivation
+        let examples = [("download", "下载完成"), ("copy", "仓库链接已复制"), ("upload", "附件上传成功")]
+        for (operation, title) in examples {
+            let trigger = app.buttons["feedback-preview-" + operation]
+            trigger.tap()
+            XCTAssertTrue(feedback().exists)
+            XCTAssertEqual(feedback().label, title)
+            guard let shownID = feedback().value as? String, UUID(uuidString: shownID) != nil else {
+                XCTFail("A real displayed toast UUID is required"); return
+            }
+            keepScreenshot(app, name: "feedback-lifecycle-" + operation + "-before-background")
+            // Do not let an already auto-dismissed toast make the lifecycle check pass.
+            guard feedback().exists else { XCTFail("Toast must still be visible before Home: " + title); return }
+            for activation in 0..<2 {
+                XCUIDevice.shared.press(.home)
+                let backgrounded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    app.state == .runningBackground || app.state == .runningBackgroundSuspended
+                }, object: nil)
+                XCTAssertEqual(XCTWaiter.wait(for: [backgrounded], timeout: 10), .completed)
+                app.activate()
+                XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+                XCTAssertFalse(feedback().exists, "Foreground must not replay " + title)
+                let replayed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    feedback().exists
+                }, object: nil)
+                replayed.isInverted = true
+                XCTAssertEqual(XCTWaiter.wait(for: [replayed], timeout: 3.5), .completed,
+                               "Discarded success must stay absent across the full toast duration")
+                XCTAssertFalse(feedback().exists)
+                activationCount += 1
+                let expectedActivation = activationCount
+                let updated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    app.staticTexts["feedback-lifecycle-deactivation"].label.hasPrefix(String(expectedActivation) + "|")
+                }, object: nil)
+                XCTAssertEqual(XCTWaiter.wait(for: [updated], timeout: 5), .completed,
+                               "Each real activation must publish a fresh sequence")
+                let witness = app.staticTexts["feedback-lifecycle-deactivation"].label
+                let fields = witness.components(separatedBy: "|")
+                XCTAssertEqual(fields.first, String(expectedActivation))
+                if activation == 0 {
+                    guard fields.count == 4, let age = Double(fields[3]), age.isFinite else {
+                        XCTFail("Missing real deactivation evidence: " + witness); return
+                    }
+                    XCTAssertEqual(fields[1], shownID)
+                    XCTAssertEqual(fields[2], title)
+                    XCTAssertGreaterThanOrEqual(age, 0)
+                    XCTAssertLessThan(age, 2.9, "Toast must be alive at the actual scene deactivation")
+                    print("FEEDBACK_DEACTIVATION " + witness)
+                } else {
+                    XCTAssertEqual(witness, String(expectedActivation) + "|none", "Evidence must be consumed, not reused on another activation")
+                }
+                print("FEEDBACK_ACTIVATION " + operation + " " + witness)
+                keepScreenshot(app, name: "feedback-lifecycle-" + operation + "-after-foreground-" + String(activation))
+            }
+            app.buttons["feedback-preview-" + operation].tap()
+            XCTAssertTrue(feedback().waitForExistence(timeout: 5), "A NEW operation must still show feedback")
+            XCTAssertEqual(feedback().label, title)
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !feedback().exists
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 10), .completed,
+                           "New feedback must auto-dismiss without a tap")
+            XCTAssertFalse(feedback().exists)
+            keepScreenshot(app, name: "feedback-lifecycle-" + operation + "-new-auto-dismissed")
         }
     }
+
     func testLocalBranchCreationHasConfirmationAndRejectsInvalidName() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -947,9 +1046,11 @@ final class StyleBoundaryTests: XCTestCase {
             dy: (file.frame.midY - card.frame.minY) / card.frame.height)).tap()
         XCTAssertTrue(app.buttons["删除附件"].waitForExistence(timeout: 5)); app.buttons["删除附件"].tap()
         XCTAssertTrue(app.buttons["删除"].waitForExistence(timeout: 5)); app.buttons["取消"].tap()
-        // Copy alert and delete cancellation must not lock the next presentation.
+        // Copy feedback is non-modal; delete cancellation must not lock the next presentation.
         file.tap(); app.buttons["复制下载链接"].tap()
-        XCTAssertTrue(app.buttons["好"].waitForExistence(timeout: 5)); app.buttons["好"].tap()
+        let copied = app.descendants(matching: .any).matching(NSPredicate(format: "label == '下载链接已复制'")).firstMatch
+        XCTAssertTrue(copied.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.alerts["下载链接已复制"].exists)
         let third = app.buttons["release-asset-3"]
         third.tap(); app.buttons["删除附件"].tap()
         XCTAssertTrue(app.buttons["删除"].waitForExistence(timeout: 5)); app.buttons["删除"].tap()
@@ -960,15 +1061,19 @@ final class StyleBoundaryTests: XCTestCase {
         let status = app.staticTexts["release-download-status-1"]
         XCTAssertTrue(status.label.contains("下载失败"))
         retry.tap()
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS '40%'"), object: status)], timeout: 10), .completed)
+        let ring = app.descendants(matching: .any)["release-download-ring-1"]
+        XCTAssertTrue(ring.waitForExistence(timeout: 10))
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS '40%'"), object: ring)], timeout: 10), .completed)
+        XCTAssertFalse(status.label.contains("%"), "Visible status uses real received/total bytes, not duplicate percentages")
         keepScreenshot(app, name: "release-inline-progress")
         app.buttons["取消下载"].tap()
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == '下载已取消'"), object: status)], timeout: 5), .completed)
         retry.tap()
-        let completion = app.alerts["下载完成"]
+        let completion = app.descendants(matching: .any).matching(NSPredicate(format: "label == '下载完成'")).firstMatch
         XCTAssertTrue(completion.waitForExistence(timeout: 15))
-        completion.buttons["好"].tap()
+        XCTAssertFalse(app.alerts["下载完成"].exists)
         XCTAssertFalse(status.exists, "Success must not leave a permanent saved-path row")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: completion)], timeout: 8), .completed)
     }
     func testSharedProfileFollowStateAndFailureHandling() {
         continueAfterFailure = false
@@ -1313,9 +1418,13 @@ final class StyleBoundaryTests: XCTestCase {
         app.launchArguments = ["-style-preview", "-local-git-style-preview"]
         app.launch()
         let folder = app.buttons["localgit.folder.debs"]
-        XCTAssertTrue(folder.waitForExistence(timeout: 40)); folder.tap()
-        let file = app.staticTexts["package-01.deb"]
-        XCTAssertTrue(file.waitForExistence(timeout: 10))
+        XCTAssertTrue(folder.waitForExistence(timeout: 40)); tapReady(folder, in: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "已展开"), object: folder)], timeout: 10), .completed, app.debugDescription)
+        let files = app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "package-01.deb", "package-01.deb、"))
+        let file = files.firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(files.count, 1, "Target the file button, not its selection checkbox")
+        waitReady(file, in: app)
         XCTAssertFalse(app.buttons["更多操作：package-01.deb"].exists)
         file.press(forDuration: 1)
         XCTAssertTrue(app.buttons["删除文件"].waitForExistence(timeout: 5))

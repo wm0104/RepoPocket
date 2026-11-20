@@ -620,7 +620,7 @@ final class GitHub: ObservableObject {
             throw AppError(text: "未收到 GitHub 删除成功确认（204），请刷新核实。")
         }
     }
-    func fetchWorkspace(_ repo: String, branch: String, revision: String = "") async throws -> (WorkspaceBinding, URL) {
+    func fetchWorkspace(_ repo: String, branch: String, revision: String = "", progress: ((ReleaseDownloadProgress) -> Void)? = nil) async throws -> (WorkspaceBinding, URL) {
         let repo = try RepositoryInput.parse(repo)
         let branch = try await resolvedBranch(repo, branch: branch)
         let endpoint = try Self.repoPath(repo)
@@ -633,6 +633,16 @@ final class GitHub: ObservableObject {
         try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
         do {
             var total = 0
+            var received: Int64 = 0
+            let blobs = tree.tree.filter { $0.type == "blob" }
+            let sizes = blobs.compactMap(\.size)
+            try Task.checkCancellation(); try ensureActiveAccount()
+            guard sizes.count == blobs.count, sizes.allSatisfy({ $0 >= 0 && $0 <= 100 * 1024 * 1024 }),
+                  sizes.reduce(Int64(0), { $0 + Int64($1) }) <= 1024 * 1024 * 1024 else {
+                throw AppError(text: "远端文件大小无效、缺失或超出下载限制")
+            }
+            let expected = sizes.reduce(Int64(0)) { $0 + Int64($1) }
+            progress?(ReleaseDownloadProgress(received: 0, total: expected))
             var seen = Set<String>()
             for item in tree.tree {
                 _ = try Self.filePath(item.path)
@@ -653,7 +663,10 @@ final class GitHub: ObservableObject {
                 var r = try request(url(endpoint + "/git/blobs/" + Self.component(item.sha)))
                 r.setValue("application/vnd.github.raw+json", forHTTPHeaderField: "Accept")
                 r.timeoutInterval = 180
-                let tmp = try await downloadBlob(r, path: item.path)
+                let completedBytes = received
+                let tmp = try await downloadBlob(r, path: item.path) { value in
+                    progress?(ReleaseDownloadProgress(received: completedBytes + value.received, total: expected))
+                }
                 defer { try? FileManager.default.removeItem(at: tmp) }
                 let expectedSHA256 = try await Task.detached(priority: .userInitiated) {
                     let handle = try FileHandle(forReadingFrom: tmp)
@@ -664,19 +677,22 @@ final class GitHub: ObservableObject {
                 }.value
                 try FileManager.default.moveItem(at: tmp, to: target)
                 guard try LocalStore.snapshotFileSHA256(target) == expectedSHA256 else { throw AppError(text: "磁盘 SHA256 校验失败：" + item.path) }
+                try Task.checkCancellation(); try ensureActiveAccount()
+                received += Int64(size)
+                progress?(ReleaseDownloadProgress(received: received, total: expected))
             }
             let snapshot = try LocalStore.snapshot(stage)
             let binding = WorkspaceBinding(repo: repo, branch: branch, head: head, tree: commit.tree.sha, modes: Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.mode) }), snapshot: snapshot, remoteAuthorDate: commit.author?.date, remoteCommitterDate: commit.committer?.date, lastChecked: Date())
             return (binding, stage)
         } catch { try? FileManager.default.removeItem(at: stage); throw error }
     }
-    func downloadWorkspace(repo: String, branch: String) async throws -> URL {
-        let (binding, stage) = try await fetchWorkspace(repo, branch: branch)
+    func downloadWorkspace(repo: String, branch: String, progress: ((ReleaseDownloadProgress) -> Void)? = nil) async throws -> URL {
+        let (binding, stage) = try await fetchWorkspace(repo, branch: branch, progress: progress)
         defer { try? FileManager.default.removeItem(at: stage) }
         let folder = try LocalStore.importFolder(stage, name: binding.repo.replacingOccurrences(of: "/", with: "-") + "-" + binding.branch + "-" + (binding.remoteCommitterDate.map { ISO8601DateFormatter().string(from: $0) } ?? String(binding.head.prefix(8))))
         var downloadedBinding = binding
         downloadedBinding.lastPulled = Date()
-        do { try LocalStore.saveBinding(downloadedBinding, folder: folder) }
+        do { try Task.checkCancellation(); try ensureActiveAccount(); try LocalStore.saveBinding(downloadedBinding, folder: folder); try Task.checkCancellation(); try ensureActiveAccount() }
         catch { try? FileManager.default.removeItem(at: folder); throw error }
         return folder
     }
@@ -723,12 +739,17 @@ final class GitHub: ObservableObject {
         try LocalStore.saveBinding(verified, folder: folder)
         return verified
     }
-    private func downloadBlob(_ request: URLRequest, path: String) async throws -> URL {
+    private func downloadBlob(_ request: URLRequest, path: String, progress: ((ReleaseDownloadProgress) -> Void)? = nil) async throws -> URL {
         for attempt in 0..<3 {
             do {
-                let (tmp, response) = try await session.download(for: request)
+                let transfer = ReleaseAssetDownloadDelegate(update: { [weak self] value in
+                    guard let self, self.isCurrentSession else { return }
+                    progress?(value)
+                }, policy: GitHubAPIRedirectPolicy(), deliverOnMainActor: true)
+                defer { transfer.stop() }
+                let (tmp, response) = try await transfer.download(using: session, request: request)
                 do {
-                    try ensureActiveAccount()
+                    try Task.checkCancellation(); try ensureActiveAccount()
                     let body = (response as? HTTPURLResponse)?.statusCode == 200 ? Data() : ((try? Data(contentsOf: tmp, options: .mappedIfSafe)) ?? Data())
                     // Only read API error text; successful binary remains untouched on disk.
                     try check((response as? HTTPURLResponse)?.statusCode == 200 ? Data() : Data(body.prefix(8192)), response, operation: "下载 " + path)
@@ -936,6 +957,48 @@ final class GitHub: ObservableObject {
         guard bytes.count <= 8 * 1024 * 1024 else { throw AppError(text: "响应过大，请在 GitHub 查看。") }
         return bytes
     }
+    // The server's quota belongs to the account, not to a repository page or its task.
+    private static var workflowPollDeadlines: [String: Date] = [:]
+    func latestRepositoryWorkflowRun(_ repo: String) async throws -> WorkflowRun? {
+        while let delay = Self.workflowPollDeadlines[accountID]?.timeIntervalSinceNow, delay > 0 {
+            try ensureActiveAccount()
+            try await Task.sleep(nanoseconds: UInt64(min(delay, 86_400) * 1_000_000_000))
+        }
+        Self.workflowPollDeadlines[accountID] = nil
+        try Task.checkCancellation()
+        var r = try request(url(Self.repoPath(repo) + "/actions/runs", query: [.init(name: "per_page", value: "1")]))
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await session.data(for: r, delegate: GitHubAPIRedirectPolicy())
+        if let http = response as? HTTPURLResponse, let deadline = Self.workflowPollDeadline(http, bytes, now: Date()) {
+            Self.workflowPollDeadlines[accountID] = max(Self.workflowPollDeadlines[accountID] ?? .distantPast, deadline)
+        }
+        try Task.checkCancellation()
+        try check(bytes, response, operation: "读取最近一次工作流运行")
+        guard bytes.count <= 8 * 1024 * 1024 else { throw AppError(text: "响应过大，请在 GitHub 查看。") }
+        return try JSONDecoder().decode(WorkflowRuns.self, from: bytes).workflow_runs.first
+    }
+    private static func workflowPollDeadline(_ http: HTTPURLResponse, _ data: Data, now: Date) -> Date? {
+        var deadline = now
+        if let retry = http.value(forHTTPHeaderField: "Retry-After") {
+            if let seconds = UInt64(retry) { deadline = now.addingTimeInterval(TimeInterval(seconds)) }
+            else {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = TimeZone(secondsFromGMT: 0)
+                formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+                deadline = formatter.date(from: retry) ?? now
+            }
+        }
+        let exhausted = http.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0"
+        if exhausted, let epoch = http.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap(UInt64.init) {
+            deadline = max(deadline, Date(timeIntervalSince1970: TimeInterval(epoch)))
+        }
+        if deadline > now { return deadline }
+        if exhausted || http.statusCode == 429 { return now.addingTimeInterval(60) }
+        if http.statusCode == 403, let reason = try? JSONDecoder().decode(GitHubMessage.self, from: data).message.lowercased(),
+           reason.contains("rate limit") || reason.contains("abuse detection") { return now.addingTimeInterval(60) }
+        return nil
+    }
     func repositoryPathCommits(_ repo: String, head: String, paths: [String]) async throws -> [String: PathCommitMetadata] {
         let (query, variables) = try PathCommitQuery.request(repo: repo, head: head, paths: paths)
         let bytes = try await repositoryGraphQLRead(query, variables: variables, operation: "查询路径提交")
@@ -1091,9 +1154,9 @@ final class GitHub: ObservableObject {
         try Task.checkCancellation(); try ensureActiveAccount()
         return text
     }
-    func communityArtifact(_ repo: String, id: Int, name: String) async throws -> URL {
+    func communityArtifact(_ repo: String, id: Int, name: String, onTransfer: (ReleaseAssetDownloadDelegate) -> Void, progress: ((ReleaseDownloadProgress) -> Void)? = nil) async throws -> URL {
         guard id > 0 else { throw AppError(text: "无效构建产物编号") }
-        return try await download(request(url(Self.repoPath(repo) + "/actions/artifacts/\(id)/zip")), name: DownloadRules.safeName(name) + ".zip", redirect: WorkflowLogRedirectPolicy())
+        return try await download(request(url(Self.repoPath(repo) + "/actions/artifacts/\(id)/zip")), name: DownloadRules.safeName(name) + ".zip", redirect: WorkflowLogRedirectPolicy(), onTransfer: onTransfer, progress: progress)
     }
     // Dispatch uses the account-bound session and refuses redirects, including reads.
     var workflowDispatchSession: WorkflowDispatchSession { .init(accountID: accountID, generation: accountGeneration) }
@@ -1192,6 +1255,89 @@ final class GitHub: ObservableObject {
     func file(_ repo: String, path: String, branch: String = "") async throws -> Entry {
         let endpoint = try Self.repoPath(repo) + "/contents/" + Self.filePath(path)
         return try await decoded(Entry.self, endpoint, query: branch.isEmpty ? [] : [.init(name: "ref", value: branch)])
+    }
+    func repositoryFilePreview(_ repo: String, path: String, ref: String, allowEditing: Bool = false) async throws -> RepositoryFilePreview {
+        guard RepositoryFilePreviewRules.canPreview(path: path) else { throw AppError(text: "此文件类型暂不支持预览。") }
+        let base = try Self.repoPath(repo)
+        let endpoint = try base + "/contents/" + Self.filePath(path)
+        let query: [URLQueryItem] = ref.isEmpty ? [] : [.init(name: "ref", value: ref)]
+        let (metadata, _) = try await previewResponse(endpoint, query: query, accept: "application/vnd.github.object+json", maximum: 2 * 1024 * 1024 + 1)
+        guard metadata.count <= 2 * 1024 * 1024 else { throw AppError(text: "文件信息超过预览限制。") }
+        let entry = try JSONDecoder().decode(Entry.self, from: metadata)
+        guard entry.type == "file", entry.path.utf8.elementsEqual(path.utf8), Self.validPreviewSHA(entry.sha),
+              let size = entry.size, size >= 0 else { throw AppError(text: "GitHub 未返回匹配的文件信息。") }
+        let limit = RepositoryFilePreviewRules.byteLimit(for: path)
+        if size > limit, RepositoryFilePreviewRules.media(for: path) != nil {
+            throw AppError(text: "文件超过 \(limit / (1024 * 1024)) MiB 预览限制，可下载后打开。")
+        }
+        let bytes: Data
+        if size <= limit, entry.encoding == "base64", let content = entry.content,
+           let inline = Data(base64Encoded: content, options: .ignoreUnknownCharacters), inline.count == size {
+            bytes = inline
+        } else {
+            // Pin the second request to this response's blob; the branch may move meanwhile.
+            let maximum = limit + 1
+            let (raw, response) = try await previewResponse(base + "/git/blobs/" + entry.sha,
+                accept: "application/vnd.github.raw+json", maximum: maximum, range: "bytes=0-\(limit)")
+            let expected = min(size, maximum)
+            let expectedRange = "bytes 0-\(expected - 1)/\(size)"
+            guard raw.count == expected,
+                  response.statusCode == 200 || (response.statusCode == 206 && expected > 0 &&
+                    response.value(forHTTPHeaderField: "Content-Range") == expectedRange) else {
+                throw AppError(text: "GitHub 未返回完整文件或有效的预览片段。")
+            }
+            bytes = raw
+        }
+        let truncated = size > limit
+        let preview = try await RepositoryFilePreview.decode(truncated ? Data(bytes.prefix(limit)) : bytes,
+            path: path, truncated: truncated, editableSHA: allowEditing && !truncated ? entry.sha : nil)
+        try ensureActiveAccount(); try Task.checkCancellation()
+        return preview
+    }
+    func commitMediaComparison(_ repo: String, parentSHA: String, commitSHA: String) async throws -> CommitMediaComparison {
+        guard Self.validPreviewSHA(parentSHA), Self.validPreviewSHA(commitSHA) else {
+            throw AppError(text: "无法确认差异所需的提交标识。")
+        }
+        let path = try Self.repoPath(repo) + "/compare/" + parentSHA + "..." + commitSHA
+        let limit = 8 * 1024 * 1024
+        let (result, _) = try await previewResponse(path, query: [.init(name: "per_page", value: "1"), .init(name: "page", value: "1")],
+            accept: "application/vnd.github+json", maximum: limit + 1)
+        guard result.count <= limit else { throw AppError(text: "提交比较超过读取限制。") }
+        return try JSONDecoder().decode(CommitMediaComparison.self, from: result)
+    }
+    private static func validPreviewSHA(_ sha: String) -> Bool {
+        sha.utf8.count == 40 && sha.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) || (65...70).contains($0) }
+    }
+    private func previewResponse(_ path: String, query: [URLQueryItem] = [], accept: String,
+                                 maximum: Int, range: String? = nil) async throws -> (Data, HTTPURLResponse) {
+        var r = try request(url(path, query: query))
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        r.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        r.setValue(accept, forHTTPHeaderField: "Accept")
+        if let range {
+            r.setValue(range, forHTTPHeaderField: "Range")
+            r.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        }
+        let (bytes, response) = try await session.bytes(for: r, delegate: GitHubAPIRedirectPolicy())
+        defer { bytes.task.cancel() }
+        try ensureActiveAccount(); try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse else { throw AppError(text: "无有效服务器响应") }
+        guard http.statusCode == 200 || (range != nil && http.statusCode == 206) else {
+            try check(Data(), response, operation: "读取文件预览")
+            throw AppError(text: "GitHub 返回了非预期的预览响应。")
+        }
+        let result = try await Self.readPreviewBytes(bytes, maximum: maximum)
+        try ensureActiveAccount(); try Task.checkCancellation()
+        return (result, http)
+    }
+    nonisolated private static func readPreviewBytes(_ bytes: URLSession.AsyncBytes, maximum: Int) async throws -> Data {
+        var result = Data()
+        for try await byte in bytes {
+            result.append(byte)
+            if result.count == maximum { break }
+            if result.count % (16 * 1024) == 0 { try Task.checkCancellation() }
+        }
+        return result
     }
     func commit(_ repo: String, path: String, bytes: Data, sha: String?, message: String, branch: String) async throws {
         _ = try RepoQueue.addingUploadBytes(Int64(bytes.count), to: 0)
@@ -1403,11 +1549,11 @@ final class GitHub: ObservableObject {
     func publish(_ repo: String, release: Release) async throws -> Release {
         try await decoded(Release.self, Self.repoPath(repo) + "/releases/\(release.id)", method: "PATCH", object: ["draft": false])
     }
-    func downloadFile(_ repo: String, entry: Entry, branch: String) async throws -> URL {
+    func downloadFile(_ repo: String, entry: Entry, branch: String, progress: ((ReleaseDownloadProgress) -> Void)? = nil) async throws -> URL {
         let endpoint = try Self.repoPath(repo) + "/contents/" + Self.filePath(entry.path)
         var r = try request(url(endpoint, query: branch.isEmpty ? [] : [.init(name: "ref", value: branch)]))
         r.setValue("application/vnd.github.raw+json", forHTTPHeaderField: "Accept")
-        return try await download(r, name: entry.name)
+        return try await download(r, name: entry.name, progress: progress)
     }
     func downloadAsset(_ repo: String, asset: Asset) async throws -> URL {
         let endpoint = try Self.repoPath(repo) + "/releases/assets/" + String(asset.id)
@@ -1415,15 +1561,21 @@ final class GitHub: ObservableObject {
         r.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         return try await download(r, name: asset.name, redirect: ReleaseAssetRedirectPolicy())
     }
-    func downloadZIP(_ repo: String, branch: String) async throws -> URL {
+    func downloadZIP(_ repo: String, branch: String, progress: ((ReleaseDownloadProgress) -> Void)? = nil) async throws -> URL {
         let repo = try RepositoryInput.parse(repo)
         let endpoint = try Self.repoPath(repo) + "/zipball" + (branch.isEmpty ? "" : "/" + Self.component(branch))
-        return try await download(request(url(endpoint)), name: repo.replacingOccurrences(of: "/", with: "-") + ".zip")
+        return try await download(request(url(endpoint)), name: repo.replacingOccurrences(of: "/", with: "-") + ".zip", progress: progress)
     }
-    private func download(_ request: URLRequest, name: String, redirect: URLSessionTaskDelegate = ArchiveRedirectPolicy()) async throws -> URL {
-        let (tmp, response) = try await session.download(for: request, delegate: redirect)
+    private func download(_ request: URLRequest, name: String, redirect: URLSessionTaskDelegate = ArchiveRedirectPolicy(), onTransfer: (ReleaseAssetDownloadDelegate) -> Void = { _ in }, progress: ((ReleaseDownloadProgress) -> Void)? = nil) async throws -> URL {
+        let transfer = ReleaseAssetDownloadDelegate(update: { [weak self] value in
+            guard let self, self.isCurrentSession else { return }
+            progress?(value)
+        }, policy: redirect, deliverOnMainActor: true)
+        onTransfer(transfer)
+        defer { transfer.stop() }
+        let (tmp, response) = try await transfer.download(using: session, request: request)
         defer { try? FileManager.default.removeItem(at: tmp) }
-        try ensureActiveAccount()
+        try Task.checkCancellation(); try ensureActiveAccount()
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         var body = Data()
         if !(200..<300).contains(status), let handle = try? FileHandle(forReadingFrom: tmp) {
@@ -1435,7 +1587,8 @@ final class GitHub: ObservableObject {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = DownloadRules.safeName(name)
         let target = dir.appendingPathComponent(safe)
-        try FileManager.default.moveItem(at: tmp, to: target)
+        do { try FileManager.default.moveItem(at: tmp, to: target) }
+        catch { try? FileManager.default.removeItem(at: dir); throw error }
         return target
     }
     // These bounded endpoints do not use decoded(): large JSON is parsed off MainActor.
@@ -1489,6 +1642,11 @@ final class GitHub: ObservableObject {
             }
             try check(payload, response, operation: "发行版管理")
         } else { try check(Data(), response, operation: "发行版管理") }
+        if method == "POST" || method == "PATCH" {
+            guard (response as? HTTPURLResponse)?.statusCode == (method == "POST" ? 201 : 200) else {
+                throw AppError(text: "发行版请求未收到最终成功确认，请刷新核实，勿直接重试。")
+            }
+        }
         let result = try await Task.detached { try ReleaseJSON.decode(type, file: file) }.value
         try Task.checkCancellation(); try ensureActiveAccount()
         return result
@@ -1585,9 +1743,14 @@ final class GitHub: ObservableObject {
         }
         if original == nil && !form.branch.isEmpty { object["target_commitish"] = form.branch }
         // PATCH only changes release metadata; never calls git refs/tag mutation APIs.
-        return try await managedJSON(ManagedRelease.self, repo: repo,
+        let saved = try await managedJSON(ManagedRelease.self, repo: repo,
             suffix: original.map { "/releases/\($0.id)" } ?? "/releases",
             method: original == nil ? "POST" : "PATCH", object: object)
+        guard saved.id > 0, original == nil || saved.id == original?.id,
+              saved.tag_name == form.tag, saved.draft == form.draft, saved.prerelease == form.prerelease else {
+            throw AppError(text: "发行版最终状态与请求不符，请刷新核实；未确认保存或发布成功。")
+        }
+        return saved
     }
     func deleteManagedRelease(_ repo: String, original: ManagedRelease, asset: Asset?) async throws {
         try await managedWriteAccess(repo)
@@ -1629,9 +1792,13 @@ final class GitHub: ObservableObject {
         let r = try request(c.url!, method: "POST", binary: true)
         let (data, response) = try await session.upload(for: r, fromFile: file, delegate: ManagedUploadProgress(update: progress))
         try Task.checkCancellation(); try check(data, response, operation: "上传附件")
+        guard (response as? HTTPURLResponse)?.statusCode == 201 else { throw AppError(text: "附件上传未收到最终成功确认，请刷新核实，勿直接重试。") }
         guard data.count <= ReleaseManagementRules.jsonLimit else { throw AppError(text: "上传响应超预算，请刷新核实。") }
         let asset = try await Task.detached { try JSONDecoder().decode(Asset.self, from: data) }.value
         try Task.checkCancellation(); try ensureActiveAccount()
+        guard asset.id > 0, asset.name == file.lastPathComponent, Int64(asset.size) == size else {
+            throw AppError(text: "上传附件身份或大小不匹配，请刷新核实；未确认成功。")
+        }
         return asset
     }
     func downloadManagedAsset(_ repo: String, asset: Asset, progress: @escaping (Double) -> Void) async throws -> URL {
@@ -1643,7 +1810,7 @@ final class GitHub: ObservableObject {
         guard asset.id > 0 else { throw AppError(text: "无效附件编号") }
         var r = try request(url(Self.repoPath(repo) + "/releases/assets/\(asset.id)"))
         r.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-        return try await download(r, name: asset.name, redirect: ReleaseAssetDownloadDelegate(update: transfer))
+        return try await download(r, name: asset.name, redirect: ReleaseAssetRedirectPolicy(), progress: transfer)
     }
 
 }

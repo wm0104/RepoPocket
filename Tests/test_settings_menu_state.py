@@ -91,8 +91,7 @@ class SettingsMenuStateTests(unittest.TestCase):
         header, rows = section.split('            if !checker.message.isEmpty', 1)
         for modifier in ['.sheet(isPresented: $showingOfficialReleases)',
                          '.sheet(item: $share, onDismiss: { checker.sharing = false })',
-                         '.alert("使用 TrollStore 更新"',
-                         '.downloadCompletionNotice($checker.downloadCompletion)']:
+                         '.alert("使用 TrollStore 更新"']:
             self.assertIn(modifier, header)
             self.assertNotIn(modifier, rows)
         self.assertIn('}.softGroupedRow(top: !connected, cardVerticalPadding: 0)', header)

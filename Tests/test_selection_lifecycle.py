@@ -63,7 +63,9 @@ assert 'guard !CredentialStore.read().isEmpty else { return }' in home_task
 assert 'await refresh(); loadPersonalIssues()' in home_task and '!loaded' not in home_task
 assert 'api.cachedCollection(.owned)' in a and 'api.cachedCollection(.starred)' in a
 assert '.task { if !hasScanned' in w
-assert 'guard !busy else { return }' in a and 'guard !busy else { return }' in scan
+assert 'guard !busy else { return }' in a
+assert '@MainActor private func scan() async -> Bool' in scan
+assert 'guard !busy else { return false }' in scan
 assert 'commits = []' not in h and 'if refresh { commits = batch }' in h
 assert 'verticalSizeClass == .compact ? .inline : .large' in u
 assert 'verticalSizeClass == .compact ? 3 : 7' in c

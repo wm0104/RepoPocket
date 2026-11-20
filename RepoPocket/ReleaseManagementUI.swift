@@ -28,7 +28,6 @@ struct ReleaseManagementDestination: View {
     @Published var listLoaded = false
     @Published var assetMore = false
     @Published private(set) var assetDownload: ReleaseAssetDownload?
-    @Published var completedDownload: URL?
     private var page = 1
     private var removedReleaseIDs = Set<Int>()
     private var assetPage = 1
@@ -40,7 +39,7 @@ struct ReleaseManagementDestination: View {
     init(api: GitHub, repo: String, downloader: ReleaseAssetDownloading? = nil) {
         self.api = api; self.repo = repo; self.downloader = downloader ?? LiveReleaseAssetDownloader()
         accountObserver = NotificationCenter.default.publisher(for: .githubAccountChanged).sink { [weak self] _ in
-            self?.cancel(); self?.completedDownload = nil; self?.canWrite = false; self?.rows = []; self?.assets = []; self?.release = nil; self?.notice = ""; self?.latestID = nil
+            self?.cancel(); self?.canWrite = false; self?.rows = []; self?.assets = []; self?.release = nil; self?.notice = ""; self?.latestID = nil
         }
         listObserver = NotificationCenter.default.publisher(for: .releaseManagementChanged).sink { [weak self] in
             self?.applyListChange($0)
@@ -55,7 +54,6 @@ struct ReleaseManagementDestination: View {
         guard valid, !busy else { return }
         busy = true; error = ""; notice = ""; progress = 0
         assetDownload = nil
-        completedDownload = nil
         let token = UUID(); operation = token
         task = Task {
             defer { if operation == token { busy = false; task = nil } }
@@ -146,10 +144,10 @@ struct ReleaseManagementDestination: View {
             defer { try? FileManager.default.removeItem(at: temporary.deletingLastPathComponent()) }
             try self.check()
             self.assetDownload?.stage = .saving
-            let saved = try await self.downloader.persist(temporary, generation: self.generation)
+            _ = try await self.downloader.persist(temporary, generation: self.generation)
             try self.check()
             self.assetDownload?.stage = .completed
-            self.completedDownload = saved
+            AppFeedback.show("下载完成", api: self.api)
             } catch {
                 if self.valid, self.assetDownload?.request == initial.request {
                     self.assetDownload?.stage = RefreshFailure.isCancellation(error) || Task.isCancelled ? .cancelled : .failed
@@ -231,7 +229,6 @@ struct ReleaseDetailView: View {
     @State private var inboxSelection: [URL] = []
     @State private var uploading: URL?
     @State private var deleteTarget: ReleaseDeleteTarget?
-    @State private var copied = false
     init(api: GitHub, repo: String, id: Int, downloader: ReleaseAssetDownloading? = nil) {
         self.id = id; _state = StateObject(wrappedValue: ReleaseScreenState(api: api, repo: repo, downloader: downloader))
     }
@@ -278,14 +275,14 @@ struct ReleaseDetailView: View {
                                                         .font(.caption).foregroundStyle(Color.secondary).monospacedDigit()
                                                 }
                                             }
-                                                .padding(.horizontal, 20).padding(.vertical, 8)
+                                                .padding(.horizontal, 20).padding(.vertical, 5)
                                                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                                                 .contentShape(Rectangle())
                                         }.buttonStyle(.borderless).disabled(state.busy || !state.valid)
                                             .accessibilityIdentifier("release-asset-\(asset.id)")
                                         if let download = state.assetDownload, download.assetID == asset.id, download.stage != .completed {
                                             ReleaseAssetDownloadStatusView(download: download, cancel: { state.cancel() }, retry: { state.download(asset) })
-                                                .padding(.horizontal, 20).padding(.bottom, 10)
+                                                .padding(.horizontal, 20).padding(.bottom, 5)
                                         }
                                     // The menu owns the full row, including the scroll wrapper's 12pt insets.
                                     }.padding(-12)
@@ -304,8 +301,6 @@ struct ReleaseDetailView: View {
             }
         }
         .navigationTitle("发行版详情")
-        .downloadCompletionNotice($state.completedDownload)
-        .alert("下载链接已复制", isPresented: $copied) { Button("好", role: .cancel) {} }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button("刷新") { state.detail(id) }.disabled(state.busy)
@@ -366,7 +361,7 @@ struct ReleaseDetailView: View {
     @ViewBuilder private func assetActions(_ asset: Asset) -> some View {
         Button("下载并保存") { state.download(asset) }.disabled(state.busy || !state.valid)
         if let link = ReleaseManagementRules.browserDownloadURL(asset.browser_download_url, repo: state.repo) {
-            Button("复制下载链接") { UIPasteboard.general.url = link; copied = true }
+            Button("复制下载链接") { UIPasteboard.general.url = link; AppFeedback.show("下载链接已复制", api: state.api) }
         }
     }
     private var deleteDescription: String {
@@ -382,6 +377,7 @@ struct ReleaseDetailView: View {
         state.run {
             try await state.api.deleteManagedRelease(target.repo, original: target.release, asset: target.asset)
             try state.check()
+            AppFeedback.show(target.asset == nil ? "发行版已删除" : "附件已删除", api: state.api)
             ReleaseManagementChanges.changed(api: state.api, repo: target.repo,
                 deletedReleaseID: target.asset == nil ? target.release.id : nil)
             if target.asset == nil { dismiss() } else { try await state.reload(id) }
@@ -640,7 +636,10 @@ struct ReleaseEditorView: View {
                     try state.check()
                     ReleaseManagementChanges.changed(api: state.api, repo: state.repo)
                 }
-                try state.check(); confirm = false; dismiss()
+                try state.check()
+                let published = !captured.draft && (original == nil || original?.draft == true)
+                AppFeedback.show(published ? "发行版已发布" : "发行版已保存", api: state.api)
+                confirm = false; dismiss()
             } catch {
                 reviewFingerprint = nil
                 throw error
@@ -729,6 +728,16 @@ struct ReleaseEditorView: View {
             }
             try state.check()
             guard plan.mayFinalize(names: attachments.map(\.name)) else { throw CancellationError() }
+            var verified: [Asset] = []; var verifiedAll = false
+            for page in 1...ReleaseManagementRules.pageLimit {
+                let batch = try await state.api.managedAssets(state.repo, id: current.id, page: page)
+                try state.check(); verified += batch
+                if batch.count < ReleaseManagementRules.pageSize { verifiedAll = true; break }
+            }
+            guard verifiedAll, attachments.allSatisfy({ item in
+                guard let acknowledged = plan.uploaded[item.name] else { return false }
+                return verified.contains { $0.id == acknowledged.id && $0.name == item.name && Int64($0.size) == item.size }
+            }) else { throw AppError(text: "整批附件最终核验未通过，请核实保留的草稿及已上传附件；未发布。") }
             current = try await state.api.managedRelease(state.repo, id: current.id)
             try state.check(); guard current.draft else { throw AppError(text: "草稿状态已变化，请刷新核实。") }
             plan.finalizing()
