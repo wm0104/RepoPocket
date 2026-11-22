@@ -95,7 +95,7 @@ enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error
  var added: [String] = []
  var accountErrors: [Error] = []
  var accountAttempts = 0
- func addAccount(token: String, expectedAccountID: String? = nil, grantedScopes: String? = nil) async throws {
+ func addAccount(token: String, expectedAccountID: String? = nil, grantedScopes: String? = nil, requireProfileWrite: Bool = false) async throws {
    try Task.checkCancellation(); guard isCurrentSession else { throw CancellationError() }
    accountAttempts += 1
    if !accountErrors.isEmpty { throw accountErrors.removeFirst() }

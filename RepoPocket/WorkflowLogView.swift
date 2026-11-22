@@ -58,7 +58,10 @@ struct WorkflowLogReader: View {
                     SourceCodeView(text: showingRaw ? presentation.rawText : presentation.displayText, filename: "output.log",
                                    logLines: showingRaw ? [] : presentation.lines, revealRequest: revealRequest)
                 }
-            } else { ProgressView("准备日志显示…") }
+            } else {
+                VStack(alignment: .leading) { ProgressView("准备日志显示…") }
+                    .padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         }.task(id: rawText) {
             let raw = rawText
             let worker = Task.detached(priority: .utility) { try WorkflowLogPresentation(rawText: raw) }

@@ -36,6 +36,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Read package version
+        run: echo "APP_VERSION=$(python3 Scripts/automatic_release.py version)" >> "$GITHUB_ENV"
       - name: Select Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
       - name: Prepare real download transport simulator
@@ -152,6 +154,8 @@ jobs:
         run: python3 Tests/test_content_zoom.py
       - name: Test full workflow logs and read-only line decorations
         run: python3 Tests/test_workflow_log_presentation.py
+      - name: Test real workflow summary content and existing reader integration
+        run: python3 Tests/test_workflow_job_summary.py
       - name: Test compact settings and native menu actions
         run: python3 Tests/test_settings_layout.py
       - name: Test live theme selection and official releases in-app routing
@@ -192,6 +196,8 @@ jobs:
         run: python3 Tests/test_four_packages_workflow.py
       - name: Test current app, share extension and Debian release version
         run: python3 Tests/test_current_release_version.py
+      - name: Test strictly newer releases, authored notes and verified artifact publication
+        run: python3 Tests/test_auto_release.py
       - name: Test integrated upload release and external file routes
         run: python3 Tests/test_flow_integration.py
       - name: Test iOS 15 compatibility and context-specific menu routes
@@ -255,6 +261,8 @@ jobs:
         run: python3 Tests/test_user_follow.py
       - name: Test community reads, pagination, filters and OAuth rules
         run: python3 Tests/test_community.py
+      - name: Test first login and additional accounts with social authorization
+        run: python3 Tests/test_oauth_login.py
       - name: Test local social platform icons and general link editor
         run: python3 Tests/test_social_platforms.py
       - name: Test complete native UI failure diagnostics
@@ -373,16 +381,16 @@ jobs:
             echo 'Unexpected high refresh-rate opt-in in packaged app'
             exit 1
           fi
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "1.2.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "$APP_VERSION"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")" = "15.0"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UIFileSharingEnabled' "$APP/Info.plist")" = "true"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSSupportsOpeningDocumentsInPlace' "$APP/Info.plist")" = "true"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "1.2.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "$APP_VERSION"
           test "$(lipo -archs "$APP/RepoPocket")" = "arm64"
           EXT="$APP/PlugIns/RepoPocketShare.appex"
           test -d "$EXT"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "1.2.5"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "1.2.5"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$EXT/Info.plist")" = "$APP_VERSION"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT/Info.plist")" = "$APP_VERSION"
           test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$EXT/Info.plist")" = "15.0"
           codesign --force --sign - --entitlements ShareExtension/Entitlements.plist "$EXT"
           codesign --verify --strict "$EXT"
@@ -412,10 +420,12 @@ jobs:
           bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor roothide --sign-mode preserve
           bash Scripts/package-deb.sh --app "$APP" --output "$PWD/dist" --flavor rootless --sign-mode preserve
           cd dist
-          test -s RepoPocket_1.2.5_iphoneos-arm64e.deb
-          test -s RepoPocket_1.2.5_iphoneos-arm64.deb
-          shasum -a 256 RepoPocket.ipa RepoPocket.tipa RepoPocket_1.2.5_iphoneos-arm64e.deb RepoPocket_1.2.5_iphoneos-arm64.deb > SHA256SUMS
+          test -s "RepoPocket_${APP_VERSION}_iphoneos-arm64e.deb"
+          test -s "RepoPocket_${APP_VERSION}_iphoneos-arm64.deb"
+          shasum -a 256 RepoPocket.ipa RepoPocket.tipa "RepoPocket_${APP_VERSION}_iphoneos-arm64e.deb" "RepoPocket_${APP_VERSION}_iphoneos-arm64.deb" > SHA256SUMS
           shasum -a 256 -c SHA256SUMS
+          cd ..
+          python3 Scripts/automatic_release.py manifest --assets dist
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.validate_only }}
         with:
@@ -424,11 +434,12 @@ jobs:
             dist/RepoPocket.ipa
             dist/RepoPocket.ipa.sha256
             dist/RepoPocket.tipa
-            dist/RepoPocket_1.2.5_iphoneos-arm64e.deb
-            dist/RepoPocket_1.2.5_iphoneos-arm64.deb
+            dist/RepoPocket_*_iphoneos-arm64e.deb
+            dist/RepoPocket_*_iphoneos-arm64.deb
             dist/*.deb.sha256
             dist/*.deb.verification.json
             dist/SHA256SUMS
+            dist/build-info.json
           retention-days: 30
       - name: Package optional update probe
         if: ${{ inputs.build_update_probe && !inputs.validate_only }}
@@ -493,3 +504,26 @@ jobs:
             app-preview.log
             style-tests.log
             style-tests.xcresult
+  publish:
+    name: Publish a newer stable version
+    needs: build
+    if: ${{ needs.build.result == 'success' && !inputs.validate_only && !inputs.fork_people_only && !inputs.build_update_probe && github.repository == 'wm0104/RepoPocket' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/test') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: repopocket-stable-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: RepoPocket
+          path: dist
+      - name: Verify the build and publish only a higher version with its notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/automatic_release.py publish --assets dist --sha "$GITHUB_SHA"

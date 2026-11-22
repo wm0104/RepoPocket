@@ -40,7 +40,7 @@ class CompactSocialActivityGroupsTests(unittest.TestCase):
                           '.onDisappear { state.cancelReading(); pendingDeletion = nil }',
                           'Task { await state.delete(target, api: api) }',
                           '.disabled(state.busy)', '.interactiveDismissDisabled(state.busy)',
-                          'DeviceOAuthView(api: api, writeProfile: true)']:
+                          'DeviceOAuthView(api: api, writeProfile: true, reauthorizing: true)']:
             self.assertIn(unchanged, text)
 
     def test_activity_calendar_selected_events_and_pagination_are_sibling_rows(self):

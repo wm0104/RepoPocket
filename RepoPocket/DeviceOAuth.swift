@@ -91,7 +91,7 @@ final class DeviceOAuthRedirectPolicy: NSObject, URLSessionTaskDelegate {
         operation = UUID(); task?.cancel(); task = nil; busy = false
         userCode = ""; verificationURL = nil
     }
-    func start(clientID: String, privateRepositories: Bool, followUsers: Bool = false, writeProfile: Bool = false, api: GitHub, completed: @escaping () -> Void) {
+    func start(clientID: String, privateRepositories: Bool, followUsers: Bool = false, writeProfile: Bool = false, expectedAccountID: String? = nil, api: GitHub, completed: @escaping () -> Void) {
         cancel(); message = ""; busy = true
         let identifier = operation
         task = Task { @MainActor in
@@ -99,7 +99,7 @@ final class DeviceOAuthRedirectPolicy: NSObject, URLSessionTaskDelegate {
             do {
                 let client = try DeviceOAuthRules.clientID(clientID)
                 let scope = DeviceOAuthRules.scope(privateRepositories: privateRepositories, followUsers: followUsers, writeProfile: writeProfile,
-                                                  preserving: writeProfile ? (api.oauthScopes ?? []) : [])
+                                                  preserving: expectedAccountID != nil ? (api.oauthScopes ?? []) : [])
                 let code: DeviceAuthorization = try await post("/login/device/code", fields: ["client_id": client, "scope": scope])
                 let url = try DeviceOAuthRules.validate(code)
                 try Task.checkCancellation(); guard operation == identifier, api.isCurrentSession else { return }
@@ -134,7 +134,7 @@ final class DeviceOAuthRedirectPolicy: NSObject, URLSessionTaskDelegate {
                             try Task.checkCancellation()
                             guard operation == identifier, api.isCurrentSession else { return }
                             do {
-                                try await api.addAccount(token: token, expectedAccountID: writeProfile ? api.accountID : nil, grantedScopes: result.scope)
+                                try await api.addAccount(token: token, expectedAccountID: expectedAccountID, grantedScopes: result.scope, requireProfileWrite: writeProfile)
                                 break
                             } catch {
                                 try Task.checkCancellation()

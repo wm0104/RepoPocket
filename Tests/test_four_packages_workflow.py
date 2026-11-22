@@ -35,13 +35,14 @@ class FourPackageWorkflowTests(unittest.TestCase):
         self.assertIn('roothide',package)
         self.assertIn('rootless',package)
         self.assertIn('if: ${{ !inputs.validate_only }}',package)
-        self.assertNotIn('gh release',w)
-        self.assertNotIn('contents: write',w)
+        build = w.split('\n  publish:', 1)[0]
+        self.assertNotIn('gh release', build)
+        self.assertNotIn('contents: write', build)
 
     def test_original_identity_and_trollstore_entitlements_unchanged(self):
         project=(ROOT/'project.yml').read_text()
         self.assertIn('PRODUCT_BUNDLE_IDENTIFIER: com.wm0104.RepoPocket',project)
-        self.assertIn('MARKETING_VERSION: "1.2.5"',project)
+        self.assertRegex(project, r'MARKETING_VERSION: "\d+\.\d+\.\d+"')
         ent=(ROOT/'Entitlements.plist').read_text()
         self.assertIn('TROLLTROLL.com.wm0104.RepoPocket',ent)
         self.assertIn('com.apple.private.security.no-sandbox',ent)

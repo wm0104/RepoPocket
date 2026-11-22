@@ -9,11 +9,13 @@ import SwiftUI
     @State private var privateRepositories = false
     @State private var followUsers = false
     @State private var writeProfile: Bool
-    init(api: GitHub, writeProfile: Bool = false) {
+    let reauthorizing: Bool
+    init(api: GitHub, writeProfile: Bool = false, reauthorizing: Bool = false) {
         self.api = api
+        self.reauthorizing = reauthorizing
         _writeProfile = State(initialValue: writeProfile)
-        _privateRepositories = State(initialValue: writeProfile && (api.oauthScopes?.contains("repo") == true))
-        _followUsers = State(initialValue: writeProfile && (api.oauthScopes?.contains("user:follow") == true))
+        _privateRepositories = State(initialValue: reauthorizing && writeProfile && (api.oauthScopes?.contains("repo") == true))
+        _followUsers = State(initialValue: reauthorizing && writeProfile && (api.oauthScopes?.contains("user:follow") == true))
     }
     var body: some View {
         Form {
@@ -25,7 +27,7 @@ import SwiftUI
                 if followUsers { SoftGroupRow("follow-help") { Text("额外请求 user:follow 权限，用于管理当前账号的关注关系。").font(.caption).foregroundStyle(.secondary) } }
                 SoftGroupRow("profile") { Toggle("授权社交账号管理", isOn: $writeProfile).disabled(controller.busy).accessibilityIdentifier("oauth-write-profile") }
                 if writeProfile { SoftGroupRow("profile-help") { Text("请求 user 账号权限，用于写入公开资料和社交链接，也包含邮箱读取及关注关系管理，并非只限社交链接。").font(.caption).foregroundStyle(.secondary) } }
-                if writeProfile, api.oauthScopes?.isEmpty == false {
+                if reauthorizing, writeProfile, api.oauthScopes?.isEmpty == false {
                     SoftGroupRow("retained-scopes") { Text("同时保留当前凭据已确认的权限：" + (api.oauthScopes ?? []).joined(separator: "、")).font(.caption).foregroundStyle(.secondary) }
                 }
                 SoftGroupRow("help") { Text("请求 \(writeProfile ? "user" : "read:user")、\(privateRepositories ? "repo" : "public_repo") 权限。私有仓库及某些管理操作可继续使用原来的 Token 登录。")
@@ -45,7 +47,7 @@ import SwiftUI
                 } else {
                     SoftGroupRow("start") {
                     Button("开始授权") {
-                        controller.start(clientID: clientID, privateRepositories: privateRepositories, followUsers: followUsers, writeProfile: writeProfile, api: api) { presentation.showing = false }
+                        controller.start(clientID: clientID, privateRepositories: privateRepositories, followUsers: followUsers, writeProfile: writeProfile, expectedAccountID: reauthorizing ? api.accountID : nil, api: api) { presentation.showing = false }
                     }.disabled((try? DeviceOAuthRules.clientID(clientID)) == nil)
                     }
                 }
