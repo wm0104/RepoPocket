@@ -877,7 +877,7 @@ final class GitHub: ObservableObject {
         AccountStore.updateAuthorization(accountID, scopes: oauthScopes, profileWriteAccess: allowed)
         profileWriteAuthorization = allowed
     }
-    func addAccount(token: String, expectedAccountID: String? = nil, grantedScopes: String? = nil) async throws {
+    func addAccount(token: String, expectedAccountID: String? = nil, grantedScopes: String? = nil, requireProfileWrite: Bool = false) async throws {
         try ensureActiveAccount()
         // Validate before replacing any existing credential. No secrets enter metadata or logs.
         var request = URLRequest(url: URL(string: "https://api.github.com/user")!)
@@ -894,7 +894,7 @@ final class GitHub: ObservableObject {
             throw AppError(text: "浏览器授权的账号与当前账号不同，请在 GitHub 切换到当前账号后重试。原账号凭据未修改。")
         }
         let scopes = GitHubAccount.grantedScopes((response as? HTTPURLResponse)?.value(forHTTPHeaderField: "X-OAuth-Scopes") ?? grantedScopes)
-        if expectedAccountID != nil, let scopes, !scopes.contains("user") {
+        if (requireProfileWrite && scopes?.contains("user") != true) || (expectedAccountID != nil && scopes?.contains("user") == false) {
             throw AppError(text: "GitHub 未授予社交账号管理所需的 user 权限，原账号凭据未修改。")
         }
         let account = GitHubAccount(id: String(id), login: user.login, avatarURL: user.avatar_url, oauthScopes: scopes)

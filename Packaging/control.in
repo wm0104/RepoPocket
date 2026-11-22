@@ -12,4 +12,4 @@ Homepage: https://github.com/wm0104/RepoPocket
 Description: iOS GitHub 客户端，支持仓库浏览、代码编辑、上传发布与本地 Git 管理。
 Icon: https://wm0104.github.io/repo/depictions/com.wm0104.repopocket/icon.png
 SileoDepiction: https://wm0104.github.io/repo/depictions/com.wm0104.repopocket/depiction.json
-X-RepoPocket-Changelog: 1.2.5 | 2026-11-19 | 统一旋转进度圆环与操作成功轻提示。
+X-RepoPocket-Changelog: 1.2.6 | 2026-11-22 | 修复浏览器授权账号校验，增加工作流摘要并优化运行日志展示。

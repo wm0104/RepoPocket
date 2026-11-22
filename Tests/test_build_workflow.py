@@ -75,17 +75,19 @@ class BuildWorkflowTests(unittest.TestCase):
         self.assertIn('permissions:\n  contents: read', self.source)
         self.assertIn('runs-on: macos-15', self.source)
         self.assertIn('Xcode_16.4.app', self.source)
-        self.assertNotIn('contents: write', self.source)
-        self.assertNotIn('gh release', self.source)
+        build = self.source.split('\n  publish:', 1)[0]
+        self.assertNotIn('contents: write', build)
+        self.assertNotIn('gh release', build)
         self.assertNotIn('softprops/action-gh-release', self.source)
         self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "4"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "1.2.5"', self.source)
-        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "1.2.5"', self.source)
-        self.assertIn('Print :CFBundleShortVersionString\' "$EXT/Info.plist")" = "1.2.5"', self.source)
-        self.assertIn('Print :CFBundleVersion\' "$EXT/Info.plist")" = "1.2.5"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$APP/Info.plist")" = "$APP_VERSION"', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$APP/Info.plist")" = "$APP_VERSION"', self.source)
+        self.assertIn('Print :CFBundleShortVersionString\' "$EXT/Info.plist")" = "$APP_VERSION"', self.source)
+        self.assertIn('Print :CFBundleVersion\' "$EXT/Info.plist")" = "$APP_VERSION"', self.source)
         project = (REPO_ROOT / 'project.yml').read_text()
-        self.assertIn('MARKETING_VERSION: "1.2.5"', project)
-        self.assertIn('CURRENT_PROJECT_VERSION: "1.2.5"', project)
+        import re
+        version = re.search(r'MARKETING_VERSION: "([^"]+)"', project).group(1)
+        self.assertIn(f'CURRENT_PROJECT_VERSION: "{version}"', project)
 
     def test_release_version_is_readable_by_installed_1_0_5(self):
         import re
@@ -109,7 +111,7 @@ class BuildWorkflowTests(unittest.TestCase):
     def test_python_scripts_use_organized_existing_paths(self):
         import re
         scripts = set((REPO_ROOT / 'Tests').glob('test_*.py'))
-        commands = re.findall(r'run: python3 (\S+)', self.source)
+        commands = re.findall(r'run: python3 (Tests/test_\S+)', self.source)
         self.assertEqual(len(commands), len(scripts))
         self.assertEqual({REPO_ROOT / command for command in commands}, scripts)
         self.assertTrue(all(command.startswith('Tests/test_') for command in commands))

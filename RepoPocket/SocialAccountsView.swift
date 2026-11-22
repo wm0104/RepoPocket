@@ -307,7 +307,7 @@ private struct SocialAccountsAuthorizationSection: View {
                     SoftGroupRow("permission") { Text("当前授权缺少资料写入权限。").font(.caption).foregroundStyle(.secondary) }
                 }
                 SoftGroupRow("authorize") {
-                    NavigationLink("授权社交账号管理") { DeviceOAuthView(api: api, writeProfile: true) }
+                    NavigationLink("授权社交账号管理") { DeviceOAuthView(api: api, writeProfile: true, reauthorizing: true) }
                         .disabled(!api.isCurrentSession)
                         .accessibilityIdentifier(managesAccounts ? "social-account-authorize-main" : "social-account-authorize-editor")
                 }

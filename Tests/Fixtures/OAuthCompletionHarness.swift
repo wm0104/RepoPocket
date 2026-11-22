@@ -151,7 +151,7 @@ private final class CompletionProtocol: URLProtocol {
             .init(#"{"access_token":"new-alice","token_type":"bearer","scope":"user,repo,workflow"}"#),
             .init(user, scopes: "user, repo, workflow")
         ])
-        controller.start(clientID: "fixture-client", privateRepositories: true, writeProfile: true, api: api) {}
+        controller.start(clientID: "fixture-client", privateRepositories: true, writeProfile: true, expectedAccountID: "100", api: api) {}
         try await drain(controller)
         precondition(AccountStore.activeID == "100" && AccountStore.generation != generation && !api.isCurrentSession)
         precondition(CredentialStore.tokens["100"] == "new-alice" && CredentialStore.tokens["200"] == "old-bob")

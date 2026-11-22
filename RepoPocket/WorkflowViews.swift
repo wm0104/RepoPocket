@@ -420,6 +420,11 @@ struct WorkflowRunView: View {
                         Label(displayedRun.head_branch ?? "分支未知", systemImage: "arrow.triangle.branch")
                             .accessibilityIdentifier("workflow-run-branch")
                     }
+                    SoftGroupRow("job-summary") {
+                        NavigationLink { WorkflowJobSummaryView(api: api, repo: repo, run: run.id) } label: {
+                            Label("摘要", systemImage: "doc.text")
+                        }.accessibilityIdentifier("workflow-run-summary")
+                    }
                     SoftGroupRow("details") {
                         Button { UIRules.withoutAnimation { detailsExpanded.toggle() } } label: {
                             HStack { Text("运行详情"); Spacer(); Image(systemName: detailsExpanded ? "chevron.up" : "chevron.down").font(.caption).foregroundStyle(.secondary) }
@@ -447,13 +452,12 @@ struct WorkflowRunView: View {
                             Text(displayedRun.head_sha).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                                 .accessibilityLabel("提交：" + displayedRun.head_sha).accessibilityIdentifier("workflow-run-sha")
                         }
+                        SoftGroupRow("timing-help") {
+                            Text("总耗时按最后更新时间估算；任务与步骤使用各自起止时间。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     if !statusError.isEmpty { SoftGroupRow("status-error") { Text(statusError).font(.caption).foregroundStyle(.secondary) } }
-                    SoftGroupRow("timing-help") {
-                        Text("总耗时按最后更新时间估算；任务与步骤使用各自起止时间。")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
-                    }
                     SoftGroupRow("jobs-heading") { Text("任务").font(.subheadline).foregroundStyle(.secondary) }
                     for job in store.items {
                         SoftGroupRow("job-\(job.id)") {
@@ -819,7 +823,8 @@ struct WorkflowLogView: View {
             VStack(alignment: .leading) {
                 if error.isEmpty { ProgressView("加载日志…") }
                 if !error.isEmpty { Text(error); Button("重试") { revision += 1 } }
-            }.padding().frame(maxWidth: .infinity, alignment: .leading)
+            }.padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .accessibilityIdentifier("workflow-log-loading-state")
           }
         }.navigationTitle("运行日志")
         .task(id: revision) {

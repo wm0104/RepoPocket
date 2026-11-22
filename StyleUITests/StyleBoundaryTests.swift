@@ -568,6 +568,27 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(branch.exists)
         XCTAssertTrue(app.staticTexts["构建产物"].exists)
         keepScreenshot(app, name: "workflow-run-details-collapsed")
+          let summary = app.buttons["workflow-run-summary"]
+          XCTAssertTrue(summary.exists)
+          summary.tap()
+          let reset = app.buttons["content-zoom-reset"]
+          XCTAssertTrue(reset.waitForExistence(timeout: 10))
+          XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
+          let summaryHeading = app.webViews.firstMatch.descendants(matching: .any)
+              .matching(NSPredicate(format: "label == %@", "插件管理：查看清单")).firstMatch
+          XCTAssertTrue(summaryHeading.waitForExistence(timeout: 60), "Wait for the real WebContent document before testing its existing pinch gesture")
+          XCTAssertEqual(reset.value as? String, "100%")
+          app.buttons["content-zoom-in"].tap()
+          XCTAssertEqual(reset.value as? String, "110%")
+          app.buttons["content-zoom-out"].tap()
+          XCTAssertEqual(reset.value as? String, "100%")
+          app.webViews.firstMatch.pinch(withScale: 1.3, velocity: 1)
+          XCTAssertNotEqual(reset.value as? String, "100%")
+          reset.tap()
+          XCTAssertEqual(reset.value as? String, "100%")
+          XCTAssertTrue(app.buttons["workflow-summary-web"].exists)
+          app.navigationBars.buttons.element(boundBy: 0).tap()
+          XCTAssertTrue(details.waitForExistence(timeout: 10))
         for _ in 0..<3 {
             details.tap()
             XCTAssertEqual(details.value as? String, "已展开")
