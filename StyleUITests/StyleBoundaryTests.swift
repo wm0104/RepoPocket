@@ -574,6 +574,9 @@ final class StyleBoundaryTests: XCTestCase {
           let reset = app.buttons["content-zoom-reset"]
           XCTAssertTrue(reset.waitForExistence(timeout: 10))
           XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
+          let summaryHeading = app.webViews.firstMatch.descendants(matching: .any)
+              .matching(NSPredicate(format: "label == %@", "插件管理：查看清单")).firstMatch
+          XCTAssertTrue(summaryHeading.waitForExistence(timeout: 60), "Wait for the real WebContent document before testing its existing pinch gesture")
           XCTAssertEqual(reset.value as? String, "100%")
           app.buttons["content-zoom-in"].tap()
           XCTAssertEqual(reset.value as? String, "110%")
