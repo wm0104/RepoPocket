@@ -86,6 +86,17 @@ class WorkflowJobSummaryTests(unittest.TestCase):
             subprocess.run(['swiftc', '-swift-version', '5', '-parse-as-library', str(source), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=30)
 
+    def test_login_result_returns_to_the_existing_reader_and_drops_on_account_change(self):
+        source = (ROOT / 'RepoPocket/WorkflowJobSummaryView.swift').read_text(encoding='utf-8')
+        self.assertIn('WorkflowSummaryLoginView(', source)
+        self.assertIn('登录并读取摘要', source)
+        self.assertIn('authenticatedSummary', source)
+        self.assertIn('context == summaryContext && api.isCurrentSession', source)
+        self.assertIn('onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged))', source)
+        self.assertIn('authenticatedSummary = nil; showingLogin = false', source)
+        self.assertIn('ReadmeHTMLView(html: html', source)
+        self.assertIn('ContentZoomControls(scale:', source)
+
     def test_reader_reuses_existing_zoom_and_browser_instead_of_an_image(self):
         source = (ROOT / 'RepoPocket/WorkflowJobSummaryView.swift').read_text(encoding='utf-8')
         for component in ['ReadmeHTMLView(', 'ContentZoomControls(scale:', 'scrolling: true', 'ReadingLinkDestination(', 'InAppLinkButton(', 'api.isCurrentSession']:

@@ -10,6 +10,12 @@ struct WorkflowJobSummaryView: View {
     @State private var scale = 1.0
     @State private var renderError = ""
     @State private var readingLink: ReadingLink?
+    @State private var showingLogin = false
+    @State private var authenticatedSummary: (context: String, html: String)?
+    private var summaryContext: String { repo + "\n" + String(run) + "\n" + api.accountID + "\n" + AccountStore.generation.uuidString }
+    private var summaryHTML: String? {
+        initialHTML ?? (authenticatedSummary?.context == summaryContext ? authenticatedSummary?.html : nil) ?? state.value
+    }
     private var sourceURL: URL? { try? WorkflowJobSummaryRules.url(repo, run: run) }
     init(api: GitHub, repo: String, run: Int, initialHTML: String? = nil) {
         self.api = api; self.repo = repo; self.run = run; self.initialHTML = initialHTML
@@ -32,7 +38,7 @@ struct WorkflowJobSummaryView: View {
                 InAppLinkButton(url: sourceURL, api: nil) { Label("在 GitHub 查看原始摘要", systemImage: "safari") }
                     .disabled(!api.isCurrentSession).accessibilityIdentifier("workflow-summary-web")
             }
-            if let html = initialHTML ?? state.value, api.isCurrentSession, renderError.isEmpty {
+            if let html = summaryHTML, api.isCurrentSession, renderError.isEmpty {
                 ContentZoomControls(scale: $scale).frame(maxWidth: .infinity, alignment: .trailing)
                 ReadmeHTMLView(html: html, baseURL: sourceURL, scrolling: true, scale: scale, height: .constant(0),
                     onScaleChange: { scale = $0 }, onFailure: { renderError = $0 }) { readingLink = ReadingLink(url: $0) }
@@ -43,12 +49,30 @@ struct WorkflowJobSummaryView: View {
                 if !state.error.isEmpty { Text(state.error).font(.callout).foregroundStyle(.secondary) }
                 if !renderError.isEmpty { Text(renderError).font(.callout).foregroundStyle(.secondary) }
                 if !state.error.isEmpty || !renderError.isEmpty {
-                    Button("重试") { renderError = ""; revision += 1 }.disabled(!api.isCurrentSession)
+                    if summaryHTML == nil {
+                        Button("登录并读取摘要") { showingLogin = true }
+                            .disabled(!api.isCurrentSession || api.login.isEmpty)
+                            .accessibilityIdentifier("workflow-summary-login")
+                        Text("网页登录只用于取得摘要，正文仍在本页排版阅读。临时登录不会与 Safari 共用，关闭登录页后不保留。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button("重试") { refresh() }.disabled(!api.isCurrentSession)
                 }
             }
         }.padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .navigationTitle("摘要").navigationBarTitleDisplayMode(.inline).adaptiveWorkspaceLayout()
-            .toolbar { Button("刷新") { renderError = ""; revision += 1 }.disabled(!api.isCurrentSession) }
+            .toolbar { Button("刷新") { refresh() }.disabled(!api.isCurrentSession) }
+            .sheet(isPresented: $showingLogin) {
+                let context = summaryContext
+                WorkflowSummaryLoginView(api: api, repo: repo, run: run) { html in
+                    guard context == summaryContext && api.isCurrentSession else { return }
+                    authenticatedSummary = (context, html); renderError = ""; showingLogin = false
+                }
+                .id(context)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .githubAccountChanged)) { _ in
+                authenticatedSummary = nil; showingLogin = false; readingLink = nil
+            }
             .sheet(item: $readingLink) { ReadingLinkDestination(url: $0.url, api: api) { readingLink = nil } }
             .task(id: [repo, String(run), api.accountID, AccountStore.generation.uuidString, String(revision)]) {
                 guard initialHTML == nil else { return }
@@ -56,5 +80,9 @@ struct WorkflowJobSummaryView: View {
                     refresh: revision > 0, operation: { try await api.workflowJobSummary(repo, run: run) },
                     isValid: { api.isCurrentSession })
             }
+    }
+
+    private func refresh() {
+        authenticatedSummary = nil; renderError = ""; revision += 1
     }
 }
