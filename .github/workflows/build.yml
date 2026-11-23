@@ -154,10 +154,6 @@ jobs:
         run: python3 Tests/test_content_zoom.py
       - name: Test full workflow logs and read-only line decorations
         run: python3 Tests/test_workflow_log_presentation.py
-      - name: Test real workflow summary content and existing reader integration
-        run: python3 Tests/test_workflow_job_summary.py
-      - name: Test isolated summary login and native reader handoff
-        run: python3 Tests/test_workflow_summary_login.py
       - name: Test compact settings and native menu actions
         run: python3 Tests/test_settings_layout.py
       - name: Test live theme selection and official releases in-app routing

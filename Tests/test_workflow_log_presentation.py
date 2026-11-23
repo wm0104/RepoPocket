@@ -9,6 +9,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkflowLogPresentationTests(unittest.TestCase):
+    def test_run_keeps_jobs_and_artifacts_without_the_removed_summary(self):
+        views = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8')
+        self.assertNotIn('WorkflowJobSummaryView', views)
+        self.assertNotIn('workflow-run-summary', views)
+        self.assertNotIn('SoftGroupRow("job-summary")', views)
+        metrics = (ROOT / 'RepoPocket/WorkflowSummaryUI.swift').read_text(encoding='utf-8')
+        self.assertIn('WorkflowArtifactsView(api:', metrics)
+        for name in ['WorkflowJobView(api:', 'WorkflowRunHeading(', 'WorkflowRunMetrics(']:
+            self.assertIn(name, views)
+        for name in ['RepoPocket/WorkflowJobSummary.swift', 'RepoPocket/WorkflowJobSummaryView.swift',
+                     'RepoPocket/WorkflowSummaryLogin.swift', 'Tests/test_workflow_job_summary.py',
+                     'Tests/test_workflow_summary_login.py', 'Tests/Fixtures/workflow-job-summary.html']:
+            self.assertFalse((ROOT / name).exists(), name)
+
     def test_refresh_finishes_layout_before_restoring_the_saved_reading_offset(self):
         surface = (ROOT / 'RepoPocket/SourceTextSurface.swift').read_text(encoding='utf-8')
         restore = surface.split('} else if let offset = pendingReadingOffset, height > 0 {', 1)[1].split('gutter.setNeedsDisplay()', 1)[0]

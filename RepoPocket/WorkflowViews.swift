@@ -420,11 +420,6 @@ struct WorkflowRunView: View {
                         Label(displayedRun.head_branch ?? "分支未知", systemImage: "arrow.triangle.branch")
                             .accessibilityIdentifier("workflow-run-branch")
                     }
-                    SoftGroupRow("job-summary") {
-                        NavigationLink { WorkflowJobSummaryView(api: api, repo: repo, run: run.id) } label: {
-                            Label("摘要", systemImage: "doc.text")
-                        }.accessibilityIdentifier("workflow-run-summary")
-                    }
                     SoftGroupRow("details") {
                         Button { UIRules.withoutAnimation { detailsExpanded.toggle() } } label: {
                             HStack { Text("运行详情"); Spacer(); Image(systemName: detailsExpanded ? "chevron.up" : "chevron.down").font(.caption).foregroundStyle(.secondary) }
