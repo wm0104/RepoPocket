@@ -415,7 +415,7 @@ struct ReleaseEditorView: View {
     @State private var plan = ReleasePublishPlan()
     @State private var retainedDraft: ManagedRelease?
     private var publishingExistingDraft: Bool { original?.draft == true && !form.draft }
-    private var selectedTarget: String { original?.target_commitish ?? form.branch }
+    private var selectedTarget: String { publishingExistingDraft ? (original?.target_commitish ?? "") : form.branch }
     private var actionTitle: String { original != nil ? "保存" : (form.draft ? "保存草稿" : "发布") }
     init(api: GitHub, repo: String, original: ManagedRelease?, initialBranch: String = "", initialFiles: [URL] = [], allowsRepositorySelection: Bool = false) {
         self.initialFiles = initialFiles

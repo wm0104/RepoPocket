@@ -121,7 +121,7 @@ final class GitHub {
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
         self.assertIn('if let retained = plan.targetSHA {\n                    reviewHead = retained', ui)
         self.assertIn('original?.draft == true && !form.draft', ui)
-        self.assertIn('original?.target_commitish ?? form.branch', ui)
+        self.assertIn('publishingExistingDraft ? (original?.target_commitish ?? "") : form.branch', ui)
         self.assertIn('if original == nil || publishingExistingDraft', production_method(ui, '    private func fingerprint('))
         operation = production_method(ui, '    private func performConfirmedRelease(')
         self.assertLess(operation.index('fingerprint() == authorized'), operation.index('captured.branch = reviewHead'))
