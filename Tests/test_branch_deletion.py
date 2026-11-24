@@ -72,6 +72,7 @@ class BranchDeletionContracts(unittest.TestCase):
             executable = str(Path(folder) / 'delete-branch')
             subprocess.run(['swiftc', '-parse-as-library', str(main), '-o', executable], check=True)
             subprocess.run([executable], check=True, timeout=60)
+            subprocess.run([executable, '--stream-body'], check=True, timeout=60)
 
 
 @unittest.skipUnless(platform.system() == 'Darwin', 'macOS required for Objective-C/Foundation production bridge')
@@ -172,15 +173,37 @@ final class BranchFixture: URLProtocol {
     static var switchOnBranchRead = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    private func captureBody(_ incoming: URLRequest) throws -> Data {
+        if let data = incoming.httpBody { return data }
+        guard let stream = incoming.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 256)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count >= 0 else { throw stream.streamError ?? URLError(.cannotDecodeRawData) }
+            if count == 0 { return data }
+            data.append(buffer, count: count)
+        }
+    }
     override func startLoading() {
-        Self.requests.append(request)
+        var incoming = request
+        if CommandLine.arguments.contains("--stream-body"), incoming.httpMethod == "POST" {
+            if let data = incoming.httpBody { incoming.httpBodyStream = InputStream(data: data) }
+            precondition(incoming.httpBody == nil && incoming.httpBodyStream != nil)
+        }
+        let bodyBytes: Data
+        do { bodyBytes = try captureBody(incoming) }
+        catch { client?.urlProtocol(self, didFailWithError: error); return }
         Task { @MainActor in
+            Self.requests.append(request)
             let path = request.url!.path
             let payload: [String: Any]
             let status: Int
             if path == "/graphql" {
                 status = Self.status
-                let body = try! JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+                let body = try! JSONSerialization.jsonObject(with: bodyBytes) as! [String: Any]
                 let input = (body["variables"] as! [String: Any])["input"] as! [String: Any]
                 let updates = input["refUpdates"] as! [[String: Any]]
                 precondition(updates.count == 1 && input["repositoryId"] as? String == "repo-node")
@@ -190,6 +213,8 @@ final class BranchFixture: URLProtocol {
                 payload = Self.rejectLease ? ["errors": [["message": "beforeOid mismatch"]]] :
                     ["data": ["updateRefs": ["clientMutationId": input["clientMutationId"]!]]]
             } else if path.hasSuffix("/rename") {
+                let body = try! JSONSerialization.jsonObject(with: bodyBytes) as! [String: String]
+                precondition(body == ["new_name": "renamed"])
                 status = 201; payload = ["name": "renamed", "protected": false, "commit": ["sha": Self.head]]
             } else if path.contains("/branches/") {
                 if Self.switchOnBranchRead { AccountStore.generation = UUID() }
@@ -253,8 +278,6 @@ final class BranchFixture: URLProtocol {
         precondition(renamed.name == "renamed")
         let writes = BranchFixture.requests.filter { $0.httpMethod != "GET" }
         precondition(writes.count == 1 && writes[0].url!.path.hasSuffix("/rename"))
-        let body = try JSONSerialization.jsonObject(with: writes[0].httpBody!) as! [String: String]
-        precondition(body == ["new_name": "renamed"])
         BranchFixture.reset()
         let stale = GitHub(); AccountStore.generation = UUID()
         do { try await remove(stale); preconditionFailure("stale account accepted") } catch {}
