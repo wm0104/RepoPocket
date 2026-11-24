@@ -840,16 +840,16 @@ final class StyleBoundaryTests: XCTestCase {
         let manage = app.buttons["localgit.branches"]
         XCTAssertTrue(manage.waitForExistence(timeout: 40)); tapReady(manage, in: app)
         let create = app.buttons["从当前 HEAD 新建并切换"]
-        XCTAssertTrue(create.waitForExistence(timeout: 15)); create.tap()
+        XCTAssertTrue(create.waitForExistence(timeout: 15)); tapReady(create, in: app)
         let alert = app.alerts["从当前 HEAD 新建并切换"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         XCTAssertTrue(alert.buttons["新建并切换"].exists, "The empty-field alert must still show its confirmation button")
-        alert.buttons["取消"].tap(); create.tap()
+        alert.buttons["取消"].tap(); tapReady(create, in: app)
         let field = alert.textFields["新分支名称"]
         XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); dismissKeyboardIntroduction(app); field.typeText("bad..name")
         let confirm = alert.buttons["新建并切换"]
         XCTAssertTrue(confirm.isHittable); keepScreenshot(app, name: "local-branch-create-confirmation"); confirm.tap()
-        let failure = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "分支名称")).firstMatch
+        let failure = app.staticTexts["分支名称无效。"]
         XCTAssertTrue(failure.waitForExistence(timeout: 15), "Invalid names must show the native validation error, not silently close")
         XCTAssertFalse(app.staticTexts["已创建并切换到本地分支：bad..name"].exists)
     }
@@ -1357,10 +1357,9 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(token.waitForExistence(timeout: 5))
         token.tap(); token.typeText("fixture-charlie")
         app.buttons["验证并安全保存"].tap()
-        let authorization = app.alerts["GitHub 授权成功"]
-        XCTAssertTrue(authorization.waitForExistence(timeout: 10))
-        XCTAssertTrue(authorization.staticTexts["授权成功，账号 @fixture-charlie 已保存。"].exists)
-        authorization.buttons["好"].tap()
+        let feedback = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@ AND label == %@", "app-success-feedback", "GitHub 授权成功")).firstMatch
+        XCTAssertTrue(feedback.waitForExistence(timeout: 10))
         let active = app.staticTexts["fixture-active-account"]
         let completed = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == '303' AND hittable == true"), object: active)], timeout: 20) == .completed
         if !completed {
@@ -1369,6 +1368,10 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(completed,
                       "The current account session must verify and save the new account: " + app.debugDescription)
         if switchFirst { keepScreenshot(app, name: "account-session-after-switch") }
+        app.buttons["打开账号管理"].tap()
+        let details = app.staticTexts["授权成功，账号 @fixture-charlie 已保存。"]
+        if !details.isHittable { app.swipeUp() }
+        XCTAssertTrue(details.waitForExistence(timeout: 10))
     }
     func testLocalChangeDeletionUsesGuardedConfirmationAndCanCancel() {
         continueAfterFailure = false

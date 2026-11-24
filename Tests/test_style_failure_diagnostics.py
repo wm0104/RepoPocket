@@ -564,16 +564,16 @@ print("PASS production native switch geometry: Actions, 2pt overflow, sibling an
         self.assertIn('2>&1 | tee style-tests.log ||', script)
         self.assertIn('log show --last 30m', script)
 
-    def test_account_addition_confirms_success_before_checking_the_active_account(self):
+    def test_account_addition_checks_success_feedback_active_account_and_saved_details(self):
         source = (Path(__file__).resolve().parents[1] / 'StyleUITests/StyleBoundaryTests.swift').read_text(encoding='utf-8')
         addition = source.split('    private func exerciseAccountAddition(', 1)[1].split('\n    func ', 1)[0]
-        notice = 'let authorization = app.alerts["GitHub 授权成功"]'
-        self.assertIn(notice, addition)
-        self.assertIn('authorization.waitForExistence(timeout: 10)', addition)
-        self.assertIn('authorization.staticTexts["授权成功，账号 @fixture-charlie 已保存。"].exists', addition)
-        self.assertLess(addition.index('authorization.buttons["好"].tap()'),
-                        addition.index('let active = app.staticTexts["fixture-active-account"]'))
-        self.assertIn("label == '303' AND hittable == true", addition)
+        saved = addition.split('app.buttons["验证并安全保存"].tap()', 1)[1]
+        self.assertIn('app-success-feedback', saved)
+        self.assertIn('GitHub 授权成功', saved)
+        self.assertNotIn('app.alerts', saved)
+        active, reopened = saved.split('app.buttons["打开账号管理"].tap()', 1)
+        self.assertIn("label == '303' AND hittable == true", active)
+        self.assertIn('app.staticTexts["授权成功，账号 @fixture-charlie 已保存。"]', reopened)
 
     def test_focused_scope_keeps_all_five_failed_cases(self):
         root = Path(__file__).resolve().parents[1]

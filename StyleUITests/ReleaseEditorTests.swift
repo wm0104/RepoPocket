@@ -111,9 +111,10 @@ final class ReleaseEditorTests: XCTestCase {
         let text = "Release notes begin\n" + String(repeating: "Long native release body requires scrolling.\n", count: 24) + "Release notes end"
         body.typeText(text)
         XCTAssertTrue((body.value as? String)?.contains("Release notes end") == true)
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 15))
         app.buttons["release-fixture-dismiss-keyboard"].tap()
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
-            object: app.keyboards.firstMatch)], timeout: 5), .completed)
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 15))
     }
 
     private func attachFromInbox(_ app: XCUIApplication, capture: Bool = false) {

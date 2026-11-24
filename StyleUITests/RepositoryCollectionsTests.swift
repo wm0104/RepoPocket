@@ -50,9 +50,9 @@ final class RepositoryCollectionsTests: XCTestCase {
         app.buttons["添加已加星标的仓库"].tap()
         let item = app.buttons["star-list-add-1"]
         XCTAssertTrue(item.waitForExistence(timeout: 15)); item.tap()
-        XCTAssertTrue(app.staticTexts["star-list-add-notice"].waitForExistence(timeout: 20))
-        XCTAssertEqual(app.staticTexts["star-list-add-notice"].label, "添加成功")
+        assertAddedFeedback(app)
         XCTAssertTrue(item.exists); XCTAssertFalse(item.isEnabled)
+        XCTAssertEqual(item.value as? String, "已添加")
         app.buttons["关闭"].tap()
         let member = app.buttons["star-list-repository-R1"]
         XCTAssertTrue(member.waitForExistence(timeout: 20))
@@ -108,12 +108,15 @@ final class RepositoryCollectionsTests: XCTestCase {
         XCTAssertEqual(app.buttons["star-list-add-selected"].label, "添加(0)")
         first.tap(); second.tap()
         app.buttons["star-list-add-selected"].tap()
-        let notice = app.staticTexts["star-list-add-notice"]
-        waitLabel(notice, contains: "2/2")
-        XCTAssertTrue(first.exists); XCTAssertFalse(first.isEnabled); XCTAssertFalse(second.isEnabled)
+        assertAddedFeedback(app)
+        for item in [first, second] {
+            XCTAssertTrue(item.exists); XCTAssertFalse(item.isEnabled)
+            XCTAssertEqual(item.value as? String, "已添加")
+        }
         XCTAssertFalse(app.buttons["star-list-add-selected"].isEnabled)
         screenshot(app, "star-list-multiple-added-stays-open")
         app.buttons["关闭"].tap()
+        XCTAssertTrue(app.buttons["star-list-repository-R1"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["star-list-repository-R2"].waitForExistence(timeout: 15))
         XCTAssertEqual(app.staticTexts["collection-preview-writes"].label, "分类写入：2")
     }
@@ -220,6 +223,11 @@ final class RepositoryCollectionsTests: XCTestCase {
         app.buttons["home-collection-starred"].tap()
         XCTAssertTrue(app.buttons["star-list-A"].waitForExistence(timeout: 15)); app.buttons["star-list-A"].tap()
         XCTAssertTrue(app.buttons["分类仓库操作"].waitForExistence(timeout: 15))
+    }
+    private func assertAddedFeedback(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let feedback = app.descendants(matching: .any).matching(identifier: "app-success-feedback")
+            .matching(NSPredicate(format: "label == %@", "已添加到分类")).firstMatch
+        XCTAssertTrue(feedback.exists || feedback.waitForExistence(timeout: 5), file: file, line: line)
     }
     private func waitLabel(_ element: XCUIElement, contains value: String) {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", value), object: element)
