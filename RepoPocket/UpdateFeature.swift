@@ -12,6 +12,7 @@ import ZIPFoundation
     @Published var progress: ReleaseDownloadProgress?
     @Published var downloadStage: String?
     var sharing = false
+    private var finalization: Task<Void, Never>?
     private var downloadTask: URLSessionDownloadTask?
     private var downloadSession: URLSession?
     private var delegate: UpdateDownloadDelegate?
@@ -69,6 +70,7 @@ import ZIPFoundation
     func leavePage() {
         generation = UUID(); clearNotice(); checking = false; entered = false
         // Leaving settings cancels the transfer and invalidates any late check/validation result.
+        finalization?.cancel(); finalization = nil
         downloadTask?.cancel(); downloadSession?.invalidateAndCancel()
         downloadTask = nil; downloadSession = nil; delegate = nil
         downloading = false; progress = nil; downloadStage = nil
@@ -98,6 +100,7 @@ import ZIPFoundation
     }
     func cancelDownload() {
         generation = UUID(); clearNotice()
+        finalization?.cancel(); finalization = nil
         downloadTask?.cancel(); downloadSession?.invalidateAndCancel()
         downloadTask = nil; downloadSession = nil; delegate = nil
         downloading = false; progress = nil; downloadStage = nil; message = "已取消下载。"
@@ -115,44 +118,47 @@ import ZIPFoundation
             }
         }, completion: { [weak self] result in
             Task { @MainActor in
-                defer { DownloadStore.shared.end() }
                 guard let self, self.generation == token, accountSession == AccountStore.generation,
                       self.accountGeneration == accountSession else {
-                    if case .success(let file) = result { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }; return
+                    if case .success(let file) = result { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+                    DownloadStore.shared.end()
+                    return
                 }
-                defer { if self.generation == token { self.downloading = false; self.downloadTask = nil; self.downloadSession?.finishTasksAndInvalidate(); self.downloadSession = nil; self.delegate = nil } }
-                do {
-                    let file = try result.get()
-                    self.downloadStage = "正在校验 IPA…"
-                    self.message = ""
+                self.finalization = Task {
+                    defer {
+                        DownloadStore.shared.end()
+                        if self.generation == token {
+                            self.downloading = false
+                            self.downloadTask = nil
+                            self.downloadSession?.finishTasksAndInvalidate()
+                            self.downloadSession = nil
+                            self.delegate = nil
+                            self.finalization = nil
+                        }
+                    }
                     do {
-                        let archive = try Archive(url: file, accessMode: .read)
-                        guard archive.contains(where: { $0.path.hasPrefix("Payload/") && $0.path.hasSuffix(".app/Info.plist") }) else { throw AppError(text: "下载内容不是有效的 IPA（缺少 Payload App）。") }
-                        // Exercise CRC validation without extracting untrusted paths to disk.
-                        for entry in archive {
-                            let crc = try archive.extract(entry, consumer: { _ in })
-                            guard crc == entry.checksum else { throw AppError(text: "IPA ZIP CRC 校验失败。") }
-                        }
-                        let checksumName = source.lastPathComponent + ".sha256"
-                        if let checksum = release.assets.first(where: { $0.name == checksumName }) {
-                            guard checksum.browser_download_url.scheme == "https", checksum.browser_download_url.host == "github.com", checksum.browser_download_url.path.hasPrefix("/wm0104/RepoPocket/releases/download/") else { throw AppError(text: "SHA256 附件地址不可信。") }
-                            let (data, response) = try await URLSession.shared.data(from: checksum.browser_download_url)
-                            guard self.generation == token else { throw CancellationError() }
-                            guard (response as? HTTPURLResponse)?.statusCode == 200, let text = String(data: data, encoding: .utf8), let expected = text.split(whereSeparator: { $0.isWhitespace }).first, expected.count == 64, expected.allSatisfy({ $0.isHexDigit }) else { throw AppError(text: "官方 SHA256 附件无效或下载失败。") }
-                            guard try LocalStore.snapshotFileSHA256(file) == expected.lowercased() else { throw AppError(text: "IPA SHA256 与官方附件不符，已阻止安装。") }
-                        }
+                        let file = try result.get()
+                        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+                        try Task.checkCancellation()
+                        self.downloadStage = "正在校验 IPA…"
+                        self.message = ""
+                        try await UpdatePackageVerification.verify(file, source: source, release: release)
+                        try Task.checkCancellation()
                         guard self.generation == token, accountSession == AccountStore.generation else { throw CancellationError() }
                         self.downloadStage = "正在保存…"
                         let saved = try await DownloadStore.shared.persist(file, session: accountSession)
-                        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
                         guard self.generation == token, accountSession == AccountStore.generation else { throw CancellationError() }
                         self.message = ""
                         self.downloadedBookmark = DownloadStore.shared.shareBookmark(for: saved)
                         self.downloaded = saved
-                        try Task.checkCancellation()
                         AppFeedback.show("下载完成", session: accountSession)
-                    } catch { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()); throw error }
-                } catch { if self.generation == token { self.message = (error as? URLError)?.code == .cancelled ? "已取消下载。" : "下载/校验失败：\(error.localizedDescription)" } }
+                    } catch {
+                        if self.generation == token {
+                            self.message = error is CancellationError || (error as? URLError)?.code == .cancelled
+                                ? "已取消下载。" : "下载/校验失败：\(error.localizedDescription)"
+                        }
+                    }
+                }
             }
         })
         delegate = handler
@@ -161,6 +167,32 @@ import ZIPFoundation
         downloadSession = session; downloadTask = session.downloadTask(with: source); downloadTask?.resume()
     }
 
+}
+private enum UpdatePackageVerification {
+    static func verify(_ file: URL, source: URL, release: AppUpdateRelease) async throws {
+        let asset = try release.checksumAsset(for: source)
+        let (bytes, response) = try await URLSession.shared.bytes(from: asset.browser_download_url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AppError(text: "官方 SHA256 附件下载失败。") }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < 64 * 1024 else { throw AppError(text: "官方 SHA256 附件过大。") }
+            data.append(byte)
+        }
+        let expected = try AppUpdateRules.checksum(data, ipaName: source.lastPathComponent, manifest: asset.name == "SHA256SUMS")
+        try Task.checkCancellation()
+        guard try LocalStore.snapshotFileSHA256(file) == expected else {
+            throw AppError(text: "IPA SHA256 与官方附件不符，已阻止安装。")
+        }
+        let archive = try Archive(url: file, accessMode: .read)
+        var foundInfoPlist = false
+        for entry in archive {
+            try Task.checkCancellation()
+            if entry.path.hasPrefix("Payload/"), entry.path.hasSuffix(".app/Info.plist") { foundInfoPlist = true }
+            let crc = try archive.extract(entry, consumer: { _ in try Task.checkCancellation() })
+            guard crc == entry.checksum else { throw AppError(text: "IPA ZIP CRC 校验失败。") }
+        }
+        guard foundInfoPlist else { throw AppError(text: "下载内容不是有效的 IPA（缺少 Payload App）。") }
+    }
 }
 final class UpdateDownloadDelegate: NSObject, URLSessionDownloadDelegate {
     let progress: (ReleaseDownloadProgress) -> Void

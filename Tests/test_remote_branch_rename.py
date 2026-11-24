@@ -1,4 +1,4 @@
-"""Remote branch rename: create the new ref before deleting the old one, never force."""
+"""Remote branch rename uses GitHub's rename endpoint for the selected branch."""
 from pathlib import Path
 import unittest
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,15 +12,18 @@ def body(start, end):
 
 
 class RemoteRenameContracts(unittest.TestCase):
-    def test_rename_creates_then_deletes_with_existing_guards(self):
+    def test_rename_preserves_existing_guards_and_uses_a_single_write(self):
         rename = body('    func renameBranch(', '\n    func deleteBranch(')
-        create = rename.index('"/git/refs", method: "POST"')
-        delete = rename.index('try await deleteBranch(')
-        self.assertLess(create, delete, 'commits must exist under the new ref before the old one is removed')
+        self.assertIn('+ "/rename"', rename)
+        self.assertIn('["new_name": newName]', rename)
+        self.assertIn('statusCode == 201', rename)
+        self.assertNotIn('deleteBranch(', rename)
+        self.assertNotIn('/git/refs', rename)
+        self.assertEqual(rename.count('method: "POST"'), 1)
         for token in ('DesktopRules.validBranch(newName)', 'newName != name',
                       'info.permissions?.push == true', 'name != defaultBranch',
                       'target.protected == false', 'target.commit?.sha == expectedHead',
-                      '同名远端分支已存在', '两个分支都保留'):
+                      'renamed.name == newName'):
             self.assertIn(token, rename)
         self.assertNotIn('force: true', rename)
         self.assertNotIn('method: "PATCH"', rename)

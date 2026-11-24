@@ -1,4 +1,4 @@
-"""Language-specific production lexer and bounded automatic text loading."""
+"""Production source language selection and bounded text loading."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -10,29 +10,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(shutil.which('swiftc'), 'Production Swift fixtures execute on macOS')
 class SourceCodeTests(unittest.TestCase):
-    def test_language_tokens_do_not_recolor_comments_or_strings(self):
+    def test_editor_label_uses_the_selected_grammar_and_text_loading_stays_bounded(self):
         fixture = r'''
 import Foundation
 @main struct Fixture {
  static func main() throws {
-  func words(_ source: String, _ filename: String, _ kind: SourceTokenKind) -> [String] {
-   SourceLexer.tokens(source, filename: filename).filter { $0.kind == kind }.map { (source as NSString).substring(with: $0.range) }
+  for (path, text, name, grammar) in [
+   ("code.PY", "", "Python", "python"), ("code.swift", "", "Swift", "swift"),
+   ("Makefile", "", "Shell", "bash"), (".zshrc", "", "Shell", "bash"),
+   ("a.js", "", "JavaScript", "javaScript"), ("a.sql", "", "SQL", "sql"),
+   ("a.json", "", "JSON", "json"), ("tool.lua", "", "Lua", "lua"),
+   ("Main.cs", "", "C#", "cSharp"), ("module.pyi", "", "Python", "python"),
+   ("tool", "#!/usr/bin/env -S python3 -u\r\nprint(1)", "Python", "python"),
+   ("tool.lua", "#!/usr/bin/env ruby", "Lua", "lua"),
+   ("pkg/DEBIAN/postinst", "", "Shell", "bash")
+  ] {
+   let language = SourceTextSyntax.language(for: path, text: text)
+   precondition(language?.name == name && language?.grammar().rawValue == grammar)
   }
-  let py = "# print(100) True\nprint(3.14, True, None, 'return 42')\ndef f():\n    return False"
-  precondition(words(py,"code.py",.keyword) == ["True","None","def","return","False"])
-  precondition(words(py,"code.py",.builtin) == ["print"])
-  precondition(words(py,"code.py",.comment) == ["# print(100) True"])
-  precondition(words(py,"code.py",.number) == ["3.14"])
-  let triple = "x = \"\"\"hello\n# not a comment\nreturn 4\"\"\"\nprint(x)"
-  precondition(words(triple,"code.py",.string).count == 1 && words(triple,"code.py",.comment).isEmpty)
-  precondition(words("let x = true // def None", "a.swift", .keyword) == ["let","true"])
-  precondition(words("const None = null;", "a.js", .keyword) == ["const","null"])
-  precondition(words("SELECT name FROM users WHERE id = 12 -- return", "a.sql", .keyword) == ["SELECT","FROM","WHERE"])
-  precondition(words("{\"private\":true,\"x\":12}", "a.json", .keyword) == ["true"])
-  precondition(SourceLexer.tokens("def True 123", filename:"note.unknown").isEmpty)
-  precondition(SourceLanguage.detect("code.PY") == .python)
-  precondition(SourceLanguage.detect("code.swift") == .swift)
-  precondition(SourceLanguage.detect("Makefile") == .shell)
+  precondition(SourceTextSyntax.language(for: "note.unknown", text: "def True 123") == nil)
   precondition(SourceTextRules.automaticallyLoads(filename:"code.py",size:353))
   precondition(SourceTextRules.automaticallyLoads(filename:"README.md",size:nil))
   precondition(!SourceTextRules.automaticallyLoads(filename:"picture.png",size:500))
@@ -41,15 +37,24 @@ import Foundation
   for bytes in [Data([0,1,2]),Data([0xff,0xfe]),Data(repeating:65,count:1024*1024+1)] {
    do {_ = try SourceTextRules.decode(bytes);preconditionFailure("binary/oversized input accepted")}catch{}
   }
-  print("PASS Python/Swift/JavaScript/SQL/JSON language tokens and bounded automatic UTF-8 reading")
+  print("PASS language names, grammar selection and bounded automatic UTF-8 reading")
  }
 }
 '''
         with tempfile.TemporaryDirectory() as directory:
             main = Path(directory)/'Fixture.swift'
             main.write_text(fixture, encoding='utf-8')
+            syntax = (ROOT / 'RepoPocket/SourceTextSyntax.swift').read_text(encoding='utf-8')
+            # Stand in for the external grammar objects; exercise the app's actual routing on host Swift.
+            grammar = """enum TreeSitterLanguage: String {
+                case astro, bash, c, cSharp, cpp, css, elixir, elm, go, haskell, html, java, javaScript, json, json5,
+                     jsx, julia, latex, lua, markdown, ocaml, perl, php, python, r, ruby, rust, scss, sql, svelte,
+                     swift, toml, tsx, typeScript, yaml
+            }"""
+            router = Path(directory) / 'SourceTextSyntax.swift'
+            router.write_text(syntax.replace('import RepoPocketLanguageSupport', grammar), encoding='utf-8')
             output = str(Path(directory)/'test')
-            subprocess.run(['swiftc','-parse-as-library',str(ROOT/'RepoPocket/SourceLexer.swift'),str(main),'-o',output],check=True)
+            subprocess.run(['swiftc','-parse-as-library',str(ROOT/'RepoPocket/SourceTextRules.swift'),str(router),str(main),'-o',output],check=True)
             subprocess.run([output],check=True,timeout=20)
 
 

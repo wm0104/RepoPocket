@@ -136,7 +136,7 @@ import Foundation
             main = Path(directory) / 'Fixture.swift'
             main.write_text(fixture, encoding='utf-8')
             output = str(Path(directory) / 'preview-rules')
-            subprocess.run(['swiftc', '-parse-as-library', str(ROOT / 'RepoPocket/SourceLexer.swift'),
+            subprocess.run(['swiftc', '-parse-as-library', str(ROOT / 'RepoPocket/SourceTextRules.swift'),
                             str(RULES), str(main), '-o', output], check=True)
             subprocess.run([output], check=True, timeout=30)
 

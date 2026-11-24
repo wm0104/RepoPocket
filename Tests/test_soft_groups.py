@@ -3,7 +3,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 ui = Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text()
-workspace = Path(REPO_ROOT, 'RepoPocket/WorkspaceView.swift').read_text()
 upload = Path(REPO_ROOT, 'RepoPocket/UploadView.swift').read_text()
 detail = Path(REPO_ROOT, 'RepoPocket/DesktopViews.swift').read_text()
 style = Path(REPO_ROOT, 'RepoPocket/WorkspaceSelectionUI.swift').read_text()
@@ -24,7 +23,7 @@ assert quota_style.count('.clipShape(') == 1
 assert '.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))' in quota_style
 assert 'static let defaultValue = SoftGroupPresentation.list' in list_style
 assert '.appearance()' not in style and '.blur(' not in style
-for text in [ui, workspace, upload]:
+for text in [ui, upload]:
     assert '.softGroupedRow(top: true)' in text
     assert '.softGroupedRow(bottom: true)' in text
 # Desktop history/detail now delegate their first/last rows to the shared builder.
@@ -49,10 +48,8 @@ assert 'refresh()' not in section and 'repos = []' not in section
 assert 'NavigationLink("添加 / 更新 GitHub 账号")' in Path(REPO_ROOT, 'RepoPocket/AccountManagement.swift').read_text()
 assert 'Section("已保存账号")' not in ui
 assert '.sheet(isPresented: $accountPresentation.showing' in ui
-assert '.listStyle(.insetGrouped)' in workspace and '.listStyle(.insetGrouped)' in ui
+assert '.listStyle(.insetGrouped)' in ui
 assert '.appGroupedFormStyle()' in upload
-assert '.swipeActions {' not in workspace and 'pendingDelete = root; confirmDelete = true' in workspace
-assert '.contextMenu {' in workspace
 assert '.contextMenu' in ui and 'confirmationDialog' in ui
 assert 'verticalSizeClass == .compact ? 3 : 7' in card
 assert '.lineLimit(descriptionLineLimit)' in card
@@ -60,7 +57,7 @@ assert '.lineLimit(descriptionLineLimit)' in card
 assert 'Section("直接打开仓库")' not in ui
 assert '.sheet(isPresented: $showOpen)' in ui
 assert 'NavigationLink("浏览")' in ui
-assert '.softGroupedRow().softGroupedRow' not in ui + workspace + upload
+assert '.softGroupedRow().softGroupedRow' not in ui + upload
 directory_rows = ui.split('@SoftGroupRowsBuilder private var directoryRows:', 1)[1].split('var body: some View {', 1)[0]
 assert 'SoftGroupRow("entry-" + e.id)' in directory_rows
 assert '.softGroupedRow(' not in directory_rows
@@ -68,12 +65,6 @@ assert 'row.content.softGroupedRow(top: top && row.id == rows.first?.id, bottom:
 assert 'init(top: Bool = true, bottom: Bool = true, animateBackground:' in style
 # The file reader is now a full-height code surface; its loading indicator is
 # no longer a terminal row inside the old metadata/download Form.
-# Import buttons moved into the toolbar Menu (not List rows).
-binding_ui = workspace.split('private func bindingSection(', 1)[1].split('private func', 1)[0]
-assert 'SoftGroupRows {' in binding_ui
-assert 'SoftGroupRow("repository") { Text(binding.repo + " · " + binding.branch) }' in binding_ui
-row = next(line for line in workspace.splitlines() if 'TextField("提交说明", text: $commitMessage)' in line)
-assert '.softGroupedRow()' in row, row
 # Upload is a single repository context, not another Release/Troll destination.
 commit_group = upload.split('private var commitSection:', 1)[1].split('private func pendingActions', 1)[0]
 assert 'SoftGroupRows(top: false, bottom: !busy, animateBackground: true)' in commit_group
@@ -89,41 +80,6 @@ assert 'ReleaseEntryView(api: state.api, initialRepo: state.repo)' in Path(REPO_
 for count in (0, 1, 4):
     edges = [(i == 0, i == count - 1) for i in range(count)]
     if count: assert sum(top for top, _ in edges) == sum(bottom for _, bottom in edges) == 1
-# Local workspace groups: the hint always opens the group; only the actual last
-# row closes it. Selection and long-press actions remain native List rows.
-local = workspace.split('private var localSection: some View {', 1)[1].split('private func workspaceManagement', 1)[0]
-assert 'softGroupedRow(top: true, bottom: roots.isEmpty)' in local
-assert '.softGroupedRow(bottom: root == roots.last)' in local
-assert 'ForEach(roots, id: \\.path)' in local and '.contextMenu {' in local
-management = workspace.split('private func workspaceManagement', 1)[1].split('private func bindingSection', 1)[0]
-assert 'if let binding { Text(binding.repo + " / " + binding.branch).font(.headline).softGroupedRow(top: true) }' in management
-assert 'NativeActionMenu(title: "工作区…"' in management
-assert 'enabled: !busy && api.isCurrentSession' in management
-assert '.softGroupedRow(top: binding == nil, bottom: !linked)' in management
-assert '.font(.caption).softGroupedRow(bottom: true)' in management
-for count in (0, 1, 3):
-    edges = [(True, count == 0)] + [(False, index == count - 1) for index in range(count)]
-    assert sum(top for top, _ in edges) == 1 and edges[0][0]
-    assert sum(bottom for _, bottom in edges) == 1 and edges[-1][1]
-for has_binding in (False, True):
-    for linked in (False, True):
-        edges = ([(True, False)] if has_binding else []) + [(not has_binding, not linked)]
-        if linked: edges += [(False, True)]
-        assert sum(top for top, _ in edges) == sum(bottom for _, bottom in edges) == 1
-
-# The local changes section ends with one fixed, concise hint rather than an expandable
-# disclosure. Keep it as the terminal decorated row so the outer rounded group remains intact.
-changes = workspace.split('private var changesSection: some View {', 1)[1].split('private var conflictSheet', 1)[0]
-assert 'DisclosureGroup("提交说明与限制")' not in changes
-assert '刷新变更。' in changes
-assert '.font(.caption).foregroundStyle(.secondary).softGroupedRow(bottom: true)' in changes
-assert 'Button("刷新变更") { Task { await scan() } }.disabled(busy).softGroupedRow(bottom: selected.isEmpty)' in changes
-for has_selection in (False, True):
-    bottoms = [not has_selection] + ([True] if has_selection else [])
-    assert sum(bottoms) == 1 and bottoms[-1]
-assert '.clipShape(' not in workspace and '.listStyle(.insetGrouped)' in workspace
-print('PASS local group boundaries: empty/single/multiple directories, bound/unbound menu, selected/unselected and fixed terminal hint')
-print('PASS divider regression: settings, upload, local directory, workspace detail; conditional last-row corners')
 print('PASS soft grouped UI contracts: equal-width repositories, 10pt continuous row backgrounds, native lists/swipe deletion, semantic colors and adaptive text')
 
 # Feature-page expansion: explicit native-row contracts plus complete conditional
@@ -155,7 +111,7 @@ assert '.softGroupedRow(top: !state.loading)' not in picker_ui
 assert 'ProgressView("正在核验目标分支…").softGroupedRow()' in picker_ui
 assert 'softGroupedRow(top: false, bottom: false)' in picker_ui
 assert 'softGroupedRow(bottom: true)' not in picker_ui
-assert 'Text("已有 Git 标签不受目标分支影响。")' in picker_ui
+assert 'Text("使用已有 Git 标签时，请选择该标签指向的提交。")' in picker_ui
 assert 'Rectangle().fill(Color(uiColor: .separator))' not in picker_ui
 # The editor, not recycled Form rows, owns target readiness and cancellation.
 assert '.onDisappear' not in picker_ui
@@ -409,7 +365,17 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         deletion_start = current.index('    func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {')
         deletion_end = current.index('    func fetchWorkspace(', deletion_start)
         assert current[deletion_start:deletion_end].count('    func ') == 1
+        assert current[deletion_start:deletion_end].count('    private func ') == 1
+        assert 'private func compareAndUpdateBranch(' in current[deletion_start:deletion_end]
         current = current[:deletion_start] + current[deletion_end:]
+        current = current.replace('    var node_id: String? = nil\n', '', 1)
+        commit_lookup = 'decoded(GitObject.self, Self.repoPath(repo) + "/commits/" + Self.component(selected))'
+        assert current.count(commit_lookup) == 1
+        current = current.replace(commit_lookup, commit_lookup.replace('GitObject.self', 'GitCommitInfo.self'))
+        start = current.index('    func managedTargetHead(')
+        end = current.index('    func managedAssets(', start)
+        assert current[start:end].count('    func ') == 2 and 'func verifyManagedTarget(' in current[start:end]
+        current = current[:start] + current[end:]
         # Current-account social writes are isolated and covered by native request/state fixtures.
         social_marker = '// Current-account profile writes have their own endpoint and acknowledgement checks.\n'
         assert current.count(social_marker) == 1
@@ -495,12 +461,11 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
         helper_start = current.index('    private func uploadGitBlobFile(')
         helper_end = current.index('    func history(', helper_start)
         current = current[:helper_start] + current[helper_end:]
-        # Remote branch rename is create-then-delete over the same documented ref
-        # endpoints; its shapes are covered by test_remote_branch_rename.py.
-        rename_start = current.index('    /// Local-facing rename becomes create-then-delete on GitHub:')
+        # The native rename endpoint has its own URLProtocol coverage.
+        rename_start = current.index('    func renameBranch(')
         rename_end = current.index('\n    }\n', rename_start) + len('\n    }\n')
         if current[rename_end:rename_end + 1] == '\n': rename_end += 1
-        assert 'func renameBranch(' in current[rename_start:rename_end]
+        assert '"/rename"' in current[rename_start:rename_end]
         current = current[:rename_start] + current[rename_end:]
         old_github = baseline(file)
         # Only the obsolete manual cache-reset hook is removed; retain the
@@ -589,7 +554,7 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
     if file == 'WorkspaceSelectionUI.swift':
         # Only the approved card radius changes; the remaining shape/layout stay exact.
         expected = baseline(file).replace('let radius: CGFloat = 22', 'let radius: CGFloat = 10')
-        assert current.split('extension View {\n    ///')[0] == expected.split('extension View {\n    ///')[0]
+        assert current.split('struct AdaptiveWorkspaceLayout:', 1)[1].split('extension View {\n    ///')[0] == expected.split('struct AdaptiveWorkspaceLayout:', 1)[1].split('extension View {\n    ///')[0]
     elif file == 'RepositoryUI.swift':
         # Approved star/fork navigation changes only this rendering block.
         old = baseline(file)
@@ -625,6 +590,15 @@ for file in ['WorkspaceSelectionUI.swift', 'GitHub.swift', 'RepositoryUI.swift',
             assert token in current, token
         assert current.count('await store.status(name)') == 1
         assert current.count('try await store.perform(') == 1
+    elif file == 'ReleaseManagement.swift':
+        assert current == baseline(file).replace('    let updated_at: String\n    let body: String?\n',
+            '    let updated_at: String?\n    let body: String?\n    var target_commitish: String? = nil\n', 1)
+    elif file == 'ReleasePublishPlan.swift':
+        expected = baseline(file).replace('    private(set) var draftID: Int?\n',
+            '    private(set) var draftID: Int?\n    private(set) var targetSHA: String?\n')
+        expected = expected.replace('func created(_ id: Int) { draftID = id;',
+            'func created(_ id: Int, targetSHA: String) { draftID = id; self.targetSHA = targetSHA;')
+        assert current == expected
     else:
         assert current == baseline(file), file
 def function_blocks(text):
@@ -649,40 +623,22 @@ def function_blocks(text):
         signature = text[start:opening].strip()
         result[signature] = text[opening:index]
     return result
-# Original-folder association deliberately changes only import and scan below.
-# Native filesystem/bookmark regression coverage lives in test_linked_workspaces.py.
-workspace_operations = (
-    'static func metadata(', 'static func snapshot(',
-    'static func removeWorkspace(', 'static func renameWorkspace(',
-    '@MainActor private func importItems(', '@MainActor private func scan()',
-    '@MainActor private func downloadRemote(', '@MainActor private func applyPendingPull(',
-    '@MainActor private func applyResolvedPull(', '@MainActor private func commit(',
-)
 
-def restore_workspace_operations(current, old):
-    # scan now returns success so manual-scan feedback cannot fire after failure.
-    current = current.replace('@discardableResult @MainActor private func scan() async -> Bool',
-                              '@MainActor private func scan() async')
-    current_blocks, old_blocks = function_blocks(current), function_blocks(old)
-    for signature, body in old_blocks.items():
-        if any(signature.startswith(prefix) for prefix in workspace_operations):
-            assert signature in current_blocks, signature
-            updated = current_blocks[signature]
-            assert current.count(updated) == 1, signature
-            current = current.replace(updated, body, 1)
-    return current
+old_store = function_blocks(baseline('WorkspaceView.swift').split('struct WorkspaceView:', 1)[0])
+current_store = function_blocks(source('LocalStore.swift'))
+for signature, body in old_store.items():
+    assert signature in current_store, signature
+    if not signature.startswith(('static func metadata(', 'static func snapshot(',
+                                 'static func removeWorkspace(', 'static func renameWorkspace(')):
+        assert current_store[signature] == body, signature
 
 for file, marker in [
     ('ReleaseBranchPicker.swift', 'struct ReleaseBranchPicker: View {'),
     ('TargetPickerView.swift', '    private func load() async {'),
-    ('RepositorySearchView.swift', '    private func begin('),
-    ('WorkspaceView.swift', '    @MainActor private func importItems(')]:
+    ('RepositorySearchView.swift', '    private func begin(')]:
     current, old = source(file), baseline(file)
     if file == 'ReleaseBranchPicker.swift':
         assert current.split(marker)[0] == old.split(marker)[0], file
-    elif file == 'WorkspaceView.swift':
-        current = restore_workspace_operations(current, old)
-        assert current.split(marker, 1)[1] == old.split(marker, 1)[1], file
     elif file == 'RepositorySearchView.swift':
         # UserRepositories UI is also explicitly allowed, its network code isn't.
         current = current.split('\nprivate struct CodeSearchResultRow: View {', 1)[0]
@@ -708,11 +664,8 @@ print('PASS feature-page matrices: release pagination/status/attachments, direct
 # calls/cancellation/permission and destructive confirmation logic may not.
 for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.swift',
              'UploadView.swift', 'RepositoryDeletionView.swift', 'RepositorySections.swift',
-             'AccountManagement.swift', 'TargetPickerView.swift',
-             'WorkspaceView.swift']:
+             'AccountManagement.swift', 'TargetPickerView.swift']:
     current_source = source(file)
-    if file == 'WorkspaceView.swift':
-        current_source = current_source.replace('@discardableResult @MainActor private func scan() async -> Bool', '@MainActor private func scan() async')
     old, current = function_blocks(baseline(file)), function_blocks(current_source)
     # Normalize only the explicitly approved success-presentation substitutions.
     # Mutating API calls, parameters and error paths remain byte-exact.
@@ -732,13 +685,9 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             changed = changed.replace(approved, original, 1)
         current[signature] = changed
     # Pure rendering helpers may move; business operations remain byte-frozen.
-    rendering = ['workspaceManagement(', 'bindingSection(', 'outputSection(']
+    rendering = ['outputSection(']
     for signature, body in old.items():
         if any(token in signature for token in rendering): continue
-        if file == 'WorkspaceView.swift' and any(signature.startswith(prefix) for prefix in workspace_operations):
-            # Explicitly replaced by linked-directory production regressions.
-            assert signature in current, signature
-            continue
         if file == 'RepoPocketApp.swift' and signature == 'private func verify() async':
             # Intentional fix: the pasted Token must survive a failed verification, and the
             # first attempt dropped by the system network prompt is retried once.
@@ -765,8 +714,15 @@ for file in ['RepoPocketApp.swift', 'DesktopViews.swift', 'ReleaseManagementUI.s
             verification = changed[start:end]
             for token in ['ReleaseManagementRules.pageLimit', 'state.api.managedAssets', 'try state.check()', 'verifiedAll = true', 'guard verifiedAll, attachments.allSatisfy', '$0.id == acknowledged.id', '$0.name == item.name', 'Int64($0.size) == item.size', '未发布。']:
                 assert token in verification, token
-            # Only this new read-only batch verification is allowed; all original
-            # upload/finalize/cancel/failure operation bytes remain frozen.
+            # Extend just the original draft receipt and target checks around the same upload/publish writes.
+            body = body.replace('plan.created(created.id)', 'plan.created(created.id, targetSHA: captured.branch)')
+            body = body.replace('retainedDraft.tag_name == captured.tag else { throw AppError(text: "重试必须使用原草稿标签；请从发行版详情继续编辑。") }',
+                'retainedDraft.tag_name == captured.tag, plan.targetSHA == captured.branch else {\n'
+                '                throw AppError(text: "重试必须使用草稿原有的标签和提交，请从发行版详情核实。")\n            }')
+            target_check = '            try await state.api.verifyManagedTarget(state.repo, tag: captured.tag, expected: captured.branch, release: current)\n'
+            body = body.replace('            var remote: [Asset]', target_check + '            var remote: [Asset]')
+            body = body.replace('guard current.draft else { throw AppError(text: "草稿状态已变化，请刷新核实。") }\n',
+                'guard current.draft, current.tag_name == captured.tag else { throw AppError(text: "草稿状态或标签已变化，请刷新核实。") }\n' + target_check)
             assert changed[:start] + changed[end:] == body, (file, signature)
             continue
         if file == 'ReleaseManagementUI.swift' and signature == 'func run(_ work: @escaping () async throws -> Void)':

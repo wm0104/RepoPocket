@@ -85,7 +85,9 @@ private final class ConnectionsPreviewProtocol: URLProtocol {
             let routes = [
                 "/repos/fixture-owner/sample": metadata,
                 "/repos/fixture-upstream/origin/branches": #"[{"name":"develop","commit":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},{"name":"z-last","commit":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}]"#,
-                "/repos/fixture-owner/sample/compare/main...fixture-upstream:develop": compareJSON
+                "/repos/fixture-owner/sample/git/ref/heads/main": #"{"object":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}"#,
+                "/repos/fixture-upstream/origin/git/ref/heads/develop": #"{"object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}"#,
+                "/repos/fixture-owner/sample/compare/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": compareJSON
             ]
             if let payload = routes[path] {
                 let failure = path.contains("/compare/") && ProcessInfo.processInfo.arguments.contains("-upstream-preview-failure")

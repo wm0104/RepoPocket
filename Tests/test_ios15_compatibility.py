@@ -128,12 +128,12 @@ class IOS15CompatibilityTests(unittest.TestCase):
                     violations.append(f'{path.name}:{text[:match.start()].count(chr(10)) + 1}')
         self.assertEqual(violations, [], 'iOS 15 ignores SwiftUI alert TextField actions')
 
-    def test_all_six_input_presentations_use_the_compatibility_component(self):
+    def test_all_input_presentations_use_the_compatibility_component(self):
         expected = {'LocalProjectEditor.swift': 1, 'LocalGitBranchManagement.swift': 2,
-                    'DesktopViews.swift': 1, 'WorkspaceView.swift': 1, 'LocalProjectImportView.swift': 1}
+                    'DesktopViews.swift': 1, 'LocalProjectImportView.swift': 1}
         actual = {name: source(name).count('.appTextInputAlert(') for name in expected}
         self.assertEqual(actual, expected)
-        self.assertEqual(sum(p.read_text().count('.appTextInputAlert(') for p in APP.glob('*.swift')), 6)
+        self.assertEqual(sum(p.read_text().count('.appTextInputAlert(') for p in APP.glob('*.swift')), sum(expected.values()))
 
     def test_input_component_keeps_modern_alert_and_a_real_legacy_input_sheet(self):
         compat = source('AppTextInputAlert.swift')
@@ -179,11 +179,6 @@ class IOS15CompatibilityTests(unittest.TestCase):
                       'guard !creating, !importer.busy, !filePresentation.locked',
                       '.interactiveDismissDisabled(busy || dirty)'):
             self.assertIn(token, editor)
-        workspace = source('WorkspaceView.swift')
-        for token in ('renameName = folder.lastPathComponent; confirmingRename = true',
-                      'verbatimInput: false', 'await renameCurrentWorkspace()',
-                      'guard let old = folder, !busy else', 'workspaceRenamed(from: old, to: new)'):
-            self.assertIn(token, workspace)
         importer = source('LocalProjectImportView.swift')
         for token in ('text: $folderPath', 'folder = try store.preparePath(folderPath); preview = nil; message = ""',
                       'catch { message = error.localizedDescription }', '.disabled(busy || preview != nil)'):

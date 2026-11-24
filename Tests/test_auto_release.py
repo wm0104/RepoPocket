@@ -82,8 +82,10 @@ class AutoReleaseTests(unittest.TestCase):
             path.write_bytes(('verified fixture ' + name).encode())
             self.packages.append(path)
         (self.dist / 'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in self.packages))
+        self.ipa_checksum = self.dist / 'RepoPocket.ipa.sha256'
+        self.ipa_checksum.write_text(hashlib.sha256(self.packages[0].read_bytes()).hexdigest() + '  RepoPocket.ipa\n')
         (self.dist / 'build-info.json').write_text(json.dumps({'version': '1.2.6', 'sha': self.sha}))
-        self.uploads = self.packages + [self.dist / 'SHA256SUMS', self.dist / 'build-info.json']
+        self.uploads = self.packages + [self.ipa_checksum, self.dist / 'SHA256SUMS', self.dist / 'build-info.json']
 
     def publish(self, gh):
         return self.release.publish(self.root, self.dist, self.sha, 'wm0104/RepoPocket', gh=gh)
@@ -165,6 +167,18 @@ class AutoReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.publish(gh)
         self.assertFalse(any(c[0] == 'release' for c in gh.calls))
+
+    def test_missing_or_inconsistent_ipa_checksum_blocks_upload(self):
+        for value in [None, '0' * 64 + '  RepoPocket.ipa\n', self.ipa_checksum.read_text().replace('.ipa', '.tipa')]:
+            with self.subTest(value=value):
+                if value is None:
+                    self.ipa_checksum.unlink()
+                else:
+                    self.ipa_checksum.write_text(value)
+                gh = FakeGitHub(self.uploads)
+                with self.assertRaises(ValueError):
+                    self.publish(gh)
+                self.assertFalse(any(c[0] == 'release' for c in gh.calls))
 
     def test_upload_failure_keeps_the_release_unpublished(self):
         gh = FakeGitHub(self.uploads, fail_upload=True)

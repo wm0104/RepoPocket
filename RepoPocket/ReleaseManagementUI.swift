@@ -414,6 +414,8 @@ struct ReleaseEditorView: View {
     @State private var staging = false
     @State private var plan = ReleasePublishPlan()
     @State private var retainedDraft: ManagedRelease?
+    private var publishingExistingDraft: Bool { original?.draft == true && !form.draft }
+    private var selectedTarget: String { original?.target_commitish ?? form.branch }
     private var actionTitle: String { original != nil ? "保存" : (form.draft ? "保存草稿" : "发布") }
     init(api: GitHub, repo: String, original: ManagedRelease?, initialBranch: String = "", initialFiles: [URL] = [], allowsRepositorySelection: Bool = false) {
         self.initialFiles = initialFiles
@@ -522,7 +524,7 @@ struct ReleaseEditorView: View {
                     SoftGroupRows(bottom: false) {
                         SoftGroupRow("repository") { AppLabeledContent("仓库", value: makeNewRepository ? newRepositoryName + (newRepositoryPrivate ? "（新建私有）" : "（新建公开）") : state.repo) }
                         SoftGroupRow("tag") { AppLabeledContent("标签", value: form.tag) }
-                        SoftGroupRow("target") { AppLabeledContent("目标", value: makeNewRepository ? "新仓库默认分支" : form.branch) }
+                        SoftGroupRow("target") { AppLabeledContent("目标", value: makeNewRepository ? "新仓库默认分支" : selectedTarget) }
                         if !reviewHead.isEmpty { SoftGroupRow("head") { Text("HEAD：" + reviewHead).font(.caption) } }
                         SoftGroupRow("title") { Text(form.title) }
                         SoftGroupRow("body") { Text(form.body) }
@@ -570,15 +572,16 @@ struct ReleaseEditorView: View {
                 let current = try await state.api.managedRelease(canonical, id: original.id)
                 guard current == original else { throw AppError(text: "发行版已变化，请关闭并刷新后重新确认。") }
             }
-            if original == nil {
-                guard targetReady, !form.branch.isEmpty else { throw AppError(text: "请在同一表单选择并核验目标分支或提交。") }
-                if form.branch.count == 40 && form.branch.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) {
-                    let commit = try await state.api.commitDetail(canonical, sha: form.branch, page: 1)
-                    guard commit.sha.lowercased() == form.branch.lowercased() else { throw AppError(text: "提交目标已变化。") }
-                    reviewHead = commit.sha
+            if original == nil || publishingExistingDraft {
+                guard (original != nil || targetReady), !selectedTarget.isEmpty else { throw AppError(text: "缺少可核验的目标分支或提交。") }
+                if let retained = plan.targetSHA {
+                    reviewHead = retained
                 } else {
-                    reviewHead = try await state.api.workspaceHead(canonical, branch: form.branch)
+                    reviewHead = try await state.api.managedTargetHead(canonical, target: selectedTarget)
                 }
+                try await state.api.verifyManagedTarget(canonical, tag: form.tag, expected: reviewHead, release: retainedDraft)
+            } else {
+                reviewHead = ""
             }
         }
         if original == nil && attachments.isEmpty { throw AppError(text: "请明确选择至少一个附件。") }
@@ -624,7 +627,7 @@ struct ReleaseEditorView: View {
                     let resolved = try await state.api.resolvedBranch(state.repo, branch: "")
                     captured.branch = try await state.api.workspaceHead(state.repo, branch: resolved)
                     form.branch = captured.branch; targetState.ready = true
-                } else if original == nil {
+                } else if original == nil || publishingExistingDraft {
                     captured.branch = reviewHead
                 }
                 if let original {
@@ -697,12 +700,15 @@ struct ReleaseEditorView: View {
                 var draft = captured; draft.draft = true; draft.marker = .none
                 let created = try await state.api.saveManagedRelease(state.repo, original: nil, form: draft)
                 // Record acknowledged draft before cancellation check; never delete it.
-                retainedDraft = created; plan.created(created.id)
+                retainedDraft = created; plan.created(created.id, targetSHA: captured.branch)
             }
             try state.check()
-            guard let retainedDraft, retainedDraft.tag_name == captured.tag else { throw AppError(text: "重试必须使用原草稿标签；请从发行版详情继续编辑。") }
+            guard let retainedDraft, retainedDraft.tag_name == captured.tag, plan.targetSHA == captured.branch else {
+                throw AppError(text: "重试必须使用草稿原有的标签和提交，请从发行版详情核实。")
+            }
             var current = try await state.api.managedRelease(state.repo, id: retainedDraft.id)
             guard current.draft else { throw AppError(text: "草稿已被外部公开，请刷新详情核实；未继续写入。") }
+            try await state.api.verifyManagedTarget(state.repo, tag: captured.tag, expected: captured.branch, release: current)
             var remote: [Asset] = []; var complete = false
             for page in 1...ReleaseManagementRules.pageLimit {
                 let batch = try await state.api.managedAssets(state.repo, id: current.id, page: page)
@@ -739,7 +745,8 @@ struct ReleaseEditorView: View {
                 return verified.contains { $0.id == acknowledged.id && $0.name == item.name && Int64($0.size) == item.size }
             }) else { throw AppError(text: "整批附件最终核验未通过，请核实保留的草稿及已上传附件；未发布。") }
             current = try await state.api.managedRelease(state.repo, id: current.id)
-            try state.check(); guard current.draft else { throw AppError(text: "草稿状态已变化，请刷新核实。") }
+            try state.check(); guard current.draft, current.tag_name == captured.tag else { throw AppError(text: "草稿状态或标签已变化，请刷新核实。") }
+            try await state.api.verifyManagedTarget(state.repo, tag: captured.tag, expected: captured.branch, release: current)
             plan.finalizing()
             _ = try await state.api.saveManagedRelease(state.repo, original: current, form: captured)
             try state.check(); plan.finish()

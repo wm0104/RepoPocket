@@ -57,22 +57,6 @@ class NativeMenuTests(unittest.TestCase):
         for token in ['LocalGitAddAction.items', 'case .importFiles:', 'case .importFolder:', 'enabled: valid && !busy']:
             self.assertIn(token, menu)
 
-    def test_workspace_management_and_flat_plus_keep_original_routes(self):
-        page = source('WorkspaceView.swift')
-        menu = page.split('private func workspaceManagement', 1)[1].split('private func bindingSection', 1)[0]
-        self.assertIn('.submenu("管理"', menu)
-        self.assertIn('(linked ? [] : [NativeMenuItem(id: "check-remote"', menu)
-        self.assertIn('(linked ? [] : [NativeMenuItem(id: "rename"', menu)
-        for token in ['showAssociation = true', 'publishing = true', 'showDetails = true',
-                      'renameName = folder.lastPathComponent', 'pendingDelete = folder; confirmDelete = true',
-                      'self.folder == folder', 'destructive: true']:
-            self.assertIn(token, menu)
-        plus = page.split('NativeActionMenu(title: "添加工作区"', 1)[1].split('ToolbarItemGroup', 1)[0]
-        self.assertEqual(plus.count('NativeMenuItem('), 3)
-        self.assertNotIn('.submenu(', plus)
-        self.assertIn('inspectDeletion()', page)
-        self.assertIn('confirmDirtyDelete', page)
-
     def test_browser_social_lifecycles_permissions_and_existing_navigation(self):
         app = source('RepoPocketApp.swift').split('struct BrowserView:', 1)[1].split('struct FileView:', 1)[0]
         bridge = source('NativeActionMenu.swift')

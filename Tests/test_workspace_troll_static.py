@@ -13,29 +13,20 @@ ROOT = REPO_ROOT / "RepoPocket"
 class WorkspaceTrollStaticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workspace = (ROOT / "WorkspaceView.swift").read_text()
+        cls.store = (ROOT / "LocalStore.swift").read_text()
         cls.remote = (ROOT / "WorkspaceRemote.swift").read_text()
         cls.upload = (ROOT / "UploadView.swift").read_text()
         cls.github = (ROOT / "GitHub.swift").read_text()
 
     def test_remote_paths_and_guards(self):
-        self.assertIn("WorkspaceMerge.remoteChanges", self.workspace)
         for status in ('"新增"', '"修改"', '"删除"'):
             self.assertIn(status, self.remote)
-        self.assertIn("workspaceHead(binding.repo, branch: binding.branch) == pending.binding.head", self.workspace)
-        self.assertIn("lastChecked = Date()", self.workspace)
         self.assertIn("lastPulled = Date()", self.github)
         self.assertIn("remoteAuthorDate: commit.author?.date", self.github)
 
-    def test_delete_is_local_and_double_confirmed(self):
-        self.assertIn("confirmDelete", self.workspace)
-        self.assertIn("confirmDirtyDelete", self.workspace)
-        self.assertIn("LocalStore.changes([target])", self.workspace)
-        self.assertIn("LocalStore.removeWorkspace(target)", self.workspace)
-        self.assertIn("fm.moveItem(at: folder, to: savedFolder)", self.workspace)
-        self.assertIn("fm.moveItem(at: savedFolder, to: folder)", self.workspace)
-        self.assertNotIn(".swipeActions", self.workspace)
-        self.assertIn(".contextMenu", self.workspace)
+    def test_local_delete_rolls_back_the_saved_folder(self):
+        self.assertIn("fm.moveItem(at: folder, to: savedFolder)", self.store)
+        self.assertIn("fm.moveItem(at: savedFolder, to: folder)", self.store)
 
     def test_plugin_routes_are_removed_without_touching_workspace_safety(self):
         for token in ('trollName', 'trollVersion', 'trollDescription', 'trollPreview', 'TrollFools'):

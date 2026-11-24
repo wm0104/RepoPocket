@@ -117,7 +117,7 @@ struct ReleaseBranchPicker: View {
                 if state.ready && selected.count == 40 { Text("已核验目标：\(selected)").font(.caption).softGroupedRow(top: false, bottom: false) }
             }
             .softGroupedRow()
-            Text("已有 Git 标签不受目标分支影响。").font(.caption).foregroundStyle(.secondary)
+            Text("使用已有 Git 标签时，请选择该标签指向的提交。").font(.caption).foregroundStyle(.secondary)
                 .softGroupedRow()
         }
         .buttonStyle(.borderless)

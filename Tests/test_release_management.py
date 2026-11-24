@@ -67,13 +67,13 @@ class ReleaseManagementTests(unittest.TestCase):
     def test_inline_branch_and_delete_safety(self):
         picker = (ROOT/'RepoPocket/ReleaseBranchPicker.swift').read_text()
         ui = (ROOT/'RepoPocket/ReleaseManagementUI.swift').read_text()
-        for token in ['for page in 1...10', 'batch.count < 30', 'guard complete', 'generation == AccountStore.generation', 'token == identity', 'Task.checkCancellation()', 'task?.cancel()', 'info.permissions?.push', 'state.branches.count > 1', 'AppLabeledContent("目标分支", value: name)', 'if expanded', 'if searching', 'expanded = false', '.easeInOut(duration: 0.18)', 'accessibilityReduceMotion', '已有 Git 标签不受目标分支影响。', 'value.count == 40', 'api.commitDetail', 'ready = false']:
+        for token in ['for page in 1...10', 'batch.count < 30', 'guard complete', 'generation == AccountStore.generation', 'token == identity', 'Task.checkCancellation()', 'task?.cancel()', 'info.permissions?.push', 'state.branches.count > 1', 'AppLabeledContent("目标分支", value: name)', 'if expanded', 'if searching', 'expanded = false', '.easeInOut(duration: 0.18)', 'accessibilityReduceMotion', '使用已有 Git 标签时，请选择该标签指向的提交。', 'value.count == 40', 'api.commitDetail', 'ready = false']:
             self.assertIn(token, picker)
         rows = picker.split('ForEach(visible', 1)[1].split('} else if', 1)[0]
         self.assertNotIn('await', rows)
         self.assertNotIn('.task', rows)
         self.assertIn('guard targetReady, !attachments.isEmpty', ui)
-        self.assertIn('guard targetReady, !form.branch.isEmpty', ui)
+        self.assertIn('guard (original != nil || targetReady), !selectedTarget.isEmpty', ui)
         self.assertIn('original == nil && attachments.isEmpty', ui)
         self.assertIn('reviewFingerprint == nil || !state.valid', ui)
         self.assertIn('确认删除这个附件？', ui)

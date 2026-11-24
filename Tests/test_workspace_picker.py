@@ -1,25 +1,18 @@
 """Static lifecycle contracts; not a substitute for Files/provider device tests."""
 from pathlib import Path
-import re
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 picker = Path(REPO_ROOT, 'RepoPocket/WorkspaceDocumentPicker.swift').read_text()
-view = Path(REPO_ROOT, 'RepoPocket/WorkspaceView.swift').read_text()
 assert 'let id = UUID()' in picker and 'let kind: Kind' in picker
-assert '@State private var importRequest: WorkspaceImportRequest?' in view
-assert '.sheet(item: $importRequest)' in view and '.id(request.id)' in view
-assert 'WorkspaceImportRequest(kind: .zip)' in view
-assert 'WorkspaceImportRequest(kind: .folder)' in view
-assert 'zip = true' not in view and 'zip = false' not in view
-assert 'zip: request.isZIP' in view
-assert re.search(r'importRequest = nil\n[ \t]+guard let urls else', view)
-assert 'request.kind == .files ? [.item] : (request.isZIP ? [.zip] : [.folder])' in picker
+assert 'request.kind == .files ? [.item] : [.folder]' in picker
 assert 'forOpeningContentTypes: types, asCopy: false' in picker
 assert picker.count('[.item]') == 1  # Broad types apply only to explicit file import.
 assert 'var allowsMultipleSelection = true' in picker
 assert 'picker.allowsMultipleSelection = allowsMultipleSelection' in picker
 git_view = Path(REPO_ROOT, 'RepoPocket/LocalProjectImportView.swift').read_text()
-core = Path(REPO_ROOT, 'RepoPocket/GitCore.swift').read_text()
+registry = Path(REPO_ROOT, 'RepoPocket/LocalGitRegistry.swift').read_text()
+access = Path(REPO_ROOT, 'RepoPocket/LocalGitFileAccess.swift').read_text()
+engine = Path(REPO_ROOT, 'RepoPocket/LocalGitEngine.swift').read_text()
 assert 'FolderPicker' not in git_view and 'UIDocumentPickerViewController' not in git_view
 assert '@State private var picker: WorkspaceImportRequest?' in git_view
 assert 'WorkspaceImportRequest(kind: .folder)' in git_view
@@ -28,30 +21,31 @@ callback = git_view.split('WorkspaceDocumentPicker(request: request, allowsMulti
 assert 'if let url = urls?.first { acceptPicker(url) }' in callback
 assert callback.index('acceptPicker(url)') < callback.index('picker = nil')
 assert 'folder = try store.prepare(url)' in git_view
-for required in ('restoreBookmarks()', 'persistBookmarks()', 'startAccessingSecurityScopedResource()', 'stopAccessingSecurityScopedResource()', 'bookmarkData(options: []', 'URL(resolvingBookmarkData: bookmark, options: []'):
-    assert required in core
-assert 'withSecurityScope]' not in core
+assert 'url.bookmarkData(options: [.minimalBookmark]' in registry
+assert 'JSONEncoder().encode(next).write(to:' in registry
+assert 'JSONDecoder().decode([LocalGitProject].self, from:' in registry
+assert 'LocalGitFileAccess.withRoot(project, internalRoot: internalRoot)' in engine
+assert 'URL(resolvingBookmarkData: project.bookmark, options: [.withoutUI]' in access
+assert 'guard !stale,' in access and 'try identity(url) == project.identity' in access
+for source in (registry, access):
+    assert 'let scoped = url.startAccessingSecurityScopedResource()' in source
+    assert 'defer { if scoped { url.stopAccessingSecurityScopedResource() } }' in source
+    assert '.withSecurityScope' not in source
 assert 'picker.delegate = context.coordinator' in picker
 assert 'documentPickerWasCancelled' in picker and 'finish(nil)' in picker
 assert 'guard !finished else' in picker and 'finished = true' in picker
 assert 'workspace.import.cancel' in picker and '取消导入' in picker
 assert 'addChild(picker)' in picker and 'picker.didMove(toParent: self)' in picker
-assert 'picker.view.topAnchor.constraint(equalTo: showCancel ? bar.bottomAnchor : view.safeAreaLayoutGuide.topAnchor)' in picker
-assert 'showCancel: !request.isZIP' in picker
+assert 'picker.view.topAnchor.constraint(equalTo: bar.bottomAnchor)' in picker
 assert 'let label = UILabel()' not in picker
 assert 'view.safeAreaLayoutGuide.topAnchor' in picker
 assert 'button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)' in picker
 for forbidden in ['setValue(', 'value(forKey:', 'navigationItem', 'UTType.data', '[.content]']:
     assert forbidden not in picker
-assert 'source.startAccessingSecurityScopedResource()' in view
-assert 'source.stopAccessingSecurityScopedResource()' in view
-assert 'NSFileCoordinator().coordinate' in view
-assert 'values.isRegularFile == true, values.isSymbolicLink != true' in view
-assert 'WorkspaceZIP.extract(readable, to: stage)' in view
 # Abstract request/lifecycle model: every presentation gets a new identity,
 # immutable captured mode; nil cancels without import, duplicate callbacks ignored.
 import uuid
-for sequence in [('zip',), ('folder', 'zip'), ('zip', 'folder', 'zip'), ('zip', 'zip'), ('files',), ('folder', 'files', 'zip')]:
+for sequence in [('folder',), ('folder', 'files'), ('files', 'folder', 'files'), ('folder', 'folder')]:
     identities = set()
     for kind in sequence:
         identity = uuid.uuid4(); assert identity not in identities; identities.add(identity)
@@ -63,10 +57,8 @@ for sequence in [('zip',), ('folder', 'zip'), ('zip', 'folder', 'zip'), ('zip', 
                 if urls is not None: imports.append((kind, urls))
             assert len(imports) == (0 if events[0] is None else 1)
             assert not imports or imports[0][0] == kind
-# Both folder and ZIP entry points must use the shared external cancel container.
+# Files and folder pickers share the external cancel container.
 assert 'return WorkspacePickerContainer(picker: picker' in picker
-assert view.count('WorkspaceDocumentPicker(request: request)') == 1
-assert 'UIDocumentPickerViewController' not in view
 # Simulate providers at arbitrary directory depth: app cancel does not pop Files
 # navigation, and duplicate delegate cancel callbacks cannot import anything.
 for depth in (0, 1, 2, 10, 100):
@@ -78,4 +70,4 @@ for depth in (0, 1, 2, 10, 100):
         finished = True
         completions.append(event)
     assert completions == [None], depth
-print('PASS static picker identity, ZIP-only filter, explicit dismissal, public cancel containment, scoped/coordinated strict extraction; abstract lifecycle model')
+print('PASS static picker identity, file/folder filters, explicit dismissal, public cancel containment, scoped directory access; abstract lifecycle model')

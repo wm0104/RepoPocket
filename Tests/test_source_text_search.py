@@ -55,7 +55,7 @@ class SourceTextSearchTests(unittest.TestCase):
         # CommitPatchView still calls this shared entry point.
         self.assertIn('enum SourceHighlighter', highlighter)
         self.assertIn('SourceHighlighter.highlight', self.source('CommitPatchView.swift'))
-        self.assertIn('static let byteLimit = 1024 * 1024', self.source('SourceLexer.swift'))
+        self.assertIn('static let byteLimit = 1024 * 1024', self.source('SourceTextRules.swift'))
 
     def test_empty_document_bypasses_upstream_index_zero_access(self):
         highlighter = self.source('SourceCodeView.swift')

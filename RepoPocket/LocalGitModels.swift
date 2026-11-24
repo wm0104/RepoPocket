@@ -61,6 +61,7 @@ struct LocalGitStatus: Codable {
     let repoState: Int
     var mergePending: Bool? = nil
     var canCommit: Bool { staged.isEmpty && repoState == 0 && mergePending != true }
+    var canAssociate: Bool { repoState == 0 && mergePending != true && files.allSatisfy { $0.blocked.isEmpty } }
 }
 struct LocalGitBranch: Codable, Identifiable {
     let name: String

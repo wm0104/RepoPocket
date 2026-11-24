@@ -27,8 +27,6 @@ struct UpstreamCompare: Decodable {
 }
 
 /// Pure request shapes and answer mapping for upstream sync.
-/// shortcut: only the three documented endpoints are modelled; add per-page
-/// commit paging or conflict preview when someone needs more than the caps below.
 enum UpstreamSyncRules {
     static let commitLimit = 30
     static let fileLimit = 100
@@ -42,7 +40,13 @@ enum UpstreamSyncRules {
     struct Target: Equatable {
         let repository: String
         let branch: String
-        var owner: String { String(repository.split(separator: "/").first ?? "") }
+    }
+    struct Preview {
+        let destination: Target
+        let source: Target
+        let baseSHA: String
+        let sourceSHA: String
+        let comparison: UpstreamCompare
     }
 
     static func target(repository: String, branch: String) throws -> Target {
@@ -90,11 +94,9 @@ enum UpstreamSyncRules {
     static func refPath(_ branch: String) -> String {
         branch.split(separator: "/").map { segment(String($0)) }.joined(separator: "/")
     }
-    /// `{base}...{upstreamOwner}:{upstreamBranch}` — the cross-repository head form.
-    static func comparePath(repo: String, base: String, upstream: Target) throws -> String {
-        guard DesktopRules.validBranch(base) else { throw Invalid(text: "目标分支名不符合 Git 引用规则。") }
-        return try repositoryPath(RepositoryInput.parse(repo)) + "/compare/" + refPath(base)
-            + "..." + segment(upstream.owner) + ":" + refPath(upstream.branch)
+    static func comparePath(repo: String, baseSHA: String, sourceSHA: String) throws -> String {
+        guard validSHA(baseSHA), validSHA(sourceSHA) else { throw Invalid(text: "比较目标缺少有效的提交 SHA。") }
+        return try repositoryPath(RepositoryInput.parse(repo)) + "/compare/" + baseSHA + "..." + sourceSHA
     }
     static func mergesPath(repo: String) throws -> String {
         try repositoryPath(RepositoryInput.parse(repo)) + "/merges"
@@ -106,19 +108,14 @@ enum UpstreamSyncRules {
         guard DesktopRules.validBranch(branch) else { throw Invalid(text: "目标分支名不符合 Git 引用规则。") }
         return try repositoryPath(RepositoryInput.parse(repo)) + "/git/ref/heads/" + refPath(branch)
     }
-    static func branchRefPath(repo: String, branch: String) throws -> String {
-        guard DesktopRules.validBranch(branch) else { throw Invalid(text: "目标分支名不符合 Git 引用规则。") }
-        return try repositoryPath(RepositoryInput.parse(repo)) + "/git/refs/heads/" + refPath(branch)
-    }
 
     // MARK: - Bodies
 
     static func refObject(ref: String, sha: String) -> [String: Any] { ["ref": ref, "sha": sha] }
     /// `base` is always the temporary branch; the target is never named here.
-    static func mergeObject(base: String, upstream: Target, message: String) -> [String: Any] {
-        ["base": base, "head": upstream.owner + ":" + upstream.branch, "commit_message": message]
+    static func mergeObject(base: String, sourceSHA: String, message: String) -> [String: Any] {
+        ["base": base, "head": sourceSHA, "commit_message": message]
     }
-    static func applyObject(sha: String) -> [String: Any] { ["sha": sha, "force": false] }
 
     // MARK: - Names
 
@@ -177,16 +174,6 @@ enum UpstreamSyncRules {
         return .rejected(message(body) ?? "HTTP \(status)")
     }
 
-    enum ApplyOutcome: Equatable {
-        case updated(sha: String)
-        case rejected(String)
-    }
-    static func applyOutcome(status: Int, body: Data) -> ApplyOutcome {
-        if (200..<300).contains(status), let sha = objectSHA(body) { return .updated(sha: sha) }
-        let detail = (200..<300).contains(status) ? "GitHub 未确认分支更新，请刷新核实。" : (message(body) ?? "HTTP \(status)")
-        return .rejected(detail + "\n" + "快进被拒绝时不会改写历史，目标分支与临时分支都会保留。请在电脑上检查差异后处理。")
-    }
-
     // MARK: - Permissions
 
     static let permissionHelp = "此操作需要 Token 对目标仓库具备 Contents: write（读写内容）与 Metadata: read（只读元数据）权限。请在 GitHub 的细粒度 Token 中补充后重新保存账号。"
@@ -220,14 +207,16 @@ enum UpstreamSyncRules {
         let stamp: String
         let backupTag: String
         let tempBranch: String
-        var head: String
-        let upstream: String
-        let upstreamBranch: String
+        let head: String
+        let sourceSHA: String
+        let destination: UpstreamSyncRules.Target
+        let source: UpstreamSyncRules.Target
     }
 
     @Published var upstreamRepository = ""
     @Published var upstreamBranch = ""
     @Published var compare: UpstreamCompare?
+    private var preview: UpstreamSyncRules.Preview?
     @Published var error = ""
     @Published var busy = false
     @Published var loading = false
@@ -237,20 +226,19 @@ enum UpstreamSyncRules {
     @Published var mergeSHA = ""
     @Published var appliedSHA = ""
 
-    /// One compare request; nothing is written here.
     func loadPreview(api: GitHub, repo: String, branch: String) async {
         guard !busy, !loading else { return }
         let target: UpstreamSyncRules.Target
         do { target = try UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch) }
         catch { compare = nil; self.error = error.localizedDescription; return }
-        loading = true; error = ""; compare = nil
+        loading = true; error = ""; compare = nil; preview = nil
         defer { loading = false }
         do {
             let result = try await api.upstreamCompare(repo: repo, base: branch, upstream: target)
             try Task.checkCancellation()
             guard api.isCurrentSession,
                   (try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch)) == target else { return }
-            compare = result
+            preview = result; compare = result.comparison
             stage = .preview; receipt = nil; pending = nil; mergeSHA = ""; appliedSHA = ""
             UserDefaults.standard.set(UpstreamSyncRules.encodeMemory(repository: target.repository, branch: target.branch),
                                       forKey: UpstreamSyncRules.memoryKey(account: api.accountID, repository: repo))
@@ -264,37 +252,41 @@ enum UpstreamSyncRules {
 
     func propose() -> Bool {
         guard !busy, !loading, stage == .preview, (compare?.ahead_by ?? 0) > 0 else { return false }
-        guard let target = try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch) else {
+        guard let preview, (try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch)) == preview.source else {
             error = "请先填写有效的上游仓库与分支，并预览差异。"; return false
         }
         let stamp = UpstreamSyncRules.stamp()
         pending = Receipt(stamp: stamp,
                           backupTag: UpstreamSyncRules.backupTag(stamp),
                           tempBranch: UpstreamSyncRules.tempBranch(stamp),
-                          head: "", upstream: target.repository, upstreamBranch: target.branch)
+                          head: preview.baseSHA, sourceSHA: preview.sourceSHA, destination: preview.destination, source: preview.source)
         return true
     }
 
     func merge(api: GitHub, repo: String, branch: String, receipt proposed: Receipt) async {
         guard !busy, !loading else { return }
-        guard let target = try? UpstreamSyncRules.target(repository: proposed.upstream, branch: proposed.upstreamBranch) else {
-            error = "上游仓库或分支无效，未执行任何写入。"; return
-        }
+        guard let preview, compare != nil, stage == .preview,
+              proposed.destination == (try? UpstreamSyncRules.target(repository: repo, branch: branch)),
+              proposed.source == (try? UpstreamSyncRules.target(repository: upstreamRepository, branch: upstreamBranch)),
+              preview.destination == proposed.destination, preview.source == proposed.source,
+              preview.baseSHA == proposed.head, preview.sourceSHA == proposed.sourceSHA else { return }
         busy = true; error = ""
-        var current = proposed
+        let current = proposed
         defer { busy = false }
         do {
-            let head = try await api.upstreamBranchHead(repo: repo, branch: branch)
-            guard api.isCurrentSession else { return }
-            current.head = head
+            guard try await api.upstreamBranchHead(repo: repo, branch: branch) == current.head,
+                  try await api.upstreamBranchHead(repo: current.source.repository, branch: current.source.branch) == current.sourceSHA else {
+                throw AppError(text: "来源或目标分支已变化，请重新预览。")
+            }
+            try Task.checkCancellation(); guard api.isCurrentSession else { return }
             receipt = current
-            try await api.createUpstreamRef(repo: repo, ref: "refs/tags/" + current.backupTag, sha: head)
+            try await api.createUpstreamRef(repo: repo, ref: "refs/tags/" + current.backupTag, sha: current.head)
             guard api.isCurrentSession else { return }
-            try await api.createUpstreamRef(repo: repo, ref: "refs/heads/" + current.tempBranch, sha: head)
+            try await api.createUpstreamRef(repo: repo, ref: "refs/heads/" + current.tempBranch, sha: current.head)
             guard api.isCurrentSession else { return }
             let outcome = try await api.mergeUpstream(
-                repo: repo, base: current.tempBranch, upstream: target,
-                message: UpstreamSyncRules.mergeMessage(targetBranch: branch, upstream: target, stamp: current.stamp))
+                repo: repo, base: current.tempBranch, baseSHA: current.head, sourceSHA: current.sourceSHA,
+                message: UpstreamSyncRules.mergeMessage(targetBranch: branch, upstream: current.source, stamp: current.stamp))
             guard api.isCurrentSession else { return }
             switch outcome {
             case .merged(let sha): mergeSHA = sha; stage = .merged
@@ -310,16 +302,14 @@ enum UpstreamSyncRules {
     }
 
     func apply(api: GitHub, repo: String, branch: String) async {
-        guard !busy, !loading, stage == .merged, UpstreamSyncRules.validSHA(mergeSHA) else { return }
+        guard !busy, !loading, stage == .merged, UpstreamSyncRules.validSHA(mergeSHA), let receipt,
+              receipt.destination == (try? UpstreamSyncRules.target(repository: repo, branch: branch)) else { return }
         busy = true; error = ""
         defer { busy = false }
         do {
-            let outcome = try await api.applyUpstreamFastForward(repo: repo, branch: branch, sha: mergeSHA)
+            try await api.applyUpstreamFastForward(repo: repo, branch: branch, before: receipt.head, sha: mergeSHA)
             guard api.isCurrentSession else { return }
-            switch outcome {
-            case .updated(let sha): appliedSHA = sha; stage = .applied
-            case .rejected(let text): error = text
-            }
+            appliedSHA = mergeSHA; stage = .applied
         } catch {
             guard api.isCurrentSession, !RefreshFailure.isCancellation(error) else { return }
             self.error = Self.failureText(error)
@@ -387,7 +377,7 @@ struct UpstreamSyncView: View {
     private var mergeTitle: String {
         guard let pending = state.pending else { return "在临时分支合并上游？" }
         return "在临时分支合并上游？\n\(pending.backupTag)\n\(pending.tempBranch)\n"
-            + "\(pending.upstream):\(pending.upstreamBranch) → \(pending.tempBranch)\n"
+            + "\(pending.source.repository):\(pending.source.branch) @ \(short(pending.sourceSHA)) → \(pending.tempBranch) @ \(short(pending.head))\n"
             + "目标分支 \(targetBranch) 不改变，冲突时停止。"
     }
     private func short(_ sha: String) -> String { String(sha.prefix(7)) }
@@ -525,7 +515,7 @@ struct UpstreamSyncView: View {
                 }
             }
             SoftGroupRow("source-note") {
-                Text("预览只发出一次只读比较请求，不创建分支、标签或提交。选择按仓库分别记住，只有你确认过的选择会被保存。")
+                Text("预览会读取两个分支的提交并比较差异。选择按仓库分别记住。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

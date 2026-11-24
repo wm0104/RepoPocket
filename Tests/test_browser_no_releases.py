@@ -125,10 +125,16 @@ class BrowserRollbackTests(unittest.TestCase):
         normalized = normalized[:upload_start] + normalized[upload_end:]
         # Only the new remote-branch rename and delete methods are excluded; their
         # permission, protected/default/current branch and acknowledgement tests are separate.
-        deletion_start = normalized.index('    /// Local-facing rename becomes create-then-delete on GitHub:')
+        deletion_start = normalized.index('    func renameBranch(')
         deletion_end = normalized.index('    func fetchWorkspace(', deletion_start)
         self.assertEqual(normalized[deletion_start:deletion_end].count('    func '), 2)
+        self.assertEqual(normalized[deletion_start:deletion_end].count('    private func '), 1)
+        self.assertIn('private func compareAndUpdateBranch(', normalized[deletion_start:deletion_end])
         normalized = normalized[:deletion_start] + normalized[deletion_end:]
+        normalized = normalized.replace('    var node_id: String? = nil\n', '', 1)
+        commit_lookup = 'decoded(GitObject.self, Self.repoPath(repo) + "/commits/" + Self.component(selected))'
+        self.assertEqual(normalized.count(commit_lookup), 1)
+        normalized = normalized.replace(commit_lookup, commit_lookup.replace('GitObject.self', 'GitCommitInfo.self'))
         # Normalize the removed manual cache reset and the exact bounded error
         # read only; every other historic transport byte remains protected.
         self.assertNotIn('    func clearMemoryCaches()', normalized)

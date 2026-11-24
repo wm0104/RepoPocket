@@ -37,6 +37,7 @@ struct LocalGitConflictFile: Decodable {
     let ours: Side
     let theirs: Side
     let binary: Bool
+    let wholeFileOnly: Bool
     let resolved: Bool
     let result: String
     let resultOID: String
@@ -59,13 +60,13 @@ enum LocalGitConflictBlocks {
         var offset = 0
         while offset < value.length {
             let range = value.lineRange(for: NSRange(location: offset, length: 0))
-            let line = value.substring(with: range)
-            if line.hasPrefix("<<<<<<< ") {
+            let line = value.substring(with: range).trimmingCharacters(in: .newlines)
+            if line == "<<<<<<< CURRENT" {
                 guard start == nil else { return [] }
                 start = range.location; oursStart = NSMaxRange(range); separator = nil
-            } else if line.trimmingCharacters(in: .newlines) == "=======", start != nil {
+            } else if line == "=======", start != nil {
                 guard separator == nil else { return [] }; separator = range
-            } else if line.hasPrefix(">>>>>>> "), let begin = start, let middle = separator {
+            } else if line == ">>>>>>> INCOMING", let begin = start, let middle = separator {
                 result.append(Block(range: NSRange(location: begin, length: NSMaxRange(range) - begin),
                                     ours: value.substring(with: NSRange(location: oursStart, length: middle.location - oursStart)),
                                     theirs: value.substring(with: NSRange(location: NSMaxRange(middle), length: range.location - NSMaxRange(middle)))))

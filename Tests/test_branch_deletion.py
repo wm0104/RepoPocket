@@ -40,7 +40,7 @@ class BranchDeletionContracts(unittest.TestCase):
         github = (ROOT / 'RepoPocket/GitHub.swift').read_text()
         body = production_method(github, '    func deleteBranch(')
         for text in ('expectedHead', 'default_branch', 'permissions?.push', '.protected', 'ensureActiveAccount',
-                     '"DELETE"', '/git/refs/heads/', 'statusCode == 204', 'OfficialUpdateRedirectPolicy'):
+                     'compareAndUpdateBranch', 'before: expectedHead', 'after: String(repeating: "0", count: 40)'):
             self.assertIn(text, body)
         view = (ROOT / 'RepoPocket/DesktopViews.swift').read_text().split('struct BranchPickerView:', 1)[1]
         for text in ('.contextMenu', '.confirmationDialog', 'role: .destructive', 'api.deleteBranch(',
@@ -56,7 +56,7 @@ class BranchDeletionContracts(unittest.TestCase):
                       '    private func url(', '    private func request(', '    var isCurrentSession:',
                       '    private func ensureActiveAccount()', '    private func check(', '    private func operation(',
                       '    private func data(', '    private func decoded<', '    func requireWriteAccess(',
-                      '    func repository(', '    func deleteBranch(']
+                      '    func repository(', '    func deleteBranch(', '    private func compareAndUpdateBranch(', '    func renameBranch(']
         methods = '\n'.join(production_method(github, s) for s in signatures)
         models = '\n'.join(production_method(github, s) for s in ['struct GitHubAPIError:', 'struct RepoAccess:',
                             'struct RepositoryReference:', 'struct Repository:'])
@@ -135,6 +135,9 @@ class NativeBranchDeletion(unittest.TestCase):
 
 HARNESS = r'''
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 struct AppError: LocalizedError { let text: String; var errorDescription: String? { text } }
 struct GitHubMessage: Decodable { let message: String }
 struct User: Codable {}
@@ -164,7 +167,8 @@ final class BranchFixture: URLProtocol {
     static var push: Bool? = true
     static var protected = false
     static var head = String(repeating: "a", count: 40)
-    static var status = 204
+    static var status = 200
+    static var rejectLease = false
     static var switchOnBranchRead = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -174,8 +178,19 @@ final class BranchFixture: URLProtocol {
             let path = request.url!.path
             let payload: [String: Any]
             let status: Int
-            if request.httpMethod == "DELETE" {
-                status = Self.status; payload = ["message": "fixture rejection"]
+            if path == "/graphql" {
+                status = Self.status
+                let body = try! JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+                let input = (body["variables"] as! [String: Any])["input"] as! [String: Any]
+                let updates = input["refUpdates"] as! [[String: Any]]
+                precondition(updates.count == 1 && input["repositoryId"] as? String == "repo-node")
+                precondition(updates[0]["name"] as? String == "refs/heads/feature/中文")
+                precondition(updates[0]["beforeOid"] as? String == Self.head && updates[0]["afterOid"] as? String == String(repeating: "0", count: 40))
+                precondition(updates[0]["force"] as? Bool == false)
+                payload = Self.rejectLease ? ["errors": [["message": "beforeOid mismatch"]]] :
+                    ["data": ["updateRefs": ["clientMutationId": input["clientMutationId"]!]]]
+            } else if path.hasSuffix("/rename") {
+                status = 201; payload = ["name": "renamed", "protected": false, "commit": ["sha": Self.head]]
             } else if path.contains("/branches/") {
                 if Self.switchOnBranchRead { AccountStore.generation = UUID() }
                 status = 200
@@ -184,7 +199,7 @@ final class BranchFixture: URLProtocol {
                 status = 200
                 var permissions: [String: Any] = [:]
                 if let push = Self.push { permissions["push"] = push }
-                payload = ["id": 1, "name": "repo", "full_name": "owner/repo", "html_url": "https://github.com/owner/repo",
+                payload = ["id": 1, "node_id": "repo-node", "name": "repo", "full_name": "owner/repo", "html_url": "https://github.com/owner/repo",
                            "default_branch": Self.defaultBranch, "permissions": permissions]
             }
             let bytes = try! JSONSerialization.data(withJSONObject: payload)
@@ -197,7 +212,7 @@ final class BranchFixture: URLProtocol {
     override func stopLoading() {}
     static func reset() {
         requests = []; defaultBranch = "main"; push = true; protected = false
-        head = String(repeating: "a", count: 40); status = 204; switchOnBranchRead = false
+        head = String(repeating: "a", count: 40); status = 200; rejectLease = false; switchOnBranchRead = false
     }
 }
 @main struct Harness {
@@ -210,9 +225,7 @@ final class BranchFixture: URLProtocol {
         try await remove(GitHub())
         precondition(BranchFixture.requests.count == 3)
         let deletion = BranchFixture.requests.last!
-        precondition(deletion.httpMethod == "DELETE")
-        precondition(deletion.url!.path == "/repos/owner/repo/git/refs/heads/" + name)
-        precondition(deletion.httpBody == nil)
+        precondition(deletion.httpMethod == "POST" && deletion.url!.path == "/graphql")
         precondition(deletion.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-only")
         for mode in ["current", "default", "protected", "denied", "unknown", "moved", "account"] {
             BranchFixture.reset()
@@ -227,13 +240,21 @@ final class BranchFixture: URLProtocol {
                 try await remove(api, current: mode == "current" ? name : "main")
                 preconditionFailure("unsafe deletion accepted: " + mode)
             } catch {}
-            precondition(!BranchFixture.requests.contains { $0.httpMethod == "DELETE" })
+            precondition(!BranchFixture.requests.contains { $0.httpMethod != "GET" })
         }
         for status in [200, 202, 302, 403, 409, 422] {
             BranchFixture.reset(); BranchFixture.status = status
-            do { try await remove(GitHub()); preconditionFailure("non-204 accepted") } catch {}
-            precondition(BranchFixture.requests.filter { $0.httpMethod == "DELETE" }.count == 1)
+            BranchFixture.rejectLease = status == 200
+            do { try await remove(GitHub()); preconditionFailure("unconfirmed update accepted") } catch {}
+            precondition(BranchFixture.requests.filter { $0.httpMethod == "POST" }.count == 1)
         }
+        BranchFixture.reset()
+        let renamed = try await GitHub().renameBranch("owner/repo", name: name, to: "renamed", expectedHead: head)
+        precondition(renamed.name == "renamed")
+        let writes = BranchFixture.requests.filter { $0.httpMethod != "GET" }
+        precondition(writes.count == 1 && writes[0].url!.path.hasSuffix("/rename"))
+        let body = try JSONSerialization.jsonObject(with: writes[0].httpBody!) as! [String: String]
+        precondition(body == ["new_name": "renamed"])
         BranchFixture.reset()
         let stale = GitHub(); AccountStore.generation = UUID()
         do { try await remove(stale); preconditionFailure("stale account accepted") } catch {}

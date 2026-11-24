@@ -1,6 +1,7 @@
 """Local-only rename contracts and the production macOS bridge in disposable repos."""
 from pathlib import Path
 import platform
+import subprocess
 import unittest
 
 import test_local_branches as local
@@ -108,6 +109,26 @@ class NativeLocalRename(unittest.TestCase):
         self.git('update-ref', 'refs/remotes/origin/feature', self.head)
         self.assertFalse(self.call('renameBranch', targetRef='refs/remotes/origin/feature',
                                    expectedTargetHead=self.head, name='renamed')['ok'])
+
+    def test_rename_moves_all_values_and_preserves_dotted_siblings(self):
+        self.git('branch', 'feature')
+        self.git('config', 'branch.feature.description', 'description')
+        self.git('config', 'branch.feature.pushRemote', 'mirror')
+        self.git('config', 'branch.feature.rebase', 'true')
+        for value in ('', 'refs/heads/one', 'refs/heads/two'):
+            self.git('config', '--add', 'branch.feature.merge', value)
+        self.git('config', 'branch.feature.other.description', 'sibling')
+        self.git('config', 'branch.renamed.other.description', 'another sibling')
+        config = self.work / '.git/config'
+        with config.open('ab') as handle:
+            handle.write(b'[branch "feature"]\n\tflag\n\tflag = true\n# retained comment\n')
+        self.assertTrue(self.rename()['ok'])
+        for key, value in [('description', 'description'), ('pushRemote', 'mirror'), ('rebase', 'true')]:
+            self.assertEqual(self.git('config', 'branch.renamed.' + key), value)
+        values = subprocess.check_output(['git', 'config', '--get-all', 'branch.renamed.merge'], cwd=self.work)
+        self.assertEqual(values.splitlines(), [b'', b'refs/heads/one', b'refs/heads/two'])
+        self.assertIn(b'[branch "renamed"]\n\tflag\n\tflag = true\n# retained comment\n', config.read_bytes())
+        self.assertEqual(self.git('config', '--get-regexp', r'^branch\.feature\.'), 'branch.feature.other.description sibling')
 
     def test_packed_source_keeps_all_other_refs(self):
         self.git('branch', 'feature')

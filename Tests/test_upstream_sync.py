@@ -14,24 +14,25 @@ def block(text, start, end):
 
 
 class UpstreamSyncSourceTests(unittest.TestCase):
-    def test_compare_path_keeps_cross_repository_head(self):
+    def test_compare_resolves_the_exact_source_repository_and_pins_both_heads(self):
         path = block(FEATURE, 'static func comparePath(', '\n    static func mergesPath(')
-        self.assertIn('"/compare/" + refPath(base)', path)
-        self.assertIn('"..." + segment(upstream.owner) + ":" + refPath(upstream.branch)', path)
+        self.assertIn('"/compare/" + baseSHA + "..." + sourceSHA', path)
         self.assertIn('repositoryPath(RepositoryInput.parse(repo))', path)
-        self.assertIn('DesktopRules.validBranch(base)', path)
+        self.assertIn('validSHA(baseSHA), validSHA(sourceSHA)', path)
         compare = block(API, 'func upstreamCompare(', '\n    func upstreamBranchHead(')
         self.assertIn('decoded(UpstreamCompare.self', compare)
+        self.assertIn('upstreamBranchHead(repo: upstream.repository, branch: upstream.branch)', compare)
+        self.assertIn('upstreamBranchHead(repo: destination.repository, branch: destination.branch)', compare)
         for write in ['method: "POST"', 'method: "PATCH"', '/merges', '/git/refs']:
             self.assertNotIn(write, compare)
 
     def test_merges_body_and_conflict_mapping(self):
-        body = block(FEATURE, 'static func mergeObject(', '\n    static func applyObject(')
+        body = block(FEATURE, 'static func mergeObject(', '\n    // MARK: - Names')
         self.assertIn('"base": base', body)
-        self.assertIn('"head": upstream.owner + ":" + upstream.branch', body)
+        self.assertIn('"head": sourceSHA', body)
         self.assertIn('"commit_message": message', body)
         self.assertNotIn('force', body)
-        outcome = block(FEATURE, 'static func mergeOutcome(', '\n    enum ApplyOutcome:')
+        outcome = block(FEATURE, 'static func mergeOutcome(', '\n    // MARK: - Permissions')
         self.assertIn('if status == 409 { return .conflict }', outcome)
         self.assertIn('if status == 204 { return .upToDate }', outcome)
         merge = block(API, 'func mergeUpstream(', '\n    /// Fast-forward only')
@@ -40,20 +41,17 @@ class UpstreamSyncSourceTests(unittest.TestCase):
         flow = block(FEATURE, 'func merge(api: GitHub', 'func apply(api: GitHub')
         self.assertIn('api.mergeUpstream(', flow)
         self.assertIn('base: current.tempBranch', flow)
-        self.assertIn('upstream: target', flow)
+        self.assertIn('sourceSHA: current.sourceSHA', flow)
         # The target branch is never the merge base, so a merge cannot move it.
         self.assertIn('repo: repo, base: current.tempBranch', flow)
         self.assertIn('stage = .conflict', flow)
 
     def test_apply_is_fast_forward_only(self):
-        obj = block(FEATURE, 'static func applyObject', '\n    // MARK: - Names')
+        obj = block(API, 'private func compareAndUpdateBranch(', '\n    func fetchWorkspace(')
         self.assertIn('"force": false', obj)
         apply = block(API, 'func applyUpstreamFastForward(', '\n}\n')
-        self.assertIn('UpstreamSyncRules.branchRefPath(repo: repo, branch: branch)', apply)
-        self.assertIn('method: "PATCH"', apply)
-        outcome = block(FEATURE, 'static func applyOutcome', '\n    // MARK: - Permissions')
-        self.assertIn('.rejected(', outcome)
-        self.assertIn('不会改写历史', outcome)
+        self.assertIn('before: before, after: sha', apply)
+        self.assertIn('"beforeOid": before', obj)
         self.assertNotIn('force: true', FEATURE)
         self.assertNotIn('"force": true', FEATURE)
 
@@ -144,6 +142,8 @@ class UpstreamSyncSourceTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('swiftc'), 'Production async state runs on macOS CI')
     def test_production_state_rejects_overlapping_and_stale_previews(self):
         source = FEATURE.split('struct UpstreamSyncView: View {', 1)[0]
+        if subprocess.check_output(['swiftc', '-print-target-info'], text=True).find('linux') >= 0:
+            source = source.replace('import SwiftUI', 'import Foundation\nprotocol ObservableObject {}\n@propertyWrapper struct Published<T> { var wrappedValue: T }', 1)
         source += (ROOT / 'RepoPocket/RepositoryInput.swift').read_text()
         source += (ROOT / 'RepoPocket/DesktopModels.swift').read_text()
         source += (ROOT / 'Tests/Fixtures/UpstreamSyncHarness.swift').read_text()
@@ -174,15 +174,13 @@ import Foundation
         precondition(parsedURL.repository == "upstream-owner/upstream-repo")
         let parsedGit = try UpstreamSyncRules.target(repository: "upstream-owner/upstream-repo.git", branch: "main")
         precondition(parsedGit.repository == "upstream-owner/upstream-repo")
-        let same = try UpstreamSyncRules.comparePath(repo: "target-owner/target-repo", base: "main", upstream: upstream)
-        precondition(same == "/repos/target-owner/target-repo/compare/main...upstream-owner:main", same)
-        let nested = try UpstreamSyncRules.comparePath(repo: "target-owner/target-repo", base: "feature/topic",
-            upstream: UpstreamSyncRules.Target(repository: "upstream-owner/upstream-repo", branch: "fix/deep"))
-        precondition(nested == "/repos/target-owner/target-repo/compare/feature/topic...upstream-owner:fix/deep", nested)
-        let merge = UpstreamSyncRules.mergeObject(base: "sync/upstream-stamp", upstream: upstream, message: "m")
+        let base = String(repeating: "b", count: 40)
+        let same = try UpstreamSyncRules.comparePath(repo: "target-owner/target-repo", baseSHA: base, sourceSHA: sha)
+        precondition(same == "/repos/target-owner/target-repo/compare/" + base + "..." + sha)
+        let merge = UpstreamSyncRules.mergeObject(base: "sync/upstream-stamp", sourceSHA: sha, message: "m")
         precondition(Set(merge.keys) == ["base", "head", "commit_message"], "\(merge.keys)")
         precondition(merge["base"] as? String == "sync/upstream-stamp")
-        precondition(merge["head"] as? String == "upstream-owner:main")
+        precondition(merge["head"] as? String == sha)
         precondition(UpstreamSyncRules.mergeOutcome(status: 409, body: Data(#"{"message":"Merge conflict"}"#.utf8)) == .conflict)
         precondition(UpstreamSyncRules.mergeOutcome(status: 204, body: Data()) == .upToDate)
         precondition(UpstreamSyncRules.mergeOutcome(status: 201, body: Data("{\"sha\":\"\(sha)\"}".utf8)) == .merged(sha: sha))
@@ -190,16 +188,6 @@ import Foundation
             preconditionFailure("422 must not look merged")
         }
         precondition(mergeText == "not mergeable")
-        let apply = UpstreamSyncRules.applyObject(sha: sha)
-        precondition(Set(apply.keys) == ["sha", "force"])
-        precondition((apply["force"] as? Bool) == false)
-        precondition(UpstreamSyncRules.applyOutcome(status: 200,
-            body: Data("{\"ref\":\"refs/heads/main\",\"object\":{\"sha\":\"\(sha)\"}}".utf8)) == .updated(sha: sha))
-        guard case .rejected(let applyText) = UpstreamSyncRules.applyOutcome(status: 422,
-            body: Data(#"{"message":"Update is not a fast forward"}"#.utf8)) else {
-            preconditionFailure("422 must be rejected")
-        }
-        precondition(applyText.contains("not a fast forward") && applyText.contains("不会改写历史"))
         let timeZone = TimeZone(identifier: "UTC")!
         var components = DateComponents()
         components.year = 2026; components.month = 1; components.day = 2

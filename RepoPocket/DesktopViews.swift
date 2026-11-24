@@ -187,7 +187,7 @@ struct BranchPickerView: View {
                 Button("确认创建远端分支") { Task { await create() } }
             }
             .appTextInputAlert("重命名 GitHub 远端分支",
-                message: repo + "\n" + (renaming?.name ?? "") + " → 新名称\n会在 GitHub 上新建同名分支并删除旧分支，提交不会丢失；默认分支、受保护分支会拒绝。打开中的 Pull Request 可能被关闭，本地 Git 跟踪不会自动改名。",
+                message: repo + "\n" + (renaming?.name ?? "") + " → 新名称\nGitHub 将重命名此分支。默认分支和受保护分支不可在此改名。以该分支为来源的 Pull Request 可能被关闭，本地 Git 跟踪不会自动改名。",
                 isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }),
                 text: $renameName, placeholder: "新分支名称", confirmTitle: "重命名") { [renaming] in
                 guard let target = renaming else { return }
@@ -222,7 +222,7 @@ struct BranchPickerView: View {
                             .disabled(busy || b.commit?.sha.isEmpty != false)
                             .accessibilityIdentifier("remote-branch-merge-" + b.name)
                         Button { renameName = b.name + "-new"; renaming = b } label: { Label("重命名 GitHub 远端分支", systemImage: "pencil") }
-                            .disabled(busy || b.protected == true || (b.commit?.sha ?? "").isEmpty)
+                            .disabled(busy || defaultBranch.isEmpty || b.name == defaultBranch || b.protected != false || (b.commit?.sha ?? "").isEmpty)
                         Button(role: .destructive) { deletionMessage = ""; deleting = b } label: { Label("删除 GitHub 远端分支", systemImage: "trash") }
                             .disabled(!canDelete(b))
                     }
@@ -284,11 +284,11 @@ struct BranchPickerView: View {
         busy = true; deletionMessage = ""
         defer { busy = false }
         do {
-            try await api.renameBranch(repo, name: target.name, to: newName, expectedHead: expectedHead, current: current)
+            let renamed = try await api.renameBranch(repo, name: target.name, to: newName, expectedHead: expectedHead)
             guard api.isCurrentSession else { return }
             if current == target.name { select(newName); dismiss(); return }
             if let index = branches.firstIndex(where: { $0.name == target.name }) {
-                branches[index] = DesktopBranch(name: newName, commit: target.commit, protected: target.protected)
+                branches[index] = renamed
             }
             deletionMessage = "已重命名 GitHub 远端分支：" + target.name + " → " + newName
         } catch { if api.isCurrentSession && !RefreshFailure.isCancellation(error) { deletionMessage = error.localizedDescription } }

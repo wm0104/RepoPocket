@@ -66,7 +66,7 @@ class ConflictContracts(unittest.TestCase):
             self.assertIn('@"' + operation + '"', bridge)
         for operation in ('mergeStart', 'conflictResolve', 'conflictContinue', 'conflictAbort'):
             self.assertIn('"' + operation + '"', engine.split('coordinate(root, writing:', 1)[1])
-        self.assertIn('return RPConflictPull(repo,q,c)', bridge)
+        self.assertIn('return RPConflictPull(repo,q,upstream,c)', bridge)
         self.assertIn('@"mergePending"', bridge)
 
     def test_no_shell_reset_force_or_untracked_clean(self):
@@ -212,15 +212,36 @@ class ConflictNative(unittest.TestCase):
         self.assertFalse(self.call('conflictResolve', **self.args(), path='代码.py', choice='manual', text=detail['result'])['ok'])
         self.assertEqual(self.session()['resolved'], 0)
 
-    def special_conflict(self, binary=False, rename=False, path='代码.py'):
+    def test_resolved_text_may_keep_markdown_setext_underline(self):
+        self.start()
+        resolved = 'Combined title\n=======\nMerged body\n'
+        self.resolve(text=resolved)
+        self.finish()
+        self.assertEqual((self.work / '代码.py').read_text(), resolved)
+
+    def test_oversized_combined_conflict_allows_side_and_delete_without_text(self):
+        incoming = b'a' * 1100000 + b'\n'
+        current = b'b' * 1100000 + b'\n'
+        args = self.special_conflict(contents=(incoming, current))
+        detail = self.result('conflictFile', **self.args(), path='代码.py')
+        self.assertTrue(detail['wholeFileOnly'])
+        self.assertFalse(detail['binary'])
+        self.assertEqual(detail['result'], '')
+        self.result('conflictResolve', **self.args(), path='代码.py', choice='delete')
+        self.result('conflictResolve', **self.args(), path='代码.py', choice='theirs')
+        self.finish()
+        self.assertEqual((self.work / '代码.py').read_bytes(), incoming)
+        self.assertEqual(self.git('rev-parse', 'HEAD^2'), args['sourceSHA'])
+
+    def special_conflict(self, binary=False, rename=False, path='代码.py', contents=None):
         self.git('checkout', '-b', 'feature')
         if rename:
             self.git('mv', '代码.py', 'renamed.py')
         else:
-            (self.work / path).write_bytes(b'incoming\x00binary' if binary else b'incoming\n')
+            (self.work / path).write_bytes(contents[0] if contents else (b'incoming\x00binary' if binary else b'incoming\n'))
         self.git('add', '-A'); self.git('commit', '-m', 'incoming')
         source = self.git('rev-parse', 'HEAD'); self.git('checkout', 'main')
-        (self.work / path).write_bytes(b'current\x00binary' if binary else b'current modified\n')
+        (self.work / path).write_bytes(contents[1] if contents else (b'current\x00binary' if binary else b'current modified\n'))
         self.git('add', '-A'); self.git('commit', '-m', 'current')
         self.head = self.git('rev-parse', 'HEAD')
         args = dict(expectedHead=self.head, sourceRef='refs/heads/feature', sourceSHA=source,

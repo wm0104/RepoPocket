@@ -2,8 +2,7 @@ import subprocess, tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-source = Path(REPO_ROOT, 'RepoPocket/WorkspaceView.swift').read_text()
-core = source[source.index('struct LocalSnapshot:'):source.index('\nstruct WorkspaceView:')]
+core = Path(REPO_ROOT, 'RepoPocket/LocalStore.swift').read_text()
 remote = Path(REPO_ROOT, 'RepoPocket/WorkspaceRemote.swift').read_text().replace('import Foundation','').replace('import CryptoKit','')
 tests = r'''
 let fm = FileManager.default

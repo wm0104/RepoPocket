@@ -220,6 +220,7 @@ static NSDictionary *RPConflictFile(git_repository *repo,NSDictionary *q,RPGitRe
     BOOL done=git_index_get_bypath(index,path.UTF8String,1)==NULL && git_index_get_bypath(index,path.UTF8String,2)==NULL && git_index_get_bypath(index,path.UTF8String,3)==NULL;
     NSDictionary *result=done ? RPConflictBlob(repo,RPConflictEntry(resolved),c) : ours;
     BOOL binary=[ours[@"binary"] boolValue] || [theirs[@"binary"] boolValue] || [ancestor[@"binary"] boolValue];
+    BOOL wholeFileOnly=binary;
     NSString *text=result[@"text"];
     if (!done && !binary && [ours[@"exists"] boolValue] && [theirs[@"exists"] boolValue]) {
         git_index_entry a={0},o={0},t={0};
@@ -232,11 +233,11 @@ static NSDictionary *RPConflictFile(git_repository *repo,NSDictionary *q,RPGitRe
         git_merge_file_result merged={0};
         RPCheck(git_merge_file_from_index(&merged,repo,[row[@"ancestor"] count] ? &a : NULL,&o,&t,&options),@"无法生成文本冲突块。");
         @try {
-            RPRequire(merged.len<=2*1024*1024,@"文本合并结果超过 2 MiB。");
-            text=[[NSString alloc] initWithBytes:merged.ptr length:merged.len encoding:NSUTF8StringEncoding];RPRequire(text!=nil,@"冲突结果不是 UTF-8，请选择一方内容。");
+            text=merged.len<=2*1024*1024 && merged.ptr ? [[NSString alloc] initWithBytes:merged.ptr length:merged.len encoding:NSUTF8StringEncoding] : nil;
+            wholeFileOnly=text==nil;
         } @finally { git_merge_file_result_free(&merged); }
     }
-    return @{@"path":path,@"ours":ours,@"theirs":theirs,@"binary":@(binary),@"resolved":@(done),@"result":text ?: @"",@"resultOID":result[@"oid"],@"resultExists":done ? result[@"exists"] : @YES,@"indexFingerprint":RPConflictIndexFingerprint(repo)};
+    return @{@"path":path,@"ours":ours,@"theirs":theirs,@"binary":@(binary),@"wholeFileOnly":@(wholeFileOnly),@"resolved":@(done),@"result":text ?: @"",@"resultOID":result[@"oid"],@"resultExists":done ? result[@"exists"] : @YES,@"indexFingerprint":RPConflictIndexFingerprint(repo)};
 }
 static void RPConflictCleanup(git_repository *repo,NSDictionary *record) {
     RPConflictCheckMarkers(repo,record);
@@ -295,7 +296,12 @@ static NSDictionary *RPConflictMutate(git_repository *repo,NSDictionary *q,NSStr
                 NSString *text=q[@"text"];RPRequire([text isKindOfClass:NSString.class],@"缺少文本结果。");
                 NSData *bytes=[text dataUsingEncoding:NSUTF8StringEncoding];RPRequire(bytes && bytes.length<=2*1024*1024 && ![text containsString:[NSString stringWithFormat:@"%C",(unichar)0]],@"结果不是有效文本或超过 2 MiB。");
                 RPRequire(![RPConflictBlob(repo,row[@"ours"],c)[@"binary"] boolValue] && ![RPConflictBlob(repo,row[@"theirs"],c)[@"binary"] boolValue],@"二进制或非 UTF-8 冲突只能明确选择一方。");
-                for (NSString *line in [text componentsSeparatedByString:@"\n"]) RPRequire(![line hasPrefix:@"<<<<<<<"] && ![line hasPrefix:@"======="] && ![line hasPrefix:@">>>>>>>"] && ![line hasPrefix:@"|||||||"],@"结果仍包含冲突标记，请逐块解决后再标记。");
+                // A bare ======= is also a valid Markdown heading underline. The merge
+                // above always labels its start, ancestor and end markers explicitly.
+                for (NSString *line in [text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
+                    RPRequire(![line isEqual:@"<<<<<<< CURRENT"] && ![line isEqual:@">>>>>>> INCOMING"] &&
+                              ![line isEqual:@"||||||| BASE"],@"结果仍包含冲突标记，请逐块解决后再标记。");
+                }
                 RPCheck(git_blob_create_frombuffer(&blob,repo,bytes.bytes,bytes.length),@"无法保存解决后的文本。");
                 mode=[row[@"ours"][@"mode"] unsignedIntValue] ?: ([row[@"theirs"][@"mode"] unsignedIntValue] ?: GIT_FILEMODE_BLOB);
                 entry=@{@"oid":RPOID(&blob),@"mode":@(mode)};
@@ -385,8 +391,7 @@ static NSDictionary *RPConflictMutate(git_repository *repo,NSDictionary *q,NSStr
         RPConflictCleanup(repo,record);return @{@"head":RPOID(&newID),@"commit":RPOID(&newID),@"mergePending":@NO,@"recoveryRef":record[@"recoveryRef"]};
     } @finally { close(fd);unlink([metadata stringByAppendingPathComponent:@"index.lock"].fileSystemRepresentation); }
 }
-static NSDictionary *RPConflictPull(git_repository *repo,NSMutableDictionary *q,RPGitResources *c) {
-    git_reference *head=RPHead(repo,c),*source=RPSafeUpstream(repo,head,YES,c);
+static NSDictionary *RPConflictPull(git_repository *repo,NSMutableDictionary *q,git_reference *source,RPGitResources *c) {
     NSMutableDictionary *request=[q mutableCopy];request[@"sourceRef"]=@(git_reference_name(source));request[@"sourceSHA"]=RPOID(git_reference_target(source));
     request[@"method"]=@"ordinary";request[@"pullMerge"]=@YES;request[@"startConflicts"]=@YES;
     request[@"message"]=q[@"message"] ?: @"Merge origin into current branch";

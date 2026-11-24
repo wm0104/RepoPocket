@@ -111,10 +111,10 @@ class CompactGitGroupsTests(unittest.TestCase):
         for title in ['repository-heading', 'association-heading', 'start']:
             self.assertIn('SoftGroupRow("' + title + '")', text)
         self.assertNotIn('.softGroupedRow(', text)
-        for unchanged in ['.disabled(busy || preview != nil)', '.disabled(!preview.canCommit)',
+        for unchanged in ['.disabled(busy || preview != nil)', '.disabled(busy || !preview.canAssociate)',
                           '.disabled(busy)', '.sheet(item: $picker)', '.id(request.id)',
                           '.onDisappear { job?.cancel() }', '.appTextInputAlert("关联项目文件夹"',
-                          'try store.attach(folder); dismiss()',
+                          'try store.attach(folder)',
                           'UIRules.withoutAnimation { importDetailsExpanded.toggle() }']:
             self.assertIn(unchanged, text)
 

@@ -13,7 +13,7 @@ class RepositoryInputTests(unittest.TestCase):
             method = api.split('func ' + name, 1)[1].split('\n    func ', 1)[0]
             self.assertIn('let repo = try RepositoryInput.parse(repo)', method)
         self.assertIn('let owner = try RepositoryInput.parse(repo)', api)
-        for file in ['RepoPocketApp.swift', 'UploadView.swift', 'WorkspaceView.swift']:
+        for file in ['RepoPocketApp.swift', 'UploadView.swift']:
             ui = Path(REPO_ROOT, 'RepoPocket/' + file).read_text()
             self.assertNotIn('TextField("用户名/仓库名"', ui)
             self.assertNotIn('TextField("已有仓库：', ui)

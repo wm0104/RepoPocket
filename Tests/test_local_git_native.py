@@ -231,6 +231,15 @@ do {
         self.assertEqual(result['head'], self.head)
         self.assertIs(self.result('history')['tracking'], True)
 
+    def test_pull_refuses_stale_tracking_ref_after_server_branch_deletion(self):
+        self.make_remote()
+        self.git('branch', 'fallback', cwd=self.remote)
+        self.git('symbolic-ref', 'HEAD', 'refs/heads/fallback', cwd=self.remote)
+        self.git('update-ref', '-d', 'refs/heads/main', cwd=self.remote)
+        self.assertEqual(self.git('rev-parse', 'origin/main'), self.head)
+        self.assertFalse(self.call('pull', expectedHead=self.head)['ok'])
+        self.assertEqual(self.git('rev-parse', 'HEAD'), self.head)
+
     def commit(self, status, paths):
         selected = [row for row in status['files'] if row['path'] in paths]
         return self.call('commit', expectedHead=status['head'], files=selected,

@@ -249,16 +249,6 @@ final class OAuthFixtureProtocol: URLProtocol {
    let rootBase = CommunityRules.readingBase("o/r",branch:"main",file:"README.md",raw:false)!
    precondition(rootBase.absoluteString == "https://github.com/o/r/blob/main/README.md")
    precondition(URL(string:"#heading",relativeTo:rootBase)!.absoluteURL.absoluteString == "https://github.com/o/r/blob/main/README.md#heading")
-   let sample = "let 中文 = \"if 12\" // return 30\nvar n = 42"
-   let tokens = SourceLexer.tokens(sample,hashComments:false)
-   let words = tokens.map { (sample as NSString).substring(with:$0.range) }
-   precondition(words == ["let","\"if 12\"","// return 30","var","42"])
-   let pathological = "/*" + String(repeating:"a/*",count:32000)
-   let start = Date()
-   precondition(SourceLexer.tokens(pathological,hashComments:false).count == 1)
-   precondition(Date().timeIntervalSince(start) < 3)
-   let hashTokens = SourceLexer.tokens("# if 3\nreturn 4",hashComments:true)
-   precondition(hashTokens.count == 3)
    let options = RepositorySearchOptions(language:"C++",sort:.stars,ascending:true)
    let endpoint = RepositorySearchRules.endpoint(kind:.repositories,query:"a&b 中文",page:2,options:options)
    let params = URLComponents(url:endpoint,resolvingAgainstBaseURL:false)!.queryItems!
@@ -464,7 +454,6 @@ final class OAuthFixtureProtocol: URLProtocol {
 }
 '''
         # Throwing expressions cannot be evaluated by precondition's nonthrowing autoclosure.
-        program = program.replace('@main struct Run {', (ROOT/'RepoPocket/SourceLexer.swift').read_text() + '\n@main struct Run {')
         program = program.replace('precondition(try CommunityRules.readmeText(readme) == "中文")', 'let read = try CommunityRules.readmeText(readme); precondition(read == "中文")')
         program = program.replace('precondition(try DeviceOAuthRules.clientID(" abc_123 ") == "abc_123")', 'let client = try DeviceOAuthRules.clientID(" abc_123 "); precondition(client == "abc_123")')
         program = program.replace('precondition(try DeviceOAuthRules.validate(code).host == "github.com")', 'let verification = try DeviceOAuthRules.validate(code); precondition(verification.host == "github.com")')

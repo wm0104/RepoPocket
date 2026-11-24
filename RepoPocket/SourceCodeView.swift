@@ -20,7 +20,7 @@ enum SourceHighlighter {
 
     static func highlight(_ text: String, filename: String, dark: Bool) -> NSAttributedString {
         guard !text.isEmpty, !Task.isCancelled, text.utf8.count <= byteLimit, runestoneThemeAvailable,
-              let language = SourceTextSyntax.language(for: filename, text: text) else {
+              let language = SourceTextSyntax.language(for: filename, text: text)?.grammar() else {
             return NSAttributedString(string: text, attributes: [.foregroundColor: UIColor.label])
         }
         // The pinned source exposes StringSyntaxHighlighter; empty text must bypass its index-0 attributes access.
@@ -52,7 +52,7 @@ struct SourceCodeEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(SourceLanguage.detect(filename).rawValue).font(.caption).foregroundStyle(.secondary)
+                Text(SourceTextSyntax.language(for: filename, text: text)?.name ?? "文本").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 ContentZoomControls(scale: $scale)
                 Button { findRequest += 1 } label: { Image(systemName: "magnifyingglass").frame(minWidth: 44, minHeight: 24) }

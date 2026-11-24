@@ -55,8 +55,44 @@ struct AppUpdateRelease: Decodable {
         guard url.scheme == "https", url.host == "github.com", url.path.hasPrefix("/wm0104/RepoPocket/releases/download/") else { return nil }
         return url
     }
+    func checksumAsset(for ipa: URL) throws -> Asset {
+        for name in [ipa.lastPathComponent + ".sha256", "SHA256SUMS"] {
+            let matches = assets.filter { $0.name == name }
+            guard !matches.isEmpty else { continue }
+            let expectedURL = ipa.deletingLastPathComponent().appendingPathComponent(name)
+            guard matches.count == 1, matches[0].browser_download_url == expectedURL else {
+                throw AppError(text: "SHA256 附件地址不可信或不唯一。")
+            }
+            return matches[0]
+        }
+        throw AppError(text: "发行版缺少 IPA 的 SHA256 校验信息。")
+    }
 }
 enum AppUpdateRules {
+    static func checksum(_ data: Data, ipaName: String, manifest: Bool) throws -> String {
+        let invalid = AppError(text: "官方 SHA256 附件无效。")
+        guard let text = String(data: data, encoding: .utf8) else { throw invalid }
+        let lines = text.split(whereSeparator: \.isNewline)
+        guard manifest || lines.count == 1 else { throw invalid }
+        var expected: String?
+        for line in lines {
+            let fields = line.split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" })
+            guard let digest = fields.first, digest.utf8.count == 64,
+                  digest.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) else { throw invalid }
+            if fields.count == 2 {
+                let filename = fields[1].drop(while: { $0 == " " || $0 == "\t" })
+                let name = filename.hasPrefix("*") ? filename.dropFirst() : filename
+                guard name == ipaName else {
+                    if manifest { continue }
+                    throw invalid
+                }
+            } else if manifest { throw invalid }
+            guard expected == nil else { throw invalid }
+            expected = digest.lowercased()
+        }
+        guard let expected else { throw invalid }
+        return expected
+    }
     static func conciseCheckError(_ error: Error) -> String {
         let reason = error.localizedDescription
         if reason.contains("速率") || reason.contains("过于频繁") { return "请求过于频繁，请稍后再试" }

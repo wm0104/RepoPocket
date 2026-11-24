@@ -92,12 +92,15 @@ private final class ReleaseEditorPreviewProtocol: URLProtocol {
                 status = 200
             case "/repos/fixture-owner/sample/releases":
                 payload = "[]"; status = 200
-            default: break
+            default:
+                if url.path.hasPrefix("/repos/fixture-owner/sample/git/ref/tags/") {
+                    payload = #"{"message":"Tag does not exist"}"#; status = 404
+                }
             }
         }
         Self.lock.lock()
         if method != "GET" { Self.writes += 1 }
-        if status != 200 { Self.rejected += 1 } else { Self.reads += 1 }
+        if status == 200 || status == 404 { Self.reads += 1 } else { Self.rejected += 1 }
         Self.lock.unlock()
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
             headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)

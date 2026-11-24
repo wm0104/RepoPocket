@@ -112,7 +112,7 @@ class RepositoryUploadLimits(unittest.TestCase):
             main = root / 'main.swift'
             metadata = function(source('UploadView.swift'), '    private func queuedUploadBytes(', '    @MainActor private func openTargetPicker(')
             metadata = 'struct UploadQueueMetadataFixture {\n var queue: [PendingRepoItem]\n func queuedUploadBytes(' + metadata + '}\n'
-            main.write_text(queue + metadata + fixture)
+            main.write_text(queue + (ROOT / "Tests/Fixtures/UploadIndexFixture.swift").read_text() + metadata + fixture)
             subprocess.run(['swiftc', str(main), '-o', str(root / 'limits')], check=True)
             subprocess.run([str(root / 'limits')], check=True)
 

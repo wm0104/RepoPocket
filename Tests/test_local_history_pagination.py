@@ -46,6 +46,7 @@ class HistoryBehavior(NativeGitBehavior):
         pages = [self.result('history', expectedHead=head, offset=offset, limit=30)
                  for offset in (0, 30, 60)]
         self.assertEqual([p['totalCount'] for p in pages], [65, 65, 65])
+        self.assertEqual(self.result('history', offset=30, testRequireCachedHistory=True)['commits'], pages[1]['commits'])
         self.assertEqual([len(p['commits']) for p in pages], [30, 30, 5])
         self.assertEqual([c['sha'] for p in pages for c in p['commits']], expected)
         self.assertEqual(len({c['sha'] for p in pages for c in p['commits']}), 65)
@@ -84,6 +85,8 @@ class HistoryBehavior(NativeGitBehavior):
         self.assertIs(history['shallow'], True)
         self.assertEqual(self.git('rev-list', '--count', 'HEAD'), '3')
         self.assertEqual(self.git('rev-list', '--count', 'HEAD', cwd=source), '9')
+        self.git('fetch', '--deepen=2', 'origin')
+        self.assertEqual(self.result('history')['totalCount'], 5)
         for values in ({'offset': -1}, {'limit': 31}, {'limit': 0}, {'offset': 0.5},
                        {'limit': 1.5}, {'offset': '30'}, {'limit': None}):
             with self.subTest(values=values):

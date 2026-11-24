@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 struct ShareInboxItem: Codable, Identifiable {
     let id: UUID
@@ -37,6 +38,23 @@ struct ShareInboxStore {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         guard (try FileManager.default.attributesOfItem(atPath: root.path))[.type] as? FileAttributeType == .typeDirectory else { throw ShareInboxError.invalidItem }
     }
+    private func stageLock(_ directory: URL) -> Int32? {
+        let fd = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { close(fd); return nil }
+        return fd
+    }
+    private func removeAbandonedStage(_ directory: URL) {
+        let name = directory.lastPathComponent
+        guard name.hasPrefix(".staging-"), UUID(uuidString: String(name.dropFirst(9))) != nil,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: directory.path),
+              attributes[.type] as? FileAttributeType == .typeDirectory,
+              let modified = attributes[.modificationDate] as? Date,
+              modified.timeIntervalSinceNow < -86_400,
+              let fd = stageLock(directory) else { return }
+        defer { close(fd) }
+        try? FileManager.default.removeItem(at: directory)
+    }
     func importFile(_ source: URL, name: String? = nil, cancelled: () -> Bool = { false }) throws -> ShareInboxItem {
         let fm = FileManager.default
         let name = name ?? source.lastPathComponent
@@ -48,6 +66,8 @@ struct ShareInboxStore {
         let id = UUID()
         let stage = root.appendingPathComponent(".staging-" + id.uuidString, isDirectory: true)
         try fm.createDirectory(at: stage, withIntermediateDirectories: false)
+        guard let fd = stageLock(stage) else { try? fm.removeItem(at: stage); throw ShareInboxError.unavailable }
+        defer { close(fd) }
         var published = false
         defer { if !published { try? fm.removeItem(at: stage) } }
         let content = stage.appendingPathComponent("content", isDirectory: true)
@@ -87,6 +107,7 @@ struct ShareInboxStore {
     func items() throws -> [ShareInboxItem] {
         try prepare()
         return try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).compactMap { folder -> ShareInboxItem? in
+            if folder.lastPathComponent.hasPrefix(".staging-") { removeAbandonedStage(folder); return nil }
             guard let id = UUID(uuidString: folder.lastPathComponent),
                   (try? FileManager.default.attributesOfItem(atPath: folder.path)[.type] as? FileAttributeType) == .typeDirectory,
                   let data = try? Data(contentsOf: folder.appendingPathComponent("metadata.json")),

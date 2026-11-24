@@ -82,6 +82,28 @@ let asset = #"[{"name":"RepoPocket.ipa","browser_download_url":"https://github.c
 precondition(try release("v1.1.0+42").displayVersion == "v1.1.0")
 precondition(try release("v1.1.0", false, false, asset).ipaURL != nil)
 precondition(try release("v1.1.0", false, false, asset.replacingOccurrences(of: "github.com", with: "evil.invalid")).ipaURL == nil)
+let ipa = URL(string: "https://github.com/wm0104/RepoPocket/releases/download/v1.1.0/RepoPocket.ipa")!
+func checksumRelease(_ names: [String]) throws -> AppUpdateRelease {
+    let rows = names.map { AppUpdateRelease.Asset(name: $0, browser_download_url: ipa.deletingLastPathComponent().appendingPathComponent($0)) }
+    return AppUpdateRelease(tag_name: "v1.1.0", html_url: ipa, draft: false, prerelease: false, assets: rows, body: nil)
+}
+precondition(try checksumRelease(["SHA256SUMS"]).checksumAsset(for: ipa).name == "SHA256SUMS")
+precondition(try checksumRelease(["SHA256SUMS", "RepoPocket.ipa.sha256"]).checksumAsset(for: ipa).name == "RepoPocket.ipa.sha256")
+for names in [[], ["SHA256SUMS", "SHA256SUMS"]] as [[String]] {
+    do { _ = try checksumRelease(names).checksumAsset(for: ipa); fatalError("missing or ambiguous checksum accepted") } catch {}
+}
+let hash = String(repeating: "A", count: 64), other = String(repeating: "2", count: 64)
+func parse(_ content: String, _ manifest: Bool) throws -> String {
+    try AppUpdateRules.checksum(Data(content.utf8), ipaName: "RepoPocket.ipa", manifest: manifest)
+}
+precondition(try parse(hash + "  RepoPocket.ipa\n", false) == hash.lowercased())
+precondition(try parse(hash, false) == hash.lowercased())
+precondition(try parse(other + "  RepoPocket.tipa\n" + hash + " *RepoPocket.ipa\n", true) == hash.lowercased())
+for (content, manifest) in [(other + "  RepoPocket.tipa", true), (hash, true),
+                             (hash + "  RepoPocket.ipa\n" + hash + "  RepoPocket.ipa", true),
+                             ("invalid  RepoPocket.ipa", true), (hash + "  RepoPocket.tipa", false)] {
+    do { _ = try parse(content, manifest); fatalError("invalid checksum accepted") } catch {}
+}
 precondition(AppUpdateRules.statusError(404).contains("尚无"))
 func response(_ status: Int, _ headers: [String: String] = [:], _ message: String = "", _ auth: Bool = false) -> String {
     let bytes = try! JSONSerialization.data(withJSONObject: ["message": message])
@@ -108,7 +130,7 @@ print("PASS production SemVer/build, draft/prerelease, missing/equal/new version
 '''
         # Throwing expressions cannot be evaluated in precondition's nonthrowing autoclosure.
         source = source.replace('precondition(try ', 'check(try ')
-        source = 'func check(_ value: Bool) { precondition(value) }\n' + source
+        source = '#if canImport(FoundationNetworking)\nimport FoundationNetworking\n#endif\nfunc check(_ value: Bool) { precondition(value) }\n' + source
         with tempfile.TemporaryDirectory() as folder:
             file = Path(folder) / 'main.swift'; file.write_text(source)
             subprocess.run(['swiftc', str(file), '-o', folder + '/tests'], check=True)

@@ -66,12 +66,6 @@ class ContentZoomIntegrationTests(unittest.TestCase):
         self.assertIn('-webkit-text-size-adjust: 100%', document)
         self.assertNotIn('font: -apple-system-body', document)
 
-    def test_old_conflict_body_uses_one_shared_zoom_without_scaling_actions(self):
-        source = self.source('WorkspaceView.swift').split('private var conflictSheet:', 1)[1].split('@MainActor private func importItems', 1)[0]
-        self.assertIn('ContentZoomControls(scale: $conflictScale)', source)
-        self.assertEqual(source.count('.font(Font(CodeMetrics.font(scale: conflictScale)))'), 3)
-        self.assertNotIn('scaleEffect', source)
-
     def test_eof_note_explains_git_patch_without_reinterpreting_it(self):
         source = self.source('CommitPatchView.swift')
         self.assertIn('file.patch?.contains("\\\\ No newline at end of file") == true', source)
@@ -178,7 +172,6 @@ class ContentZoomIntegrationTests(unittest.TestCase):
         self.assertIn('onScaleChange: { scale = $0 }', self.source('ReadingZoomStylePreview.swift'))
         self.assertIn('.contentPinchZoom(scale: $scale)', self.source('CommitPatchView.swift'))
         self.assertEqual(self.source('LocalDiffPreview.swift').count('.contentPinchZoom(scale: $scale)'), 2)
-        self.assertEqual(self.source('WorkspaceView.swift').count('.contentPinchZoom(scale: $conflictScale)'), 3)
 
     def test_continuous_pinch_does_not_restart_diff_parsing_or_initial_position(self):
         patch = self.source('CommitPatchView.swift')

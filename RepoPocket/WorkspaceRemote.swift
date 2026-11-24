@@ -53,7 +53,6 @@ struct WorkspaceWrite {
     var size: Int64 = 0
     var sha256: String? = nil
 }
-struct WorkspaceBlob: Decodable { let content: String; let encoding: String; let size: Int }
 struct GitObject: Decodable { let sha: String }
 struct GitReference: Decodable { let object: GitObject }
 struct GitCommitInfo: Decodable {

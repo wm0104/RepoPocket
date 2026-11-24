@@ -10,15 +10,12 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-source = (ROOT / 'RepoPocket/WorkspaceView.swift').read_text(encoding='utf-8')
-assert '.swipeActions' not in source
-assert 'if !zip { return try LinkedWorkspaces.register(source) }' in source
-assert '永久删除所选实际目录及其全部内容' in source
+source = (ROOT / 'RepoPocket/LocalStore.swift').read_text(encoding='utf-8')
 assert 'let name = try LinkedWorkspaces.identifier(folder)' in source
 if not shutil.which('swift'):
     print('SKIP native linked workspace fixtures: Swift unavailable')
 else:
-    core = source[source.index('struct LocalSnapshot:'):source.index('\nstruct WorkspaceView:')]
+    core = source
     remote = (ROOT / 'RepoPocket/WorkspaceRemote.swift').read_text(encoding='utf-8').replace('import Foundation', '').replace('import CryptoKit', '')
     # Isolate registry and model successful picker authorization in a CLI process.
     core = core.replace('try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("LinkedWorkspaces.json")', 'fixture.appendingPathComponent("registry.json")')

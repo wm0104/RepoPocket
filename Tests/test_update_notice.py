@@ -17,8 +17,11 @@ class NoticeTests(unittest.TestCase):
         download = feature.split('    func download() {', 1)[1].split('final class UpdateDownloadDelegate', 1)[0]
         self.assertIn('clearNotice()', download)
         self.assertNotIn('showTransient(', download.split('downloading = true', 1)[1])
-        self.assertIn('guard self.generation == token else { throw CancellationError() }', download)
-        self.assertIn('defer { if self.generation == token', download)
+        self.assertIn('guard self.generation == token, accountSession == AccountStore.generation else { throw CancellationError() }', download)
+        self.assertIn('self.finalization = Task {', download)
+        self.assertIn('finalization?.cancel()', feature.split('func cancelDownload()', 1)[1].split('func download()', 1)[0])
+        self.assertLess(download.index('try await UpdatePackageVerification.verify('), download.index('DownloadStore.shared.persist('))
+        self.assertIn('try archive.extract(entry, consumer: { _ in try Task.checkCancellation() })', download)
 
     def test_update_notification_ui_and_safety(self):
         app = (REPO_ROOT / 'RepoPocket/RepoPocketApp.swift').read_text()
@@ -102,6 +105,9 @@ class NoticeTests(unittest.TestCase):
         checker = '@MainActor final class UpdateChecker' + checker + '\n}\n'
         rules = Path(REPO_ROOT, 'RepoPocket/AppUpdateRules.swift').read_text()
         source = '''import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @propertyWrapper struct Published<Value> { var wrappedValue: Value }
 protocol ObservableObject {}
 final class UpdateDownloadDelegate: NSObject {}

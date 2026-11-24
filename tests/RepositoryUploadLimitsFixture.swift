@@ -17,7 +17,7 @@ func item(_ size: Int64, path: String = "new") -> PendingRepoItem {
 func check(_ items: [PendingRepoItem], accepted: Bool, files: [String: String] = [:]) {
     precondition((RepoQueue.readiness(items, repo: "owner/repo", message: "upload") == nil) == accepted)
     var valid = true
-    do { try RepoQueue.validate(items, head: "head", files: files, directories: []) } catch { valid = false }
+    do { try RepoQueue.validate(items, head: "head", index: UploadPathIndex(files: files, directories: [])) } catch { valid = false }
     precondition(valid == accepted)
 }
 let acceptedSizes: [Int64] = [0, 10 * 1024 * 1024 + 1, 50 * 1024 * 1024, 99 * 1024 * 1024, limit - 1]

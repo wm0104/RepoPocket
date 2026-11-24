@@ -89,7 +89,8 @@ class UpstreamWatchTests(unittest.TestCase):
             self.assertTrue('func ' + name + '()' in ui, name)
         preview = (ROOT/'RepoPocket/UserConnectionsStylePreview.swift').read_text()
         self.assertIn('BrowserView(api: api, repo: "fixture-owner/sample", path: "", branch: "main")', preview)
-        self.assertIn('/compare/main...fixture-upstream:develop', preview)
+        self.assertIn('/git/ref/heads/develop', preview)
+        self.assertIn('/compare/' + 'b' * 40 + '...' + 'a' * 40, preview)
 
     @unittest.skipUnless(shutil.which('swiftc'), 'Production rules run on macOS')
     def test_baseline_and_unread_updates_use_source_sha(self):

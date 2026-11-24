@@ -6,10 +6,11 @@ struct ReleasePublishPlan {
     enum Phase: String { case ready, creatingDraft, uploading, finalizing, complete, cancelled, failed }
     private(set) var phase: Phase = .ready
     private(set) var draftID: Int?
+    private(set) var targetSHA: String?
     private(set) var uploaded: [String: Receipt] = [:]
     struct Receipt: Equatable { let id: Int; let size: Int64 }
     mutating func begin() { phase = draftID == nil ? .creatingDraft : .uploading }
-    mutating func created(_ id: Int) { draftID = id; phase = .uploading }
+    mutating func created(_ id: Int, targetSHA: String) { draftID = id; self.targetSHA = targetSHA; phase = .uploading }
     mutating func acknowledge(name: String, id: Int, size: Int64) { uploaded[name] = Receipt(id: id, size: size) }
     func matches(name: String, id: Int, size: Int64) -> Bool { uploaded[name] == Receipt(id: id, size: size) }
     func mayFinalize(names: [String]) -> Bool { phase == .uploading && !names.isEmpty && names.allSatisfy { uploaded[$0] != nil } }

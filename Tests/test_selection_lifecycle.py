@@ -42,19 +42,10 @@ with tempfile.TemporaryDirectory() as d:
     subprocess.run(['swiftc', str(p), '-o', d + '/tests'], check=True)
     subprocess.run([d + '/tests'], check=True)
 
-w = Path(REPO_ROOT, 'RepoPocket/WorkspaceView.swift').read_text()
 a = Path(REPO_ROOT, 'RepoPocket/RepoPocketApp.swift').read_text()
 h = Path(REPO_ROOT, 'RepoPocket/DesktopViews.swift').read_text()
 u = Path(REPO_ROOT, 'RepoPocket/WorkspaceSelectionUI.swift').read_text()
 c = Path(REPO_ROOT, 'RepoPocket/RepositoryUI.swift').read_text()
-assert '@State private var selected' not in w and 'selected.removeAll()' not in w
-assert '@StateObject private var selectionStore' in a and '.environmentObject(selectionStore)' in a
-assert '.buttonStyle(.plain)' in w and '.frame(width: 44, height: 44)' in w and 'Text(change.relativePath)' in w
-scan = w[w.index('@MainActor private func scan()'):w.index('struct LocalDiffView')]
-assert scan.index('before.hashes == after.hashes') < scan.index('roots = result.0') < scan.index('scanSucceeded(')
-assert 'folder == requestedFolder' in scan and 'generation == AccountStore.generation' in scan
-commit = w[w.index('@MainActor private func commit()'):w.index('@MainActor private func scan()')]
-assert 'if succeeded { await scan() }' in commit and 'commitSucceeded(committing' in commit
 sections = Path(REPO_ROOT, 'RepoPocket/RepositorySections.swift').read_text()
 assert 'if busy && repositories.isEmpty && !refreshing' in sections and 'if busy && entries.isEmpty && !refreshing' in a
 assert '.refreshable { refreshing = true; defer { refreshing = false }; await load() }' in sections
@@ -62,14 +53,10 @@ home_task = a[a.index('.task {', a.index('.refreshable { refreshing = true; awai
 assert 'guard !CredentialStore.read().isEmpty else { return }' in home_task
 assert 'await refresh(); loadPersonalIssues()' in home_task and '!loaded' not in home_task
 assert 'api.cachedCollection(.owned)' in a and 'api.cachedCollection(.starred)' in a
-assert '.task { if !hasScanned' in w
 assert 'guard !busy else { return }' in a
-assert '@MainActor private func scan() async -> Bool' in scan
-assert 'guard !busy else { return false }' in scan
 assert 'commits = []' not in h and 'if refresh { commits = batch }' in h
 assert 'verticalSizeClass == .compact ? .inline : .large' in u
 assert 'verticalSizeClass == .compact ? 3 : 7' in c
 assert 'accessibilityReduceMotion' in c and '.animation(reduceMotion ? nil' in c
-assert 'scenePhase' not in w and '.transition(' not in w and '.animation(' not in w
 assert 'UserDefaults' not in model and 'CredentialStore' not in model
 print('PASS refresh/landscape/selection/cancellation static contracts; actual device transitions unmeasured')

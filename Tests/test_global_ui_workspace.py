@@ -31,41 +31,6 @@ def boolean(expression, values):
     return eval(compile(tree, '<Swift boolean UI fixture>', 'eval'), {'__builtins__': {}})
 
 class GlobalWorkspaceUI(unittest.TestCase):
-    def test_workspace_technical_rows_are_dynamic_siblings(self):
-        w = source('WorkspaceView')
-        body = block(w, 'private func bindingSection(')
-        self.assertIn('SoftGroupRows', body)
-        details = block(body, 'if technicalDetailsExpanded')
-        for key in ('folder.path', '扫描时忽略 .git', 'binding.head', 'remoteAuthorDate',
-                    'remoteCommitterDate', 'lastChecked', 'lastPulled'):
-            self.assertIn(key, details)
-        self.assertEqual(body.count('Text("实际工作目录：" + folder.path)'), 1)
-        self.assertNotIn('Text("绝对路径："', body)
-        self.assertIn('复制实际工作目录路径', details)
-        self.assertIn('UIRules.withoutAnimation { technicalDetailsExpanded.toggle() }', body)
-        for text in ('TextField("仓库链接"', 'TextField("分支', 'TextField("原始 ZIP', '验证副本并关联当前远端'):
-            self.assertIn(text, body)
-            self.assertNotIn(text, details)
-        for text in ('重命名实际目录', '检查更新', '删除本地工作区'):
-            self.assertIn(text, body)  # Detail sheet retains its own management context.
-
-    def test_workspace_unique_route_and_safety(self):
-        w = source('WorkspaceView')
-        menu = block(w, 'private func workspaceManagement(')
-        self.assertIn('binding == nil ? "associate" : "details"', menu)
-        self.assertEqual(menu.count('showAssociation = true'), 1)
-        self.assertEqual(menu.count('showDetails = true'), 1)
-        self.assertEqual(menu.count('title: "工作区详情"'), 0)
-        self.assertIn('!busy && api.isCurrentSession', menu)
-        self.assertIn('self.folder == folder', menu)
-        for key in ('$confirmDelete', '$confirmDirtyDelete', 'if !linked'):
-            self.assertIn(key, w)
-        route_ids = re.search(r'id: binding == nil \? "([^"]+)" : "([^"]+)"', menu).groups()
-        gate = re.search(r'enabled: ([^,]+), items:', menu).group(1)
-        for linked, associated, busy, current in itertools.product((False, True), repeat=4):
-            self.assertEqual(route_ids[int(associated)], 'details' if associated else 'associate')
-            self.assertEqual(boolean(gate, {'busy': busy, 'api.isCurrentSession': current}), not busy and current)
-
     def test_author_missing_predicate_and_sheet_lifecycle(self):
         p = source('LocalProjectView')
         predicate = block(p, 'private var authorIncomplete: Bool')
@@ -107,14 +72,14 @@ class GlobalWorkspaceUI(unittest.TestCase):
         self.assertIn('已知基准 SHA', advanced)
         self.assertIn('folder?.directPath', details)
         self.assertIn('preview.head', details)
-        for key in ('Text("分支：" + preview.branch)', '新子文件夹名称', '已有暂存或未完成 Git 操作',
-                    '确认关联原目录', 'ProgressView("处理中', 'if !message.isEmpty', 'preview.canCommit'):
+        for key in ('Text("分支：" + preview.branch)', '新子文件夹名称', '存在冲突、受限文件或未完成的 Git 操作',
+                    '确认关联原目录', 'ProgressView("处理中', 'if !message.isEmpty', 'preview.canAssociate'):
             self.assertIn(key, p)
             self.assertNotIn(key, details)
             self.assertNotIn(key, advanced)
         self.assertIn('DisclosureGroup("手动输入仓库地址"', p)
         self.assertIn('VStack(alignment: .leading', p)  # One content root for multi-field disclosure.
-        self.assertIn('preview.files.contains(where: { !$0.blocked.isEmpty })', p)
+        self.assertIn('latest.canAssociate', p)
         gate = re.search(r'\.disabled\((busy \|\| preview != nil)\)', p).group(1)
         error_gate = re.search(r'if (!message.isEmpty) \{', p).group(1)
         for busy, preview, error in itertools.product((False, True), repeat=3):
@@ -148,23 +113,6 @@ class GlobalWorkspaceUI(unittest.TestCase):
         self.assertIn('确认合并到当前分支？', m)
 
 class OperationFeedbackTests(unittest.TestCase):
-    def test_workspace_completion_and_partial_failures(self):
-        w = source('WorkspaceView')
-        for title in ('工作区已建立', '工作区已导入', '路径已复制', '拉取完成', '冲突处理完成'):
-            self.assertIn('AppFeedback.show("' + title + '"', w)
-        self.assertIn('DownloadProgressRing(fraction:', w)
-        self.assertIn('progress: {', w)
-        self.assertIn('private func scan() async -> Bool', w)
-        self.assertIn('let scanned = await scan()', w)
-        self.assertIn('failures.isEmpty, scanned', w)
-        self.assertIn('session: generation', w)
-        self.assertIn('成功项目已保留', w)
-        self.assertIn('不要重复提交', w)
-        commit = w.split('private func commit() async', 1)[1].split('private func scan()', 1)[0]
-        self.assertLess(commit.index('LocalStore.finish('), commit.index('AppFeedback.show('))
-        self.assertNotIn('message = "已原子提交', commit)
-        self.assertIn('result = "已原子提交', commit)
-
     def test_local_git_details_and_pending_are_not_success(self):
         for file in ('LocalGitImportUI', 'LocalGitStageView', 'LocalGitBranchManagement',
                      'LocalGitConflictView', 'LocalGitHistoryActions', 'LocalGitMerge', 'LocalProjectView'):

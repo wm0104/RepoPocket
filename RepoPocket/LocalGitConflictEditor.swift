@@ -35,10 +35,10 @@ struct LocalGitConflictEditor: View {
                 Text("结果").tag("result"); Text("当前分支").tag("ours"); Text("传入分支").tag("theirs")
             }.pickerStyle(.segmented).padding(.horizontal)
             if let file {
-                if file.binary {
+                if file.binary || (file.wholeFileOnly && tab == "result") {
                     List {
-                        Section("二进制或非 UTF-8 · 明确选择整份文件") {
-                            Text("不把二进制转换成文本，不拼接双方内容。请选择当前或传入一方；该方不存在即表示删除。")
+                        Section("选择整份文件") {
+                            Text(file.binary ? "此文件为二进制或非 UTF-8 文本。" : "合并结果超出文本编辑器的范围，可查看双方内容后选择整份文件或删除。")
                             Text("当前 \(file.ours.exists ? file.ours.oid : "已删除")").font(.caption.monospaced())
                             Text("传入 \(file.theirs.exists ? file.theirs.oid : "已删除")").font(.caption.monospaced())
                             Text("结果 \(file.resolved ? (file.resultExists ? file.resultOID : "已标记删除") : "尚未标记解决")").font(.caption.monospaced())
@@ -70,7 +70,7 @@ struct LocalGitConflictEditor: View {
                         NativeMenuItem(id: "delete", title: "删除结果文件", destructive: true, perform: { ask("delete") })
                     ])
                     Spacer()
-                    if !file.binary {
+                    if !file.wholeFileOnly {
                         Button("标记当前结果已解决…") { ask("manual") }
                             .disabled(busy || !valid || !blocks.isEmpty || tab != "result")
                     }
@@ -117,7 +117,8 @@ struct LocalGitConflictEditor: View {
         guard valid, !busy, let file else { return }; busy = true; error = ""; defer { busy = false }
         do {
             var args = session.arguments; args["indexFingerprint"] = file.indexFingerprint
-            args["path"] = path; args["choice"] = choice; args["text"] = text
+            args["path"] = path; args["choice"] = choice
+            if choice == "manual" { args["text"] = text }
             let _: LocalGitConflictSession = try await LocalGitEngine.shared.run("conflictResolve", project: project, metadata: metadata, internalRoot: internalRoot, arguments: args, generation: generation)
             try Task.checkCancellation(); guard valid else { return }; original = text; changed(); dismiss()
         } catch { if valid { self.error = RefreshFailure.isCancellation(error) ? "已取消，请返回重新核对解决进度。" : error.localizedDescription } }

@@ -18,7 +18,48 @@ import RepoPocketLanguageSupport
 /// Nothing recognised is plain text. Forcing a grammar onto a file that has
 /// none colours it wrong, which is worse than not colouring it at all.
 enum SourceTextSyntax {
-    static func language(for path: String, text: String) -> TreeSitterLanguage? {
+    struct Language {
+        let name: String
+        let grammar: () -> TreeSitterLanguage
+
+        static let astro = Language(name: "Astro", grammar: { .astro })
+        static let bash = Language(name: "Shell", grammar: { .bash })
+        static let c = Language(name: "C", grammar: { .c })
+        static let cSharp = Language(name: "C#", grammar: { .cSharp })
+        static let cpp = Language(name: "C++", grammar: { .cpp })
+        static let css = Language(name: "CSS", grammar: { .css })
+        static let elixir = Language(name: "Elixir", grammar: { .elixir })
+        static let elm = Language(name: "Elm", grammar: { .elm })
+        static let go = Language(name: "Go", grammar: { .go })
+        static let haskell = Language(name: "Haskell", grammar: { .haskell })
+        static let html = Language(name: "HTML", grammar: { .html })
+        static let java = Language(name: "Java", grammar: { .java })
+        static let javaScript = Language(name: "JavaScript", grammar: { .javaScript })
+        static let json = Language(name: "JSON", grammar: { .json })
+        static let json5 = Language(name: "JSON5", grammar: { .json5 })
+        static let jsx = Language(name: "JSX", grammar: { .jsx })
+        static let julia = Language(name: "Julia", grammar: { .julia })
+        static let latex = Language(name: "LaTeX", grammar: { .latex })
+        static let lua = Language(name: "Lua", grammar: { .lua })
+        static let markdown = Language(name: "Markdown", grammar: { .markdown })
+        static let ocaml = Language(name: "OCaml", grammar: { .ocaml })
+        static let perl = Language(name: "Perl", grammar: { .perl })
+        static let php = Language(name: "PHP", grammar: { .php })
+        static let python = Language(name: "Python", grammar: { .python })
+        static let r = Language(name: "R", grammar: { .r })
+        static let ruby = Language(name: "Ruby", grammar: { .ruby })
+        static let rust = Language(name: "Rust", grammar: { .rust })
+        static let scss = Language(name: "SCSS", grammar: { .scss })
+        static let sql = Language(name: "SQL", grammar: { .sql })
+        static let svelte = Language(name: "Svelte", grammar: { .svelte })
+        static let swift = Language(name: "Swift", grammar: { .swift })
+        static let toml = Language(name: "TOML", grammar: { .toml })
+        static let tsx = Language(name: "TSX", grammar: { .tsx })
+        static let typeScript = Language(name: "TypeScript", grammar: { .typeScript })
+        static let yaml = Language(name: "YAML", grammar: { .yaml })
+    }
+
+    static func language(for path: String, text: String) -> Language? {
         let name = (path as NSString).lastPathComponent
         if let language = byExtension((name as NSString).pathExtension.lowercased()) {
             return language
@@ -36,19 +77,19 @@ enum SourceTextSyntax {
     /// document — a processing instruction, a namespace prefix — the text is
     /// left uncoloured rather than coloured wrongly, so the failure mode is the
     /// plain-text one we would have had anyway.
-    private static func byExtension(_ ext: String) -> TreeSitterLanguage? {
+    private static func byExtension(_ ext: String) -> Language? {
         switch ext {
         case "c", "h", "m": .c
         case "cpp", "cc", "cxx", "hpp", "hh", "hxx", "mm": .cpp
         case "cs": .cSharp
         case "swift": .swift
-        case "py", "pyw": .python
-        case "rb", "gemspec", "podspec": .ruby
+        case "py", "pyw", "pyi": .python
+        case "rb", "gemspec", "podspec", "rake": .ruby
         case "pl", "pm", "t": .perl
         case "lua": .lua
         case "sh", "bash", "zsh", "zshrc", "zshenv", "zprofile", "bashrc", "bash_profile", "profile": .bash
         case "json": .json
-        case "json5": .json5
+        case "json5", "jsonc": .json5
         case "yml", "yaml": .yaml
         case "toml": .toml
         case "md", "markdown": .markdown
@@ -81,7 +122,7 @@ enum SourceTextSyntax {
     /// `#!/bin/sh`, `#!/usr/bin/env python3`, `#!/usr/bin/env -S ruby -w`. The
     /// decision is the interpreter's basename, and `env` means the basename is
     /// the next word that is neither a flag nor a `VAR=value` assignment.
-    private static func byInterpreter(of text: String) -> TreeSitterLanguage? {
+    private static func byInterpreter(of text: String) -> Language? {
         guard text.hasPrefix("#!") else { return nil }
         // CRLF is undone before the line is cut, because Swift reads "\r\n" as
         // one Character that is neither "\r" nor "\n": scanning for a newline
@@ -121,9 +162,10 @@ enum SourceTextSyntax {
     /// shell for everything a reader looks at in them — the recipes and the
     /// `RUN` lines — and `.gitconfig` is an INI file, which is TOML's shape.
     /// Debian's `control` is a field list, which is YAML's.
-    private static func byName(_ name: String, at path: String) -> TreeSitterLanguage? {
+    private static func byName(_ name: String, at path: String) -> Language? {
         switch name {
         case "Makefile", "makefile", "GNUmakefile", "Dockerfile", "Containerfile": return .bash
+        case ".bashrc", ".bash_profile", ".profile", ".zshrc", ".zshenv", ".zprofile": return .bash
         case ".gitconfig", ".gitmodules": return .toml
         case "Gemfile", "Rakefile", "Podfile", "Brewfile": return .ruby
         default: break

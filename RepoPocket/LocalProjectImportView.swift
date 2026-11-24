@@ -122,8 +122,9 @@ struct LocalProjectImportView: View {
                             SoftGroupRow("help") { Text("以下是原文件相对此基准的变化。ZIP 的下载时版本无法自动确认；删除和回退也会显示在这里。").font(.caption) }
                             for row in preview.files { SoftGroupRow("file:" + row.path) { Label(row.path + " · " + row.label, systemImage: row.kind == "deleted" ? "minus.circle" : "doc") } }
                             if preview.files.isEmpty { SoftGroupRow("empty") { Text("没有内容变化") } }
-                            if !preview.staged.isEmpty || preview.repoState != 0 || preview.files.contains(where: { !$0.blocked.isEmpty }) { SoftGroupRow("blocked") { Text("已有暂存或未完成 Git 操作，或存在冲突／受限文件，请先在原工具处理。") } }
-                            SoftGroupRow("attach") { Button("确认关联原目录") { do { try store.attach(folder); dismiss() } catch { message = error.localizedDescription } }.disabled(!preview.canCommit) }
+                            if !preview.canAssociate { SoftGroupRow("blocked") { Text("存在冲突、受限文件或未完成的 Git 操作，请先在原工具处理。") } }
+                            else if !preview.staged.isEmpty { SoftGroupRow("staged") { Text("已暂存 \(preview.staged.count) 项，关联后可在「暂存与提交」查看。") } }
+                            SoftGroupRow("attach") { Button("确认关联原目录") { attach(folder, preview: preview) }.disabled(busy || !preview.canAssociate) }
                           }
                     } else {
                         SoftGroupRows(top: false, bottom: false) {
@@ -162,6 +163,26 @@ struct LocalProjectImportView: View {
     private func acceptPicker(_ url: URL) {
         do { folder = try store.prepare(url); preview = nil; message = "" }
         catch { message = error.localizedDescription }
+    }
+    private func attach(_ folder: LocalGitProject, preview: LocalGitStatus) {
+        guard preview.canAssociate, !busy else { return }
+        busy = true; message = ""
+        job = Task { @MainActor in
+            defer { busy = false }
+            do {
+                let latest: LocalGitStatus = try await LocalGitEngine.shared.run("inspect", project: folder,
+                    metadata: store.metadata(folder), internalRoot: store.internalRoot, generation: generation)
+                try Task.checkCancellation()
+                guard generation == AccountStore.generation, api.isCurrentSession else { return }
+                self.preview = latest
+                guard latest.canAssociate, latest.head == preview.head, latest.reference == preview.reference,
+                      latest.staged == preview.staged, latest.files == preview.files else {
+                    message = "目录状态已变化，请核对最新预览。"; return
+                }
+                try store.attach(folder)
+                dismiss()
+            } catch { if !RefreshFailure.isCancellation(error) { message = error.localizedDescription } }
+        }
     }
     private func start() {
         guard !busy, let folder else { return }

@@ -1,9 +1,5 @@
 import SwiftUI
 
-@MainActor final class WorkspaceSelectionStore: ObservableObject {
-    @Published var session = WorkspaceSelectionSession()
-}
-
 // Keep native navigation/list transitions. Compact only the expensive header space.
 struct AdaptiveWorkspaceLayout: ViewModifier {
     @Environment(\.verticalSizeClass) private var verticalSizeClass

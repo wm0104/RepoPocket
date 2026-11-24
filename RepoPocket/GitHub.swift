@@ -100,6 +100,7 @@ struct Repository: Codable, Identifiable {
     let source: RepositoryReference?
     struct Permissions: Codable { let admin: Bool?; let push: Bool? }
     let permissions: Permissions?
+    var node_id: String? = nil
 }
 struct Entry: Codable, Identifiable {
     var id: String { path }
@@ -569,9 +570,7 @@ final class GitHub: ObservableObject {
         }
         _ = try await data(Self.repoPath(repo) + "/git/refs", method: "POST", object: ["ref": "refs/heads/" + name, "sha": expectedHead])
     }
-    /// Local-facing rename becomes create-then-delete on GitHub: commits exist under the
-    /// new ref before the old one disappears, and nothing is force-moved.
-    func renameBranch(_ repo: String, name: String, to newName: String, expectedHead: String, current: String) async throws {
+    func renameBranch(_ repo: String, name: String, to newName: String, expectedHead: String) async throws -> DesktopBranch {
         try ensureActiveAccount(); try Task.checkCancellation()
         guard DesktopRules.validBranch(newName), newName != name,
               expectedHead.count == 40, expectedHead.allSatisfy({ $0.isHexDigit }) else {
@@ -585,17 +584,17 @@ final class GitHub: ObservableObject {
         let target = try await decoded(DesktopBranch.self, Self.repoPath(repo) + "/branches/" + Self.component(name))
         guard target.name == name, target.protected == false else { throw AppError(text: "此分支受保护或保护状态未知，不能重命名。") }
         guard target.commit?.sha == expectedHead else { throw AppError(text: "分支已新增提交或发生变化，请刷新列表后重新确认；未做修改。") }
-        // 404 means the name is free; any other failure still surfaces from the POST below.
-        if (try? await decoded(DesktopBranch.self, Self.repoPath(repo) + "/branches/" + Self.component(newName)))?.name == newName {
-            throw AppError(text: "同名远端分支已存在，未做修改。")
-        }
         try ensureActiveAccount(); try Task.checkCancellation()
-        _ = try await data(Self.repoPath(repo) + "/git/refs", method: "POST", object: ["ref": "refs/heads/" + newName, "sha": expectedHead])
-        do { try await deleteBranch(repo, name: name, expectedHead: expectedHead, current: current) }
-        catch {
-            if RefreshFailure.isCancellation(error) { throw error }
-            throw AppError(text: "已创建新分支 " + newName + "，但删除旧分支失败；两个分支都保留，请刷新核实后手动处理。\n" + error.localizedDescription)
-        }
+        let r = try request(url(Self.repoPath(repo) + "/branches/" + Self.component(name) + "/rename"),
+                            method: "POST", body: JSONSerialization.data(withJSONObject: ["new_name": newName]))
+        let result: (Data, URLResponse)
+        do { result = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy()) }
+        catch { throw AppError(text: "重命名结果未知，请刷新分支列表核实。\n" + error.localizedDescription) }
+        try check(result.0, result.1, operation: "重命名 GitHub 远端分支")
+        guard (result.1 as? HTTPURLResponse)?.statusCode == 201,
+              let renamed = try? JSONDecoder().decode(DesktopBranch.self, from: result.0),
+              renamed.name == newName else { throw AppError(text: "尚未确认新分支名称，请刷新核实。") }
+        return renamed
     }
     func deleteBranch(_ repo: String, name: String, expectedHead: String, current: String) async throws {
         try ensureActiveAccount(); try Task.checkCancellation()
@@ -610,14 +609,34 @@ final class GitHub: ObservableObject {
         guard target.name == name, target.protected == false else { throw AppError(text: "此分支受保护或保护状态未知，不能删除。") }
         guard target.commit?.sha == expectedHead else { throw AppError(text: "分支已新增提交或发生变化，请刷新列表后重新确认；未执行删除。") }
         try ensureActiveAccount(); try Task.checkCancellation()
-        // GitHub DELETE has no expected-SHA precondition; this check is not an atomic compare-and-delete.
-        let r = try request(url(Self.repoPath(repo) + "/git/refs/heads/" + Self.filePath(name)), method: "DELETE")
+        guard let repositoryID = info.node_id else { throw AppError(text: "缺少仓库标识，未删除分支。") }
+        try await compareAndUpdateBranch(repositoryID: repositoryID, branch: name, before: expectedHead,
+                                         after: String(repeating: "0", count: 40), operation: "删除 GitHub 远端分支")
+    }
+    private func compareAndUpdateBranch(repositoryID: String, branch: String, before: String, after: String, operation: String) async throws {
+        let mutation = "mutation($input: UpdateRefsInput!) { updateRefs(input: $input) { clientMutationId } }"
+        let identifier = UUID().uuidString
+        let input: [String: Any] = ["repositoryId": repositoryID, "clientMutationId": identifier, "refUpdates": [[
+            "name": "refs/heads/" + branch, "beforeOid": before, "afterOid": after, "force": false
+        ]]]
+        let r = try request(url("/graphql"), method: "POST", body: JSONSerialization.data(withJSONObject: ["query": mutation, "variables": ["input": input]]))
+        try Task.checkCancellation()
         let result: (Data, URLResponse)
         do { result = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy()) }
-        catch { throw AppError(text: "删除请求结果未知，请刷新分支列表核实，勿直接重试。\n" + error.localizedDescription) }
-        try check(result.0, result.1, operation: "删除 GitHub 远端分支")
-        guard (result.1 as? HTTPURLResponse)?.statusCode == 204 else {
-            throw AppError(text: "未收到 GitHub 删除成功确认（204），请刷新核实。")
+        catch { throw AppError(text: operation + "结果未知，请刷新核实。\n" + error.localizedDescription) }
+        try check(result.0, result.1, operation: operation)
+        struct Envelope: Decodable {
+            struct Payload: Decodable {
+                struct Update: Decodable { let clientMutationId: String }
+                let updateRefs: Update?
+            }
+            let data: Payload?
+            let errors: [GitHubMessage]?
+        }
+        let reply = try JSONDecoder().decode(Envelope.self, from: result.0)
+        if let failure = reply.errors?.first { throw AppError(text: failure.message) }
+        guard (result.1 as? HTTPURLResponse)?.statusCode == 200, reply.data?.updateRefs?.clientMutationId == identifier else {
+            throw AppError(text: operation + "尚未收到成功确认，请刷新核实。")
         }
     }
     func fetchWorkspace(_ repo: String, branch: String, revision: String = "", progress: ((ReleaseDownloadProgress) -> Void)? = nil) async throws -> (WorkspaceBinding, URL) {
@@ -704,15 +723,11 @@ final class GitHub: ObservableObject {
     func workspaceHead(_ repo: String, branch: String) async throws -> String {
         try await decoded(GitReference.self, Self.repoPath(repo) + "/git/ref/heads/" + Self.filePath(branch)).object.sha
     }
-    func uploadDestinationTree(_ repo: String, head: String) async throws -> (files: [String: String], directories: Set<String>) {
+    func uploadDestinationTree(_ repo: String, head: String) async throws -> UploadPathIndex {
         let endpoint = try Self.repoPath(repo)
         let commit = try await decoded(GitCommitInfo.self, endpoint + "/git/commits/" + Self.component(head))
         let tree = try await decoded(GitTreeInfo.self, endpoint + "/git/trees/" + Self.component(commit.tree.sha), query: [.init(name: "recursive", value: "1")])
-        guard !tree.truncated, tree.tree.count <= 20000,
-              tree.tree.allSatisfy({ $0.type == "tree" || ($0.type == "blob" && ["100644", "100755"].contains($0.mode)) }) else { throw AppError(text: "不安全或截断的远端树，未绑定上传目标") }
-        let files = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.sha) })
-        let directories = Set(tree.tree.filter { $0.type == "tree" }.map(\.path))
-        return (files, directories)
+        return try await Task.detached(priority: .userInitiated) { try tree.uploadIndex() }.value
     }
     func associateWorkspace(_ folder: URL, repo: String, branch: String, revision: String = "") async throws -> WorkspaceBinding {
         let repo = try RepositoryInput.parse(repo)
@@ -722,7 +737,7 @@ final class GitHub: ObservableObject {
         if selected.isEmpty { head = try await workspaceHead(repo, branch: branch) }
         else {
             guard WorkspaceBaselineRules.validRevision(selected) else { throw AppError(text: "历史提交请输入 ZIP 对应的 7–40 位十六进制 commit SHA，不要输入分支名") }
-            let commit = try await decoded(GitCommitInfo.self, Self.repoPath(repo) + "/commits/" + Self.component(selected))
+            let commit = try await decoded(GitObject.self, Self.repoPath(repo) + "/commits/" + Self.component(selected))
             head = commit.sha
             let comparison = try await decoded(WorkspaceComparison.self, Self.repoPath(repo) + "/compare/" + Self.component(head) + "..." + Self.component(branch))
             guard ["ahead", "identical"].contains(comparison.status) else { throw AppError(text: "选择的历史提交不是目标分支的祖先，请确认 ZIP 来源和分支") }
@@ -820,9 +835,12 @@ final class GitHub: ObservableObject {
         let head = try await workspaceHead(repo, branch: branch)
         let commit = try await decoded(GitCommitInfo.self, endpoint + "/git/commits/" + Self.component(head))
         let tree = try await decoded(GitTreeInfo.self, endpoint + "/git/trees/" + Self.component(commit.tree.sha), query: [.init(name: "recursive", value: "1")])
-        guard !tree.truncated, tree.tree.count <= 20000, tree.tree.allSatisfy({ $0.type == "tree" || ($0.type == "blob" && ["100644", "100755"].contains($0.mode)) }) else { throw AppError(text: "不安全或截断的远端树") }
-        let files = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.sha) })
-        try RepoQueue.validate(items, head: head, files: files, directories: Set(tree.tree.filter { $0.type == "tree" }.map(\.path)))
+        let index = try await Task.detached(priority: .userInitiated) {
+            let index = try tree.uploadIndex()
+            try RepoQueue.validate(items, head: head, index: index)
+            return index
+        }.value
+        try Task.checkCancellation()
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError(text: "请填写提交说明") }
         guard try await workspaceHead(repo, branch: branch) == head else { throw AppError(text: "远端分支已变化，请重新加载后再提交。") }
         var preparedItems: [(PendingRepoItem, URL?, Int64)] = []
@@ -836,11 +854,10 @@ final class GitHub: ObservableObject {
             } else { preparedItems.append((item, nil, 0)) }
         }
         var entries: [[String: Any]] = []
-        let modes = Dictionary(uniqueKeysWithValues: tree.tree.filter { $0.type == "blob" }.map { ($0.path, $0.mode) })
         for (item, file, size) in preparedItems {
             guard let path = item.path else { throw AppError(text: "请选择每项的仓库目标。") }
             _ = try Self.filePath(path)
-            let mode = modes[path] ?? "100644"
+            let mode = index.fileMode(at: path) ?? "100644"
             if let file {
                 let blob = try await uploadGitBlobFile(file, path: endpoint + "/git/blobs", maximumBytes: RepoQueue.maximumFileBytes, expectedSize: size)
                 entries += RepoQueue.treeEntries([(path, blob.sha, mode)])
@@ -1618,7 +1635,8 @@ final class GitHub: ObservableObject {
         if let page, !ReleaseManagementRules.validPage(page) { throw AppError(text: "已达分页预算，请在 GitHub 查看更多。") }
         let body = try object.map { try JSONSerialization.data(withJSONObject: $0) }
         let query: [URLQueryItem] = page.map { [.init(name: "per_page", value: String(perPage)), .init(name: "page", value: String($0))] } ?? []
-        let r = try request(url(Self.repoPath(canonical) + suffix, query: query), method: method, body: body)
+        var r = try request(url(Self.repoPath(canonical) + suffix, query: query), method: method, body: body)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
         let budget = ReleaseAPIRedirectPolicy()
         let file: URL
         let response: URLResponse
@@ -1710,6 +1728,45 @@ final class GitHub: ObservableObject {
         guard id > 0 else { throw AppError(text: "无效发行版 ID") }
         return try await managedJSON(ManagedRelease.self, repo: repo, suffix: "/releases/\(id)")
     }
+    func managedTargetHead(_ repo: String, target: String) async throws -> String {
+        if CommitFileRules.isCommitSHA(target) {
+            let commit = try await managedJSON(GitObject.self, repo: repo, suffix: "/git/commits/" + Self.component(target))
+            guard commit.sha.lowercased() == target.lowercased() else { throw AppError(text: "提交目标已变化。") }
+            return commit.sha
+        }
+        guard DesktopRules.validBranch(target) else { throw AppError(text: "无效的发行目标分支。") }
+        let ref = try await managedJSON(GitReference.self, repo: repo, suffix: "/git/ref/heads/" + Self.filePath(target))
+        guard CommitFileRules.isCommitSHA(ref.object.sha) else { throw AppError(text: "发行目标分支缺少有效的提交。") }
+        return ref.object.sha
+    }
+    /// A tag can point at another annotated tag. Only the peeled commit identifies the released code.
+    func verifyManagedTarget(_ repo: String, tag: String, expected: String, release: ManagedRelease? = nil) async throws {
+        guard CommitFileRules.isCommitSHA(expected), ReleaseManagementRules.validTag(tag), release == nil || release?.tag_name == tag else {
+            throw AppError(text: "缺少有效的目标提交或标签。")
+        }
+        struct Object: Decodable { let type: String; let sha: String }
+        struct Reference: Decodable { let object: Object }
+        var target: Object
+        do {
+            target = try await managedJSON(Reference.self, repo: repo, suffix: "/git/ref/tags/" + Self.filePath(tag)).object
+        } catch let error as ManagedReleaseHTTPError where error.status == 404 {
+            guard let release else { return }
+            guard release.draft, release.target_commitish?.lowercased() == expected.lowercased() else {
+                throw AppError(text: "无法核实发行版目标，请刷新标签与草稿后再继续。")
+            }
+            return
+        }
+        var seen = Set<String>()
+        while target.type == "tag" {
+            guard CommitFileRules.isCommitSHA(target.sha), seen.count < 32, seen.insert(target.sha).inserted else {
+                throw AppError(text: "无法解析此标签的目标提交。")
+            }
+            target = try await managedJSON(Reference.self, repo: repo, suffix: "/git/tags/" + Self.component(target.sha)).object
+        }
+        guard target.type == "commit", target.sha.lowercased() == expected.lowercased() else {
+            throw AppError(text: "Git 标签 \(tag) 的目标与确认的提交 \(expected.prefix(8)) 不一致。请核对标签后再继续。")
+        }
+    }
     func managedAssets(_ repo: String, id: Int, page: Int) async throws -> [Asset] {
         guard id > 0 else { throw AppError(text: "无效发行版 ID") }
         return try await managedJSON([Asset].self, repo: repo, suffix: "/releases/\(id)/assets", page: page)
@@ -1741,7 +1798,11 @@ final class GitHub: ObservableObject {
         if let original, form.initialLatestID == original.id, form.marker == .latest {
             object.removeValue(forKey: "make_latest") // Preserve an unchanged official Latest; do not promote it again.
         }
-        if original == nil && !form.branch.isEmpty { object["target_commitish"] = form.branch }
+        if !form.branch.isEmpty { object["target_commitish"] = form.branch }
+        let verifyTarget = original?.draft == true && (!form.draft || !form.branch.isEmpty)
+        if verifyTarget {
+            try await verifyManagedTarget(repo, tag: form.tag, expected: form.branch)
+        }
         // PATCH only changes release metadata; never calls git refs/tag mutation APIs.
         let saved = try await managedJSON(ManagedRelease.self, repo: repo,
             suffix: original.map { "/releases/\($0.id)" } ?? "/releases",
@@ -1749,6 +1810,12 @@ final class GitHub: ObservableObject {
         guard saved.id > 0, original == nil || saved.id == original?.id,
               saved.tag_name == form.tag, saved.draft == form.draft, saved.prerelease == form.prerelease else {
             throw AppError(text: "发行版最终状态与请求不符，请刷新核实；未确认保存或发布成功。")
+        }
+        if verifyTarget {
+            do { try await verifyManagedTarget(repo, tag: form.tag, expected: form.branch, release: saved) }
+            catch {
+                throw AppError(text: "GitHub 已保存发行版，但目标提交尚未核实。请刷新发行版和标签。\n" + error.localizedDescription)
+            }
         }
         return saved
     }
@@ -1879,13 +1946,21 @@ extension GitHub {
         return bytes
     }
     // MARK: - Upstream sync
-    // Step 1 is read-only: one compare request, no refs, no merges.
-    func upstreamCompare(repo: String, base: String, upstream: UpstreamSyncRules.Target) async throws -> UpstreamCompare {
-        let path = try UpstreamSyncRules.comparePath(repo: repo, base: base, upstream: upstream)
-        return try await decoded(UpstreamCompare.self, path)
+    func upstreamCompare(repo: String, base: String, upstream: UpstreamSyncRules.Target) async throws -> UpstreamSyncRules.Preview {
+        let destination = try UpstreamSyncRules.target(repository: repo, branch: base)
+        let baseSHA = try await upstreamBranchHead(repo: destination.repository, branch: destination.branch)
+        let sourceSHA = try await upstreamBranchHead(repo: upstream.repository, branch: upstream.branch)
+        let path = try UpstreamSyncRules.comparePath(repo: destination.repository, baseSHA: baseSHA, sourceSHA: sourceSHA)
+        let comparison = try await decoded(UpstreamCompare.self, path)
+        return .init(destination: destination, source: upstream, baseSHA: baseSHA, sourceSHA: sourceSHA, comparison: comparison)
     }
     func upstreamBranchHead(repo: String, branch: String) async throws -> String {
-        let bytes = try await data(try UpstreamSyncRules.branchHeadPath(repo: repo, branch: branch))
+        let path = try UpstreamSyncRules.branchHeadPath(repo: repo, branch: branch)
+        var r = try request(url(path))
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        let (bytes, response) = try await session.data(for: r, delegate: OfficialUpdateRedirectPolicy())
+        try check(bytes, response, operation: "读取同步分支")
+        try Task.checkCancellation()
         guard let sha = UpstreamSyncRules.objectSHA(bytes) else {
             throw AppError(text: "未能读取目标分支的最新提交，请刷新后重试。")
         }
@@ -1898,13 +1973,13 @@ extension GitHub {
         _ = try await data(try UpstreamSyncRules.refsPath(repo: repo), method: "POST",
                            object: UpstreamSyncRules.refObject(ref: ref, sha: sha))
     }
-    func mergeUpstream(repo: String, base: String, upstream: UpstreamSyncRules.Target,
+    func mergeUpstream(repo: String, base: String, baseSHA: String, sourceSHA: String,
                        message: String) async throws -> UpstreamSyncRules.MergeOutcome {
         try ensureActiveAccount()
         try await requireWriteAccess(repo)
         try Task.checkCancellation()
         let body = try JSONSerialization.data(withJSONObject:
-            UpstreamSyncRules.mergeObject(base: base, upstream: upstream, message: message))
+            UpstreamSyncRules.mergeObject(base: base, sourceSHA: sourceSHA, message: message))
         var r = try request(url(try UpstreamSyncRules.mergesPath(repo: repo)), method: "POST", body: body)
         r.cachePolicy = .reloadIgnoringLocalCacheData
         let (bytes, response) = try await session.data(for: r)
@@ -1915,28 +1990,25 @@ extension GitHub {
                                  reason: UpstreamSyncRules.message(bytes) ?? "GitHub 拒绝了合并请求",
                                  permissions: http.value(forHTTPHeaderField: "X-Accepted-GitHub-Permissions"))
         }
-        return UpstreamSyncRules.mergeOutcome(status: http.statusCode, body: bytes)
-    }
-    /// Fast-forward only: the request always sends force: false.
-    func applyUpstreamFastForward(repo: String, branch: String,
-                                  sha: String) async throws -> UpstreamSyncRules.ApplyOutcome {
-        guard UpstreamSyncRules.validSHA(sha) else { throw AppError(text: "提交 SHA 无效，未更新分支。") }
-        try ensureActiveAccount()
-        try await requireWriteAccess(repo)
-        try Task.checkCancellation()
-        let body = try JSONSerialization.data(withJSONObject: UpstreamSyncRules.applyObject(sha: sha))
-        var r = try request(url(try UpstreamSyncRules.branchRefPath(repo: repo, branch: branch)),
-                            method: "PATCH", body: body)
-        r.cachePolicy = .reloadIgnoringLocalCacheData
-        let (bytes, response) = try await session.data(for: r)
-        try Task.checkCancellation(); try ensureActiveAccount()
-        guard let http = response as? HTTPURLResponse else { throw AppError(text: "无有效服务器响应") }
-        if [401, 403, 404].contains(http.statusCode) {
-            throw GitHubAPIError(status: http.statusCode, operation: "应用快进更新",
-                                 reason: UpstreamSyncRules.message(bytes) ?? "GitHub 拒绝了引用更新",
-                                 permissions: http.value(forHTTPHeaderField: "X-Accepted-GitHub-Permissions"))
+        let outcome = UpstreamSyncRules.mergeOutcome(status: http.statusCode, body: bytes)
+        if case .merged(let sha) = outcome, sha != sourceSHA {
+            struct CreatedMerge: Decodable { let parents: [GitObject] }
+            let merge = try JSONDecoder().decode(CreatedMerge.self, from: bytes)
+            guard merge.parents.map(\.sha) == [baseSHA, sourceSHA] else {
+                throw AppError(text: "临时分支合并时已变化，合并提交与预览不符。请重新预览。")
+            }
         }
-        return UpstreamSyncRules.applyOutcome(status: http.statusCode, body: bytes)
+        return outcome
+    }
+    /// Fast-forward only, conditional on the target still pointing at the previewed commit.
+    func applyUpstreamFastForward(repo: String, branch: String, before: String, sha: String) async throws {
+        guard UpstreamSyncRules.validSHA(before), UpstreamSyncRules.validSHA(sha), DesktopRules.validBranch(branch) else {
+            throw AppError(text: "提交或分支无效，未更新分支。")
+        }
+        try ensureActiveAccount()
+        let info = try await repository(repo)
+        guard info.permissions?.push == true, let repositoryID = info.node_id else { throw AppError(text: "缺少仓库标识或推送权限。") }
+        try await compareAndUpdateBranch(repositoryID: repositoryID, branch: branch, before: before, after: sha, operation: "应用快进更新")
     }
 }
 

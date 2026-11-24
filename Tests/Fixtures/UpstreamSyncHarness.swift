@@ -12,23 +12,31 @@ enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error
     var isCurrentSession = true
     var preview: CheckedContinuation<UpstreamCompare, Error>?
     var merge: CheckedContinuation<UpstreamSyncRules.MergeOutcome, Error>?
-    var apply: CheckedContinuation<UpstreamSyncRules.ApplyOutcome, Error>?
+    var apply: CheckedContinuation<Void, Error>?
     var previews = 0
     var writes = 0
-    func upstreamCompare(repo: String, base: String, upstream: UpstreamSyncRules.Target) async throws -> UpstreamCompare {
+    var sourceHead = String(repeating: "c", count: 40)
+    let baseHead = String(repeating: "a", count: 40)
+    func upstreamCompare(repo: String, base: String, upstream: UpstreamSyncRules.Target) async throws -> UpstreamSyncRules.Preview {
         previews += 1
-        return try await withCheckedThrowingContinuation { preview = $0 }
+        let comparison = try await withCheckedThrowingContinuation { preview = $0 }
+        return .init(destination: .init(repository: repo, branch: base), source: upstream,
+                     baseSHA: baseHead, sourceSHA: sourceHead, comparison: comparison)
     }
-    func upstreamBranchHead(repo: String, branch: String) async throws -> String { String(repeating: "a", count: 40) }
+    func upstreamBranchHead(repo: String, branch: String) async throws -> String {
+        repo == "target/repo" ? baseHead : sourceHead
+    }
     func createUpstreamRef(repo: String, ref: String, sha: String) async throws { writes += 1 }
-    func mergeUpstream(repo: String, base: String, upstream: UpstreamSyncRules.Target,
+    func mergeUpstream(repo: String, base: String, baseSHA: String, sourceSHA: String,
                        message: String) async throws -> UpstreamSyncRules.MergeOutcome {
+        precondition(baseSHA == baseHead && sourceSHA == sourceHead)
         writes += 1
         return try await withCheckedThrowingContinuation { merge = $0 }
     }
-    func applyUpstreamFastForward(repo: String, branch: String, sha: String) async throws -> UpstreamSyncRules.ApplyOutcome {
+    func applyUpstreamFastForward(repo: String, branch: String, before: String, sha: String) async throws {
+        precondition(before == baseHead)
         writes += 1
-        return try await withCheckedThrowingContinuation { apply = $0 }
+        try await withCheckedThrowingContinuation { apply = $0 }
     }
 }
 
@@ -46,12 +54,27 @@ enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error
         state.upstreamRepository = "source/repo"; state.upstreamBranch = "main"
         let result = UpstreamCompare(status: "ahead", ahead_by: 1, behind_by: 0,
                                      total_commits: 1, commits: [], files: [])
-        let receipt = UpstreamSyncState.Receipt(stamp: "test", backupTag: "backup/test", tempBranch: "sync/test",
-                                               head: "", upstream: "source/repo", upstreamBranch: "main")
+        func readPreview() async {
+            let read = Task { await state.loadPreview(api: api, repo: repo, branch: "main") }
+            await wait { api.preview != nil }
+            api.preview!.resume(returning: result); api.preview = nil
+            await read.value
+            precondition(state.propose())
+        }
+        await readPreview()
+        let stale = state.pending!
+        api.sourceHead = String(repeating: "d", count: 40)
+        await state.merge(api: api, repo: repo, branch: "main", receipt: stale)
+        precondition(api.writes == 0 && state.stage == .failed)
+        await readPreview()
+        let receipt = state.pending!
+        precondition(receipt.sourceSHA == api.sourceHead && receipt.head == api.baseHead)
+        let initialPreviews = api.previews
+        UserDefaults.standard.removeObject(forKey: UpstreamSyncRules.memoryKey(account: api.accountID, repository: repo))
         let merge = Task { await state.merge(api: api, repo: repo, branch: "main", receipt: receipt) }
         await wait { api.merge != nil }
         await state.loadPreview(api: api, repo: repo, branch: "main")
-        precondition(api.previews == 0 && state.busy)
+        precondition(api.previews == initialPreviews && state.busy)
         api.merge!.resume(returning: .merged(sha: sha)); api.merge = nil
         await merge.value
         precondition(state.stage == .merged && state.mergeSHA == sha && state.receipt != nil)
@@ -59,8 +82,8 @@ enum RefreshFailure { static func isCancellation(_ error: Error) -> Bool { error
         let apply = Task { await state.apply(api: api, repo: repo, branch: "main") }
         await wait { api.apply != nil }
         await state.loadPreview(api: api, repo: repo, branch: "main")
-        precondition(api.previews == 0 && state.busy)
-        api.apply!.resume(returning: .updated(sha: sha)); api.apply = nil
+        precondition(api.previews == initialPreviews && state.busy)
+        api.apply!.resume(); api.apply = nil
         await apply.value
         precondition(state.stage == .applied && state.appliedSHA == sha)
 

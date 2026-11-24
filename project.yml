@@ -11,8 +11,8 @@ settings:
     SWIFT_VERSION: "5.0"
     SWIFT_OBJC_BRIDGING_HEADER: Vendor/NativeGit/NativeGitBridge.h
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "1.2.7"
-    CURRENT_PROJECT_VERSION: "1.2.7"
+    MARKETING_VERSION: "1.2.8"
+    CURRENT_PROJECT_VERSION: "1.2.8"
 packages:
   SPIndicator:
     url: https://github.com/ivanvorobei/SPIndicator.git

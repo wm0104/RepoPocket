@@ -333,8 +333,6 @@ jobs:
         run: python3 Tests/test_zip_filename_encoding.py
       - name: Test foreground inertness and operation guards
         run: python3 Tests/test_manual_refresh.py
-      - name: Test workspace keyboard focus and submit contracts
-        run: python3 Tests/test_workspace_keyboard.py
       - name: Test document picker identity and cancellation contracts
         run: python3 Tests/test_workspace_picker.py
       - name: Test folding search history and fail-closed permissions

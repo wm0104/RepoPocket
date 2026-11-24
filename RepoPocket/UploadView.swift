@@ -14,6 +14,7 @@ struct UploadView: View {
     @State private var alertText = ""
     @State private var repo: String
     @State private var branch: String
+    @StateObject private var staging = UploadStaging()
     @State private var queue: [PendingRepoItem] = []
     @State private var choosingItem: UUID?
     @State private var choosingDelete = false
@@ -30,8 +31,7 @@ struct UploadView: View {
 
     private struct UploadDestination {
         let target: RepositoryTarget
-        let files: [String: String]
-        let directories: Set<String>
+        let index: UploadPathIndex
     }
 
     init(api: GitHub, initialRepo: String = "", directory: String = "", initialBranch: String = "", initialFile: URL? = nil, openedFromFolder: Bool = false) {
@@ -317,15 +317,15 @@ struct UploadView: View {
         let resolved = try await api.resolvedBranch(name, branch: requestedBranch)
         let head = try await api.workspaceHead(name, branch: resolved)
         let tree = try await api.uploadDestinationTree(name, head: head)
-        guard folder.isEmpty || tree.directories.contains(folder) else { throw AppError(text: "目标目录已不存在，请重新选择上传位置") }
+        guard folder.isEmpty || tree.containsDirectory(folder) else { throw AppError(text: "目标目录已不存在，请重新选择上传位置") }
         guard generation == targetGeneration, requestedRepo == repo, requestedBranch == branch, api.isCurrentSession else { throw CancellationError() }
         guard try await api.workspaceHead(name, branch: resolved) == head else { throw AppError(text: "核验期间远端已变化，请重试选择目标") }
         guard generation == targetGeneration, api.isCurrentSession else { throw CancellationError() }
-        return UploadDestination(target: RepositoryTarget(repo: name, branch: resolved, path: folder, head: head), files: tree.files, directories: tree.directories)
+        return UploadDestination(target: RepositoryTarget(repo: name, branch: resolved, path: folder, head: head), index: tree)
     }
     private func inheritMissingTargets(_ selected: UploadDestination) throws {
         for i in queue.indices where queue[i].local != nil && queue[i].path == nil {
-            _ = try queue[i].inheritTarget(folder: selected.target.path, head: selected.target.head, files: selected.files, directories: selected.directories)
+            _ = try queue[i].inheritTarget(folder: selected.target.path, head: selected.target.head, index: selected.index)
         }
     }
     @MainActor private func prepareInheritedTargets() async {
@@ -340,16 +340,16 @@ struct UploadView: View {
     private func automaticReplacement(_ item: PendingRepoItem) -> PendingRepoItem? {
         guard item.path == nil, let local = item.local, let destination else { return nil }
         let path = (destination.target.path.isEmpty ? "" : destination.target.path + "/") + local.lastPathComponent
-        guard let sha = destination.files[path] else { return nil }
+        guard let sha = destination.index.fileSHA(at: path) else { return nil }
         var replacement = item
         replacement.select(folder: destination.target.path, replacementPath: path, sha: sha, head: destination.target.head)
         return replacement
     }
     private func selectTarget(at index: Int, destination selected: UploadDestination) throws {
-        let inherited = try queue[index].inheritTarget(folder: selected.target.path, head: selected.target.head, files: selected.files, directories: selected.directories)
+        let inherited = try queue[index].inheritTarget(folder: selected.target.path, head: selected.target.head, index: selected.index)
         if !inherited, let file = queue[index].local {
             let path = (selected.target.path.isEmpty ? "" : selected.target.path + "/") + file.lastPathComponent
-            if let sha = selected.files[path] {
+            if let sha = selected.index.fileSHA(at: path) {
                 var replacement = queue[index]
                 replacement.select(folder: selected.target.path, replacementPath: path, sha: sha, head: selected.target.head)
                 pendingReplacement = replacement
@@ -389,7 +389,7 @@ struct UploadView: View {
                     guard attrs[.type] as? FileAttributeType == .typeRegular else { throw AppError(text: "请选择普通文件：" + source.lastPathComponent) }
                     let size = (attrs[.size] as? NSNumber)?.int64Value ?? Int64.max
                     _ = try RepoQueue.addingUploadBytes(size, to: total)
-                    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                    let folder = staging.root.appendingPathComponent(UUID().uuidString, isDirectory: true)
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                     let copy = folder.appendingPathComponent(source.lastPathComponent)
                     do { try FileManager.default.copyItem(at: source, to: copy) } catch { try? FileManager.default.removeItem(at: folder); throw error }
@@ -420,15 +420,17 @@ struct UploadView: View {
         let resolved = try await api.resolvedBranch(repo, branch: branch)
         let head = try await api.workspaceHead(repo, branch: resolved)
         let tree = try await api.uploadDestinationTree(repo, head: head)
-        try RepoQueue.validate(queue, head: head, files: tree.files, directories: tree.directories)
         guard api.isCurrentSession else { throw CancellationError() }
         let capturedItems = queue, capturedRepo = repo, capturedNote = note
         return try await Task.detached(priority: .userInitiated) {
-            try RepoQueue.reviewFingerprint(capturedItems, repo: capturedRepo, branch: resolved, message: capturedNote)
+            try RepoQueue.validate(capturedItems, head: head, index: tree)
+            return try RepoQueue.reviewFingerprint(capturedItems, repo: capturedRepo, branch: resolved, message: capturedNote)
         }.value
     }
     @MainActor private func commit() async {
         guard !busy, let authorized = reviewFingerprint else { return }
+        let owner = staging
+        defer { withExtendedLifetime(owner) {} }
         busy = true; progress = 0; reviewError = ""
         defer { busy = false }
         do {
@@ -443,4 +445,9 @@ struct UploadView: View {
             if !RefreshFailure.isCancellation(error) { reviewError = error.localizedDescription }
         }
     }
+}
+
+private final class UploadStaging: ObservableObject {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("RepoPocket-upload-" + UUID().uuidString, isDirectory: true)
+    deinit { try? FileManager.default.removeItem(at: root) }
 }

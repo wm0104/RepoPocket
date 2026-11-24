@@ -3,9 +3,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 import subprocess, tempfile
-w=Path(REPO_ROOT, 'RepoPocket/WorkspaceView.swift').read_text()
 g=Path(REPO_ROOT, 'RepoPocket/GitHub.swift').read_text()
 a=g.split('    func associateWorkspace(',1)[1].split('    func commitWorkspace(',1)[0]
+assert 'decoded(GitObject.self, Self.repoPath(repo) + "/commits/"' in a
 assert 'JSONDecoder().decode(LocalSnapshot.self' in a
 assert 'WorkspaceBaselineRules.matches(original: original, verified: verified.snapshot)' in a
 assert 'LocalStore.saveBinding(verified' in a and 'LocalStore.snapshot(folder)' not in a
@@ -22,13 +22,6 @@ assert 'task.delegate = self' in transport
 assert 'policy: redirect, deliverOnMainActor: true' in g
 assert 'defer { transfer.stop() }' in g
 assert 'for attempt in 0..<3' in a
-assert 'top: change.id == changes.first?.id && binding != nil && !busy' in w
-assert 'softGroupedRow(top: !changes.isEmpty && !busy)' in w
-management = w.split('private func workspaceManagement', 1)[1].split('private func bindingSection', 1)[0]
-assert 'enabled: !busy && api.isCurrentSession' in management
-assert 'NativeMenuItem(id: "check-remote"' in management and 'enabled: binding != nil' in management
-assert 'guard !busy, api.isCurrentSession, self.folder == folder, binding != nil else { return }' in management
-assert 'baselineRevision).focused($focusedField, equals: .baselineRevision)' in w
 rules=Path(REPO_ROOT, 'RepoPocket/WorkspaceBaselineRules.swift').read_text()
 selection=Path(REPO_ROOT, 'RepoPocket/WorkspaceSelection.swift').read_text()
 source='import Foundation\nstruct LocalSnapshot { var hashes: [String:String] = [:] }\n'+rules+'\n'+selection+r'''

@@ -49,6 +49,7 @@ class ShareSocialTests(unittest.TestCase):
         source = ROOT/'SharedInbox/ShareInboxStore.swift'
         fixture = r'''
 import Foundation
+import Darwin
 @main struct Run {
  static func main() throws {
   let fm = FileManager.default
@@ -58,6 +59,19 @@ import Foundation
   let original = home.appendingPathComponent("中文 #U6570.py")
   let bytes = Data([0, 1, 255, 10, 42]); try bytes.write(to: original)
   let store = ShareInboxStore(root: home.appendingPathComponent("inbox"))
+  try fm.createDirectory(at: store.root, withIntermediateDirectories: true)
+  let stale = store.root.appendingPathComponent(".staging-" + UUID().uuidString)
+  let active = store.root.appendingPathComponent(".staging-" + UUID().uuidString)
+  for url in [stale, active] {
+   try fm.createDirectory(at: url, withIntermediateDirectories: false)
+   try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -172800)], ofItemAtPath: url.path)
+  }
+  let fd = open(active.path, O_RDONLY | O_DIRECTORY); precondition(fd >= 0 && flock(fd, LOCK_EX) == 0)
+  _ = try store.items()
+  precondition(!fm.fileExists(atPath: stale.path) && fm.fileExists(atPath: active.path))
+  close(fd)
+  _ = try store.items()
+  precondition(!fm.fileExists(atPath: active.path))
   let first = try store.importFile(original)
   let second = try store.importFile(original)
   precondition(first.id != second.id && first.name == "中文 #U6570.py")

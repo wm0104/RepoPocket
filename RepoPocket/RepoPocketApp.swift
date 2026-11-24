@@ -4,7 +4,6 @@ import UIKit
 @main
 struct RepoPocketApp: App {
     @State private var accountID = AccountStore.generation
-    @StateObject private var selectionStore = WorkspaceSelectionStore()
     @StateObject private var accountPresentation = AccountPresentation()
     @AppStorage("appearance.mode") private var appearance = "system"
     @ObservedObject private var downloads = DownloadStore.shared
@@ -23,7 +22,6 @@ struct RepoPocketApp: App {
             }
                 .preferredColorScheme(appearance == "dark" ? .dark : (appearance == "light" ? .light : nil))
                 .background(WindowStyleApplier(style: appearance == "dark" ? .dark : (appearance == "light" ? .light : .unspecified)))
-                .environmentObject(selectionStore)
                 .environmentObject(accountPresentation)
                 .sheet(isPresented: $accountPresentation.showing, onDismiss: { accountPresentation.accountSheetDismissed() }) { accountManager.id(accountID).environmentObject(accountPresentation).appSheetCornerRadius() }
                 .onChange(of: accountPresentation.authorizationNotice) { message in
@@ -892,7 +890,7 @@ struct FileView: View {
                     SoftGroupRow("path") { AppLabeledContent("路径") { Text(entry.path).textSelection(.enabled) } }
                     SoftGroupRow("repo") { AppLabeledContent("仓库", value: repo) }
                     SoftGroupRow("branch") { AppLabeledContent("分支", value: branch.isEmpty ? "默认分支" : branch) }
-                    SoftGroupRow("language") { AppLabeledContent("语言", value: SourceLanguage.detect(entry.name).rawValue) }
+                    SoftGroupRow("language") { AppLabeledContent("语言", value: SourceTextSyntax.language(for: entry.path, text: text)?.name ?? "文本") }
                 }
             } }.navigationTitle("文件信息").adaptiveWorkspaceLayout().toolbar { Button("关闭") { showFileInfo = false } }
         }

@@ -9,6 +9,30 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LocalGitUITests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('swiftc'), 'requires Swift')
+    def test_association_preserves_staged_work_and_rejects_unsafe_status(self):
+        fixture = '''
+import Foundation
+@main struct Association {
+ static func main() {
+  let staged=LocalGitStatus(head:"h",branch:"main",reference:"refs/heads/main",files:[],staged:["README.md"],repoState:0)
+  precondition(staged.canAssociate && !staged.canCommit)
+  var merging=staged; merging.mergePending=true; precondition(!merging.canAssociate)
+  let recovering=LocalGitStatus(head:"h",branch:"main",reference:staged.reference,files:[],staged:[],repoState:100)
+  precondition(!recovering.canAssociate)
+  let blocked=LocalGitChange(path:"file",kind:"modified",fingerprint:"",blocked:"conflicted")
+  precondition(!LocalGitStatus(head:"h",branch:"main",reference:staged.reference,files:[blocked],staged:[blocked.path],repoState:0).canAssociate)
+ }
+}
+'''
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'Association.swift'
+            path.write_text(fixture)
+            binary = Path(temp) / 'association'
+            subprocess.run(['swiftc', '-parse-as-library', ROOT/'RepoPocket/ChinaDate.swift',
+                            ROOT/'RepoPocket/LocalGitModels.swift', path, '-o', binary], check=True)
+            subprocess.run([binary], check=True)
+
     def test_branch_and_bulk_selection_labels_have_explicit_hit_regions(self):
         page = (ROOT / 'RepoPocket/LocalProjectView.swift').read_text(encoding='utf-8')
         summary = page.split('    private func summarySection(', 1)[1].split('    private func pullResultSection(', 1)[0]

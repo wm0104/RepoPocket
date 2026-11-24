@@ -21,7 +21,7 @@ a.select(folder: "two", replacementPath: nil, sha: nil, head: "h")
 precondition(a.sha == nil)
 let b = PendingRepoItem(local: URL(fileURLWithPath: "/tmp/b"), size: 3, path: "three/b", head: "h")
 let d = PendingRepoItem(local: nil, size: 0, path: "gone", sha: "s", head: "h")
-try RepoQueue.validate([a,b,d], head: "h", files: ["gone":"s"], directories: ["two", "three"])
+try RepoQueue.validate([a,b,d], head: "h", index: UploadPathIndex(files: ["gone":"s"], directories: ["two", "three"]))
 let entries = RepoQueue.treeEntries([("two/a", "blobA", "100644"), ("three/b", "blobB", "100755"), ("gone", nil, "100644")])
 let object: [String: Any] = ["base_tree":"base", "tree":entries]
 let json = try JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: object)) as! [String:Any]
@@ -29,7 +29,7 @@ let tree = json["tree"] as! [[String:Any]]
 precondition(tree.count == 3 && tree[2]["sha"] is NSNull && tree[1]["mode"] as? String == "100755")
 func refuse(_ items: [PendingRepoItem], head: String = "h", files: [String:String] = [:], dirs: Set<String> = []) {
  var failed = false
- do { try RepoQueue.validate(items, head: head, files: files, directories: dirs) } catch { failed = true }
+ do { try RepoQueue.validate(items, head: head, index: UploadPathIndex(files: files, directories: dirs)) } catch { failed = true }
  precondition(failed)
 }
 refuse([a,a]); refuse([a], head:"changed")
@@ -66,7 +66,7 @@ print("PASS: queue targets/reselection, strict 100MiB aggregate cap, atomic mult
 # Throwing expressions must be evaluated outside precondition's nonthrowing autoclosure.
 tests = tests.replace('precondition(try hash.finish(expectedGit:', 'let verified = try hash.finish(expectedGit:').replace('"'+git+'") == "'+sha+'")','"'+git+'")\nprecondition(verified == "'+sha+'")')
 tests = tests.replace('precondition(try LocalStore.snapshotFileSHA256(file) == "'+sha+'")','let diskHash = try LocalStore.snapshotFileSHA256(file)\nprecondition(diskHash == "'+sha+'")')
-source = 'import Foundation\nimport CryptoKit\nstruct AppError: Error { let text: String }\nenum LocalStore {}\n' + Path(REPO_ROOT, 'RepoPocket/RepoQueue.swift').read_text() + tests
+source = 'import Foundation\nimport CryptoKit\nstruct AppError: Error { let text: String }\nenum LocalStore {}\n' + Path(REPO_ROOT, 'RepoPocket/RepoQueue.swift').read_text() + (REPO_ROOT / 'Tests/Fixtures/UploadIndexFixture.swift').read_text() + tests
 if shutil.which('swiftc'):
     with tempfile.TemporaryDirectory() as d:
         f=Path(d)/'main.swift'; f.write_text(source)

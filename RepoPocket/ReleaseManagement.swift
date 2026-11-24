@@ -10,8 +10,9 @@ struct ManagedRelease: Decodable, Identifiable, Equatable {
     let prerelease: Bool
     let created_at: String
     let published_at: String?
-    let updated_at: String
+    let updated_at: String?
     let body: String?
+    var target_commitish: String? = nil
     var title: String { name?.isEmpty == false ? name! : tag_name }
     var date: String { published_at ?? created_at }
 }

@@ -63,7 +63,11 @@ def verified_files(assets, version, sha):
     for path in files:
         if not path.is_file() or path.is_symlink() or path.stat().st_size == 0 or hashlib.sha256(path.read_bytes()).hexdigest() != checksums[path.name]:
             raise ValueError(f'Package verification failed: {path.name}')
-    return files + [assets / 'SHA256SUMS', assets / 'build-info.json']
+    ipa_checksum = assets / 'RepoPocket.ipa.sha256'
+    if (not ipa_checksum.is_file() or ipa_checksum.is_symlink()
+            or ipa_checksum.read_text(encoding='ascii').splitlines() != [checksums['RepoPocket.ipa'] + '  RepoPocket.ipa']):
+        raise ValueError('The IPA checksum file must match the verified package')
+    return files + [ipa_checksum, assets / 'SHA256SUMS', assets / 'build-info.json']
 
 
 def publish(root, assets, sha, repo, gh=github):
