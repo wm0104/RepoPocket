@@ -82,7 +82,8 @@ struct WorkflowRunsView: View {
             items.append(NativeMenuItem(id: "dispatch", title: "运行工作流", symbol: "play", enabled: !selection.active) { showingDispatch = true })
         }
         if canWrite {
-            items.append(NativeMenuItem(id: "selection", title: selection.active ? "完成" : "多选", symbol: "checkmark.circle", enabled: !store.busy) {
+            items.append(NativeMenuItem(id: "selection", title: selection.active ? "完成" : "多选", symbol: "checkmark.circle",
+                enabled: !store.busy || (!selection.active && !store.items.isEmpty)) {
                 if selection.active { selection.reset() } else { selection.active = true }
             })
         }

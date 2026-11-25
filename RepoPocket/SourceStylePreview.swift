@@ -179,34 +179,27 @@ struct PatchStylePreview: View {
                     LocalDiffPreview(change: localChange)
                 } else { CommitPatchView(file: file) }
                 Divider()
-                Button("检查代码布局") { revision += 1 }.padding(.vertical, 8)
+                Button("检查代码布局", action: inspectLayout).padding(.vertical, 8)
                 Text(report).font(.caption2.monospaced()).lineLimit(3)
                     .accessibilityIdentifier("source-layout-report")
-                PatchPreviewProbe(revision: revision, report: $report).frame(height: 0)
             }
             }
         }
     }
-}
-
-private struct PatchPreviewProbe: UIViewRepresentable {
-    let revision: Int
-    @Binding var report: String
-    final class Coordinator { var revision: Int? }
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    func makeUIView(context: Context) -> UIView { UIView() }
-    func updateUIView(_ view: UIView, context: Context) {
-        guard context.coordinator.revision != revision else { return }
-        context.coordinator.revision = revision
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            let scrolls = Self.scrollViews(in: window).filter { $0.contentSize.width > $0.bounds.width + 20 }
-            guard let scroll = scrolls.max(by: { $0.contentSize.width - $0.bounds.width < $1.contentSize.width - $1.bounds.width }) else {
-                report = "revision=\(revision)|error=missing-horizontal-scroll"
-                return
-            }
-            report = "revision=\(revision)|offset=\(Int(scroll.contentOffset.x))|width=\(Int(scroll.contentSize.width))|viewport=\(Int(scroll.bounds.width))"
+    private func inspectLayout() {
+        revision += 1
+        let scene = UIApplication.shared.connectedScenes.first { $0.activationState == .foregroundActive } as? UIWindowScene
+        guard let window = scene?.keyWindow else {
+            report = "revision=\(revision)|error=missing-window"
+            return
         }
+        window.layoutIfNeeded()
+        let scrolls = Self.scrollViews(in: window).filter { $0.contentSize.width > $0.bounds.width + 20 }
+        guard let scroll = scrolls.max(by: { $0.contentSize.width - $0.bounds.width < $1.contentSize.width - $1.bounds.width }) else {
+            report = "revision=\(revision)|error=missing-horizontal-scroll"
+            return
+        }
+        report = "revision=\(revision)|offset=\(Int(scroll.contentOffset.x))|width=\(Int(scroll.contentSize.width))|viewport=\(Int(scroll.bounds.width))"
     }
     private static func scrollViews(in view: UIView) -> [UIScrollView] {
         let own = (view as? UIScrollView).map { [$0] } ?? []

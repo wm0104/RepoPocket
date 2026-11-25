@@ -691,7 +691,12 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(app.buttons["workflow-run-1"].waitForExistence(timeout: 20))
         chooseWorkflowAction("多选", in: app)
         let first = app.buttons["workflow-run-1"], second = app.buttons["workflow-run-2"]
-        XCTAssertTrue(first.waitForExistence(timeout: 10)); first.tap(); second.tap()
+        for row in [first, second] {
+            let selectable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND value == %@", "未选中"), object: row)
+            XCTAssertEqual(XCTWaiter.wait(for: [selectable], timeout: 10), .completed)
+            row.tap()
+            XCTAssertEqual(row.value as? String, "已选中")
+        }
         let running = app.buttons["workflow-run-3"]
         reveal(running, in: app)
         XCTAssertFalse(running.isEnabled, "An unfinished run cannot be selected for deletion")
@@ -700,7 +705,9 @@ final class StyleBoundaryTests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'fixture-owner/sample' AND label CONTAINS '2'")).firstMatch.exists)
         app.buttons["取消"].tap()
-        XCTAssertTrue(first.exists, "Cancelling must keep every selected run")
+        for row in [first, second] {
+            XCTAssertEqual(row.value as? String, "已选中", "Cancelling must keep every selected run")
+        }
         app.buttons["删除（2）"].tap(); confirm.tap()
         let result = app.staticTexts["workflow-selection-result"]
         reveal(result, in: app)

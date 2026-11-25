@@ -169,6 +169,12 @@ enum CommunityRules { static let pageSize = 30; static let pageLimit = 10 }
 
 
 class WorkflowSelectionTests(unittest.TestCase):
+    def test_visible_runs_remain_selectable_during_a_read_only_poll(self):
+        view = (ROOT / 'RepoPocket/WorkflowViews.swift').read_text(encoding='utf-8')
+        action = view.split('NativeMenuItem(id: "selection"', 1)[1].split('if selection.active {', 1)[0]
+        self.assertIn('enabled: !store.busy || (!selection.active && !store.items.isEmpty)', action)
+        self.assertIn('.disabled(selection.busy || store.busy || selection.selected.isEmpty)', view)
+
     def test_actions_keeps_paging_inside_the_run_section(self):
         # listSectionSpacing is iOS 17 only, so the paging row must live in the run
         # section itself for the iOS 16 gap to actually go away.
